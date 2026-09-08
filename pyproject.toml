@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=77.0.3"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "infinimesh-app-cli"
+version = "0.1.0"
+description = "Versioned application capabilities as agent-friendly commands"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{name = "App-CLI contributors"}]
+dependencies = ["jsonschema>=4.23,<5", "referencing>=0.36,<1"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Topic :: Software Development :: Libraries :: Application Frameworks",
+]
+
+[project.optional-dependencies]
+dev = ["build>=1.2,<2"]
+
+[project.scripts]
+app-cli = "app_cli.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+app_cli = ["manifests/*.json"]

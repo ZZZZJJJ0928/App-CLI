@@ -1,0 +1,29 @@
+name: Propose an application adapter
+description: Describe a concrete application capability and its evidence.
+title: "[Adapter] "
+body:
+  - type: input
+    id: target
+    attributes:
+      label: Application, platform, and exact version
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Proposed business command
+      description: Include example business parameters and the expected structured result.
+    validations:
+      required: true
+  - type: textarea
+    id: method
+    attributes:
+      label: Adapter method and validation
+      description: Name the access kind and tool/interface version. Compare available API/CLI/IPC routes, describe the execution host and target, session prerequisites, before/after evidence, and side effects. Mark untested claims explicitly.
+    validations:
+      required: true
+  - type: textarea
+    id: limits
+    attributes:
+      label: Failure modes and known limits
+      description: Do not attach accounts, tokens, device identifiers, raw app data, or private screenshots.
