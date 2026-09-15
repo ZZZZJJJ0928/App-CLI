@@ -9,21 +9,29 @@ from jsonschema import Draft202012Validator
 from jsonschema.exceptions import SchemaError
 from referencing import Registry as SchemaRegistry
 
+from .tasks import TaskResult
+
 
 class AppCLIError(Exception):
     """A deliberately public error; native exception text stays inside adapters."""
 
-    def __init__(self, code: str, message: str, exit_code: int = 1):
+    def __init__(self, code: str, message: str, exit_code: int = 1, *, task: dict | None = None):
         super().__init__(message)
         self.code = code
         self.message = message
         self.exit_code = exit_code
+        if task is not None:
+            if type(task) is not dict or "status" not in task or set(task) - {"status", "id"}:
+                raise ValueError("Invalid task metadata")
+            task = TaskResult(task["status"], {} if task["status"] == "completed" else None,
+                              task.get("id")).metadata()
+        self.task = task
 
 
 class Adapter(Protocol):
     manifest: dict
 
-    def invoke(self, command: str, arguments: dict) -> dict: ...
+    def invoke(self, command: str, arguments: dict) -> dict | TaskResult: ...
 
 
 def _json_copy(value, code: str, message: str, exit_code: int = 2):
@@ -130,12 +138,17 @@ class Registry:
         return _json_copy(self._app(app_id)[1], "MANIFEST_INVALID", "Registered manifest is unavailable.")
 
     def execute(self, app_id: str, command: str, args: dict) -> dict:
+        """Return completed business data; incomplete tasks raise AppCLIError."""
+        return self.execute_with_metadata(app_id, command, args)["data"]
+
+    def execute_with_metadata(self, app_id: str, command: str, args: dict) -> dict:
+        """Preserve task metadata while retaining the legacy execute API."""
         adapter, _, commands = self._app(app_id)
         if not isinstance(command, str) or command not in commands:
             raise AppCLIError("COMMAND_NOT_FOUND", "Application command is not registered.", 2)
         spec, input_validator, output_validator = commands[command]
         if spec["side_effect"] != "read_only":
-            raise AppCLIError("CAPABILITY_NOT_SUPPORTED", "App-CLI 0.1 does not execute mutation commands.")
+            raise AppCLIError("CAPABILITY_NOT_SUPPORTED", "App-CLI does not execute mutation commands.")
         arguments = _json_copy(args, "INPUT_VALIDATION_FAILED", "Arguments must be a JSON object matching the command schema.")
         self._validate(arguments, input_validator, "INPUT_VALIDATION_FAILED", "Arguments do not match the command schema.")
         try:
@@ -144,9 +157,28 @@ class Registry:
             raise
         except Exception:
             raise AppCLIError("ADAPTER_EXECUTION_FAILED", "Application adapter could not complete the command.") from None
-        result = _json_copy(output, "OUTPUT_VALIDATION_FAILED", "Adapter output must be a JSON object matching the command schema.", 1)
-        self._validate(result, output_validator, "OUTPUT_VALIDATION_FAILED", "Adapter output does not match the command schema.")
-        return result
+        task = None
+        if isinstance(output, TaskResult):
+            task = output.metadata()
+            if output.status != "completed":
+                messages = {
+                    "pending": "The task is pending.",
+                    "running": "The task is still running.",
+                    "waiting_confirmation": "The task requires confirmation through its execution runtime.",
+                    "uncertain": "The task outcome is uncertain; reconcile it through its execution runtime.",
+                    "failed": "The execution runtime reported a failed task.",
+                    "cancelled": "The task was cancelled.",
+                    "blocked": "The execution runtime blocked the task.",
+                }
+                raise AppCLIError("TASK_" + output.status.upper(), messages[output.status], task=task)
+            output = output.data
+        try:
+            result = _json_copy(output, "OUTPUT_VALIDATION_FAILED", "Adapter output must be a JSON object matching the command schema.", 1)
+            self._validate(result, output_validator, "OUTPUT_VALIDATION_FAILED", "Adapter output does not match the command schema.")
+        except AppCLIError as error:
+            error.task = task
+            raise
+        return {"data": result, **({"task": task} if task is not None else {})}
 
     @staticmethod
     def _validate(value, validator, code, message):

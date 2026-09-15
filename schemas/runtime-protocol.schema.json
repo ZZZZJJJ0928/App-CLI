@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "App-CLI runtime protocol 1.0",
+  "oneOf": [{"$ref": "#/$defs/request"}, {"$ref": "#/$defs/response"}],
+  "$defs": {
+    "identifier": {"type": "string", "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$", "maxLength": 64},
+    "request": {
+      "type": "object", "additionalProperties": false,
+      "required": ["protocol_version", "type", "app", "command", "arguments"],
+      "properties": {
+        "protocol_version": {"const": "1.0"}, "type": {"const": "invoke"},
+        "app": {"$ref": "#/$defs/identifier"}, "command": {"$ref": "#/$defs/identifier"},
+        "arguments": {"type": "object"}
+      }
+    },
+    "task": {
+      "type": "object", "additionalProperties": false, "required": ["status"],
+      "properties": {
+        "status": {"enum": ["completed", "pending", "running", "waiting_confirmation", "uncertain", "failed", "cancelled", "blocked"]},
+        "id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"}
+      },
+      "if": {"properties": {"status": {"enum": ["pending", "running", "waiting_confirmation", "uncertain", "cancelled"]}}},
+      "then": {"required": ["id"]}
+    },
+    "response": {
+      "type": "object", "additionalProperties": false,
+      "required": ["protocol_version", "type", "app", "command", "task"],
+      "properties": {
+        "protocol_version": {"const": "1.0"}, "type": {"const": "result"},
+        "app": {"$ref": "#/$defs/identifier"}, "command": {"$ref": "#/$defs/identifier"},
+        "task": {"$ref": "#/$defs/task"}, "data": {"type": "object"}
+      },
+      "if": {"properties": {"task": {"properties": {"status": {"const": "completed"}}}}},
+      "then": {"required": ["data"]},
+      "else": {"not": {"required": ["data"]}}
+    }
+  }
+}

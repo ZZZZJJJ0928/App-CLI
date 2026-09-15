@@ -3,7 +3,8 @@
 from ..core import Adapter
 from .calculator import CalculatorAdapter
 from .calculator_cli import CalculatorCLIAdapter
+from .calculator_runtime import CalculatorRuntimeAdapter
 
 
 def builtin_adapters() -> list[Adapter]:
-    return [CalculatorAdapter(), CalculatorCLIAdapter()]
+    return [CalculatorAdapter(), CalculatorCLIAdapter(), CalculatorRuntimeAdapter()]

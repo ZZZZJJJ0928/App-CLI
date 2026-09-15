@@ -2,6 +2,8 @@
 
 Help turn a concrete application capability into a reviewed, reusable business command. App-CLI is intended for headless scripts and agents; developer tools may use a GUI when maintaining adapters. Contributions should distinguish observed behavior from hypotheses and platform goals from tested support.
 
+App-CLI is an independent open-source project. Share reusable contracts and implementations with self-contained public examples. Public code, documentation, and tests must not depend on private project names, architecture descriptions, adjacent repositories, operator configuration, or unpublished artifacts. An optional external integration needs an explicit dependency and its own scoped validation; ordinary test runs must work from this repository alone.
+
 ## Local development
 
 Use Python 3.11 or newer in a virtual environment. From the repository root:
@@ -35,7 +37,7 @@ Include this information in an adapter proposal or pull request:
 | Effects and failures | Read/local/remote effects, failure before action versus uncertain outcome, and safe recovery limits |
 | Reproduction | Minimal steps, tests run, actual observations, counterexamples, and remaining unverified claims |
 
-Use business inputs such as operands or a document identifier rather than arbitrary shell commands, selectors, or method names. Version 0.1 accepts mutation declarations but refuses their execution. Do not relabel a write to bypass this policy.
+Use business inputs such as operands or a document identifier rather than arbitrary shell commands, selectors, or method names. App-CLI accepts mutation declarations but refuses their execution. Do not relabel a write to bypass this policy.
 
 Consult the [technical options](docs/TECHNICAL-OPTIONS.md) and [Manifest contract](docs/ADAPTER-DEVELOPMENT.md#manifest-contract). All access kinds use schema `1.0`. Tool integrations must be optional and explicitly registered. A kind name or dependency installation must not be presented as verified application support.
 

@@ -129,11 +129,12 @@ def main(argv=None, *, registry=None):
                 if arguments:
                     raise AppCLIError("INVALID_ARGUMENT", "Use either --input or named parameters, not both.", 2)
                 arguments = args.input
-            data = registry.execute(args._action, args._command, arguments)
-            _write({"ok": True, "app": args._action, "command": args._command, "data": data})
+            result = registry.execute_with_metadata(args._action, args._command, arguments)
+            _write({"ok": True, "app": args._action, "command": args._command, **result})
         return 0
     except AppCLIError as error:
-        _write({"ok": False, "error": {"code": error.code, "message": error.message}})
+        _write({"ok": False, "error": {"code": error.code, "message": error.message},
+                **({"task": error.task} if error.task is not None else {})})
         return error.exit_code
     except (KeyboardInterrupt, BrokenPipeError):
         return 130

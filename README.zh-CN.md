@@ -12,7 +12,7 @@ GUI 事件背后的函数是有价值的分析入口。将它变成可靠命令�
 
 ## 当前可用
 
-首版 `0.1` 提供可安装 CLI、显式适配器注册、Manifest 与 JSON Schema、参数及输出校验、自有计算器示例和测试。`calculator` 直接调用业务函数，`calculator-cli` 通过真实子进程调用同一个计算器 CLI；可选 Tk GUI 也复用业务函数。Manifest 版本为 `1.0`，支持 13 种接入声明；声明类型不等于已交付对应后端。
+当前 `0.2` 提供可安装 CLI、显式适配器注册、Manifest 与 JSON Schema、参数及输出校验、通用运行时协议和任务结果契约。`calculator` 直接调用业务函数，`calculator-cli` 调用计算器 CLI，`calculator-runtime` 通过 JSON 协议调用独立的自有计算器执行进程；可选 Tk GUI 也复用业务函数。所有示例与测试均可独立运行。Manifest 版本仍为 `1.0`，支持 13 种接入声明；声明类型不等于已交付对应后端。
 
 ```sh
 python -m venv .venv
@@ -26,6 +26,7 @@ app-cli schema calculator add
 app-cli calculator add --a 2 --b 3
 app-cli calculator multiply --input '{"a":6,"b":7}'
 app-cli calculator-cli multiply --a 6 --b 7
+app-cli calculator-runtime multiply --a 6 --b 7
 ```
 
 也可以用 `python -m app_cli`。JSON 引号需按所用 shell 转义，命名参数更便于跨 shell 调用。
@@ -40,7 +41,9 @@ app-cli calculator-cli multiply --a 6 --b 7
 
 `calculator-cli` 固定调用当前 Python 环境中已安装的 App-CLI，带执行超时、子进程响应校验和结构化错误。它验证 CLI 接入方式，尚未证明第三方应用覆盖；使用上述虚拟环境安装后即可运行。实现说明见[子进程参考](docs/ADAPTER-DEVELOPMENT.md#cli-subprocess-reference)。
 
-当前没有交付 Android/iOS/第三方桌面应用适配器，也没有自动后端选路、远程执行或 MCP 服务。写操作的授权、幂等和持久任务协调尚待实现，因此首版在调用适配器前拒绝 mutation 命令。Windows/macOS/Linux 的 CI 矩阵已经配置，实际验证范围单独记录在[验收记录](docs/VALIDATION.md)。
+通用 `RuntimeAdapter` 使用开发者显式注册的 Manifest 和固定执行命令，通过标准输入传递 JSON 业务参数。`TaskResult` 保留任务状态和公开任务 ID；执行中、等待确认、不确定、失败、取消、受阻等状态均返回 `ok: false` 和退出码 `1`。只有任务完成且输出满足业务合同才返回成功，既有同步适配器的返回格式保持兼容。接口与独立示例见[运行时接入](docs/RUNTIME.md)。计算器运行时示例是同步、无持久状态的协议验证。
+
+当前没有交付 Android/iOS/第三方桌面应用适配器，也没有自动后端选路、远程执行或 MCP 服务。写操作的授权、幂等和持久任务协调尚待实现，mutation 命令仍在适配器调用前被拒绝。Windows/macOS/Linux 的 CI 矩阵已经配置，实际验证范围单独记录在[验收记录](docs/VALIDATION.md)。
 
 ## 如何选择技术方案
 

@@ -8,13 +8,20 @@ The implementation provides a Python 3.11+ package, manifest-driven CLI, explici
 
 Local validation is on macOS. CI configuration covers Ubuntu, Windows, and macOS with Python 3.11 and 3.13; successful runs must be recorded before treating that matrix as verified. Android and iOS adapters, external-app Frida execution, HTTP/MCP services, and plugin distribution are not delivered in this release.
 
+## 0.2 task outcomes and runtime protocol
+
+The shared adapter boundary now accepts typed task outcomes and preserves public task IDs. Completed results still pass business output validation; pending, running, confirmation-waiting, uncertain, failed, cancelled, and blocked outcomes remain unsuccessful CLI results. A generic, explicitly registered subprocess runtime adapter and a self-owned calculator executor demonstrate the protocol. Existing synchronous dictionary results remain compatible. See [runtime integration](RUNTIME.md) and [validation](VALIDATION.md).
+
+This delivery covers contracts and local reference execution. Durable coordination, authorization, target serialization, idempotency, cancellation, reconciliation, and mutation execution need their own implementation and acceptance evidence.
+
 ## Delivery sequence
 
 The [technical options guide](TECHNICAL-OPTIONS.md) compares candidate access methods and official platform prerequisites. The following priorities are project decisions, not delivery dates or claims of installed integrations.
 
 | Priority | Work | Acceptance gate |
 | --- | --- | --- |
-| P0 — delivered foundation | Multiple access kinds and native/CLI reference paths | Manifest 1.0 validation, unknown-kind rejection, equal business results, and subprocess failure handling; see local validation |
+| P0 — delivered foundation | Multiple access kinds and native/CLI/runtime reference paths | Manifest 1.0 validation, task-result consistency, equal business results, and subprocess failure handling; see local validation |
+| P1 — runtime lifecycle | Define an executor-owned task lifecycle and explicit status/reconciliation operations | Stable task identity, authorization scope, original intent binding, restart/timeout evidence, and no duplicate side effects; preserve current execution restrictions until validated |
 | P1 — supported application interfaces | One real application API/SDK or existing CLI adapter; investigate documented file formats where the contract permits snapshots | Exact supported versions, reproducible read-only results, bounded output, failures, and installation evidence on each claimed host |
 | P1 — reproducible preflight design | Define host/target/session checks and a future diagnostics command | Missing dependencies and incompatible versions detectable without business execution; clearly distinguish static inspection from state-changing preparation |
 | P2 — platform-native integration | Independent small COM/UIA, Apple scripting/AX, and D-Bus/AT-SPI experiments | A self-owned or permitted target on each platform; session, permission, and interface-change evidence |

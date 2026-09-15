@@ -1,5 +1,31 @@
 # Validation record
 
+## 2026-09-16: 0.2 runtime contracts
+
+Scope: generic task outcomes, runtime protocol 1.0, the explicitly registered runtime adapter, and self-owned calculator references. This is a local development validation record; no release was published.
+
+| Check | Observed result |
+| --- | --- |
+| Host | macOS, ARM64, Python 3.14.6 |
+| Complete source test suite | 60 tests passed with `-W error::ResourceWarning`; no skips |
+| Compatibility | Existing native/CLI calculator envelopes and `Registry.execute()` completed-data behavior preserved |
+| Task outcomes | All eight statuses checked; incomplete outcomes return errors, retain public task IDs, and never carry successful data |
+| Completed output | Invalid business output remains a failure even when the backend reports completion; task metadata is retained |
+| Runtime transport | Real self-owned calculator worker matched native results; synthetic real workers exercised running, uncertain, and failed task responses over successful subprocess transport |
+| Failure contracts | Simulated timeout/start failure, nonzero exit, invalid protocol versions, wrong identities, duplicate/non-finite JSON, size limits, and inconsistent task/data responses rejected without retry |
+| Execution restrictions | Invalid arguments and mutation declarations rejected before subprocess dispatch; discovery starts no processes |
+| Packaging | Isolated build produced wheel and source archive; 15 packaged application files matched the corresponding source bytes, including the public runtime protocol schema copy |
+| Independent installation | A fresh virtual environment installed the wheel; the complete 60-test suite passed again from the extracted source archive, without another project, device, account, or private artifact |
+| Installed examples | Native, CLI, and runtime multiplication each returned 42 from outside the source tree; the runtime result included `task.status: completed` |
+| Import isolation | Installed reference succeeded with a conflicting working-directory module and `PYTHONPATH` |
+| Public tree and docs | 40 public source files passed the repository check; local links across 10 Markdown files resolved |
+
+The two 60-test runs exercise the same suite in different installation contexts; they are not 120 distinct tests. The build used its declared isolated environment. A preliminary non-isolated build could not import setuptools from the development environment; the standard isolated build installed the declared backend and succeeded.
+
+The examples are synchronous and stateless. Incomplete outcomes use synthetic public fixtures; they do not prove a durable external worker. No third-party target application, production task, mutation, remote service, live confirmation, idempotent replay, cancellation, reconciliation, or process-tree teardown was validated. Windows/Linux CI remains configured rather than claimed as executed by this local run.
+
+## Historical: 0.1 foundation
+
 Date: 2026-09-08. Scope: the App-CLI 0.1 foundation, Manifest 1.0 access methods, and its native/subprocess calculator references.
 
 | Check | Observed result |
@@ -24,7 +50,7 @@ The tests cover argument admission, duplicate/non-finite JSON rejection, manifes
 
 The public-tree tool checks common mistakes; passing it is not proof that arbitrary proprietary or sensitive data is absent. It does not publish, stage, or commit files.
 
-## Explicitly not validated
+### Historical exclusions
 
 - The configured GitHub Actions matrix has not run in the cloud.
 - No real Windows, Linux, Android, or iOS target application was accessed.

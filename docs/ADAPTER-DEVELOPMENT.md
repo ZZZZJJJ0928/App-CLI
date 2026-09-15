@@ -18,6 +18,8 @@ class ExampleAdapter:
 
 The command schemas describe JSON data. Inputs and outputs must be JSON objects, even when their schema is a boolean schema. Non-finite numbers and non-JSON Python values are rejected. Return business data from `invoke()`; the CLI adds the protocol envelope.
 
+An adapter backed by task execution can instead return `app_cli.tasks.TaskResult`. Only `TaskResult("completed", data, task_id)` supplies successful business output. Other statuses become structured errors with public task metadata. Use `Registry.execute_with_metadata()` when the consumer needs that metadata; `execute()` retains its completed-data return type. See [task outcomes and runtime protocol](RUNTIME.md).
+
 For an embedded integration, construct `Registry([reviewed_adapter])` explicitly and use `list_apps()`, `describe(app_id)`, and `execute(app_id, command, arguments)`. To contribute a built-in adapter, add reviewed source and update the explicit list in `src/app_cli/adapters/__init__.py`. The CLI does not accept arbitrary module paths or fetch plugins. Treat registration as trusting Python code with the process's privileges.
 
 The native reference is [`CalculatorAdapter`](../src/app_cli/adapters/calculator.py). Its public `calculate(operation, a, b)` function is also used by [`examples/calculator/gui.py`](../examples/calculator/gui.py). The GUI is optional and requires a Python installation with Tk support. [`CalculatorCLIAdapter`](../src/app_cli/adapters/calculator_cli.py) demonstrates the same contract over a real CLI subprocess.
@@ -68,7 +70,7 @@ Application and command identifiers use lowercase letters, digits, and separated
 
 Command schemas are validated as Draft 2020-12. Use only local fragment references such as `#/$defs/operand`; network and filesystem references are unsupported. A schema identifies acceptable data, not permission to perform an operation.
 
-`side_effect` accepts `read_only`, `local_mutation`, or `remote_mutation`. Version 0.1 registers all three declarations but executes only `read_only`. Mutation attempts fail with `CAPABILITY_NOT_SUPPORTED` before the adapter is invoked. Do not classify navigation, application state changes, or remote writes as read-only to work around this restriction.
+`side_effect` accepts `read_only`, `local_mutation`, or `remote_mutation`. App-CLI registers all three declarations but executes only `read_only`. Mutation attempts fail with `CAPABILITY_NOT_SUPPORTED` before the adapter is invoked. Do not classify navigation, application state changes, or remote writes as read-only to work around this restriction.
 
 ## CLI and result contract
 
@@ -121,6 +123,8 @@ The response must be one finite UTF-8 JSON object without duplicate keys and wit
 These failures use exit code `1` and do not echo native diagnostics. No failure triggers an automatic retry or another access method. The example validates the CLI boundary, not an external application's compatibility.
 
 ## Planning another backend
+
+For an executor implementing runtime protocol 1.0, use the generic [`RuntimeAdapter`](RUNTIME.md#explicit-registration). Its reviewed manifest and fixed executable arguments are configured at registration; business inputs cannot replace the executable, provide scripts, or override timeout policy. The bundled `calculator-runtime` is a complete independent example.
 
 Document preflight conditions, execution behavior, and independent result verification even though the current interface has only `invoke()`. Compare at least the available supported API/CLI/IPC route with the proposed route and explain any business-coverage gap. Keep executable paths, scripts, selectors, tool connection details, and platform method names in reviewed adapter code or trusted configuration; the public command should accept business parameters.
 

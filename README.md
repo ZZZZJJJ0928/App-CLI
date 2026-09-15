@@ -10,9 +10,9 @@ The project is independent of any device runtime. Its intended scope includes Wi
 
 An internal function call is a useful starting point. Reliable commands also need the right application state, thread, session, authorization, and verified outcome. App-CLI does not automatically convert every GUI application, and a returned value alone does not prove a remote transaction completed.
 
-## Status: 0.1 foundation
+## Status: 0.2 runtime contracts
 
-This repository provides an installable CLI, a manifest contract, an explicitly registered adapter interface, JSON Schema validation, tests, and two ways to call a self-owned calculator: native functions and an existing CLI through a real subprocess. An optional GUI uses the same functions.
+This repository provides an installable CLI, a manifest contract, an explicitly registered adapter interface, JSON Schema validation, and task outcome handling. A self-owned calculator demonstrates native functions, an existing CLI, and the generic runtime protocol. An optional GUI uses the same functions. All examples and tests run independently from this repository.
 
 | Area | Current state |
 | --- | --- |
@@ -25,10 +25,11 @@ This repository provides an installable CLI, a manifest contract, an explicitly 
 | Windows/macOS/Linux portability | Intended; local verification is recorded separately from configured CI |
 | Android/iOS or third-party desktop adapters | Not implemented in this starter |
 | Application API, IPC, scripting, browser, UI, instrumentation, file and vision integrations | Planned target-adapter work; recognized kinds do not install implementations |
-| Runtime integrations, MCP server, automatic backend selection | Planned integration work |
+| Generic `RuntimeAdapter` and `TaskResult` | Implemented; explicit subprocess protocol and task outcomes |
+| MCP server, automatic backend selection | Planned integration work |
 | Mutations, transactions, durable tasks, approvals | Not implemented; mutation commands are rejected before dispatch |
 
-The first release establishes the contract. It does not claim production application coverage or publish an existing application's private implementation.
+Current releases establish reusable contracts and independent reference implementations. They do not claim production application coverage.
 
 ## Try it locally
 
@@ -45,6 +46,7 @@ app-cli schema calculator add
 app-cli calculator add --a 2 --b 3
 app-cli calculator multiply --input '{"a":6,"b":7}'
 app-cli calculator-cli multiply --a 6 --b 7
+app-cli calculator-runtime multiply --a 6 --b 7
 ```
 
 For POSIX shells, activation is `. .venv/bin/activate`; in PowerShell, use `.venv\Scripts\Activate.ps1`. Named parameters avoid shell differences in JSON quoting. You can also run `python -m app_cli`.
@@ -68,6 +70,8 @@ python examples/calculator/gui.py
 This optional example illustrates shared application functions. It does not demonstrate attaching to a third-party process or extracting an undocumented API.
 
 `calculator-cli` wraps this package's native calculator command in a separate Python process and returns the same business data. It requires App-CLI to be installed in the active interpreter's environment, as in the virtual environment above. It demonstrates a CLI transport, not coverage of an external application; see the [subprocess reference](docs/ADAPTER-DEVELOPMENT.md#cli-subprocess-reference).
+
+`calculator-runtime` uses the [runtime protocol](docs/RUNTIME.md). Its successful output also carries `"task":{"status":"completed"}`. Runtime-backed adapters can report pending, running, waiting-for-confirmation, uncertain, failed, cancelled, or blocked tasks. Those outcomes return `ok: false` and exit `1`, preserving a public task ID when supplied. Only completed tasks with valid business output return success. The reference is synchronous and stateless; durable execution and mutation coordination remain future work.
 
 ## Choose an access method
 

@@ -17,7 +17,7 @@ The Python 3.11+ core owns discovery, contract validation, dispatch, and CLI out
 
 Manifest 1.0 declares the following access methods. All kinds use the same adapter interface. A recognized kind is metadata and does not install an implementation, select a driver, or establish support.
 
-| Kind | Intended access method | Implemented in 0.1 foundation |
+| Kind | Intended access method | Current implementation |
 | --- | --- | --- |
 | `native-api` | A reviewed application function or supported API | Local, self-owned calculator |
 | `http-api` | An application-provided HTTP service | No target adapter |
@@ -31,13 +31,13 @@ Manifest 1.0 declares the following access methods. All kinds use the same adapt
 | `frida` | Frida-specific instrumentation | No target adapter |
 | `file` | Supported document formats, exports, or consistent snapshots | No target adapter |
 | `vision` | Image/text recognition with independently verified outcomes | No target adapter |
-| `runtime` | An integration with an existing execution runtime | No runtime integration |
+| `runtime` | An integration with an execution runtime | Generic JSON subprocess protocol and self-owned calculator runtime |
 
 The [technical options guide](TECHNICAL-OPTIONS.md) maps these kinds to concrete platform technologies and official sources. Frida is one possible instrumentation tool. The shared contract is at the business boundary; underlying platform APIs need not be identical.
 
 `Registry(adapters)` accepts an explicit collection of trusted adapter objects. It validates and retains a detached manifest snapshot, rejects duplicate application and command identifiers, and validates JSON inputs and outputs. Command schemas use Draft 2020-12 and local fragment references; schema retrieval over the network is disabled. There is no automatic plugin scan, CLI path import, or adapter download.
 
-Registration grants in-process code execution. It is not a sandbox or an assertion that an application vendor permits a particular operation. In 0.1, the registry rejects commands declared `local_mutation` or `remote_mutation` before invocation. A `read_only` declaration still requires implementation review: the registry cannot make arbitrary Python code read-only.
+Registration grants in-process code execution. It is not a sandbox or an assertion that an application vendor permits a particular operation. The registry rejects commands declared `local_mutation` or `remote_mutation` before invocation. A `read_only` declaration still requires implementation review: the registry cannot make arbitrary Python code read-only.
 
 ## Business behavior needs evidence
 
@@ -49,11 +49,19 @@ The reference calculator exposes `add`, `subtract`, and `multiply`. Its optional
 
 The `calculator-cli` adapter exposes the same business operations by executing a fixed `python -I -m app_cli calculator ...` child. It validates operands before starting a process, enforces a ten-second subprocess execution timeout, checks the response envelope and command identity, and passes business output back through registry validation. Its timeout is local to that backend; the core does not enforce universal deadlines or provide process-tree cancellation. The size check occurs after capture and is not an arbitrary-tool memory sandbox. See the [CLI reference](ADAPTER-DEVELOPMENT.md#cli-subprocess-reference).
 
+## Task outcomes and runtime integration
+
+Adapters can return a business dictionary or `TaskResult`. `Registry.execute()` still returns completed business data; `execute_with_metadata()` also preserves the task status and public ID. Incomplete outcomes raise structured errors. The CLI emits `ok: false`, task metadata, and exit `1`. Completion also requires the original command output schema. Legacy dictionary envelopes are unchanged.
+
+`RuntimeAdapter` speaks a versioned JSON stdin/stdout protocol to an explicitly registered, trusted executable. Registration and discovery validate local contracts without starting it. One valid read-only invocation produces one request; there is no automatic retry, polling, confirmation, or fallback. The executor owns any durable task state. The self-owned `calculator-runtime` example is synchronous and stateless. See the [runtime contract](RUNTIME.md).
+
+Discovery lists registered adapter contracts. It does not establish runtime health, target compatibility, authorization, or current observations. Development inventories and evidence summaries should remain separate from executable registration. A source date or replayed task does not establish fresh application data.
+
 ## Backend composition and selection
 
 Keep three responsibilities distinct when developing new integrations: the application adapter defines business semantics, the access backend implements an API/CLI/UI operation, and a transport carries requests to a local or remote executor. For example, a future iOS command could be called from Linux while a suitable execution host manages its device session. An HTTP or MCP interface to App-CLI would be a consumer transport, separate from an application's `http-api` access method.
 
-Today the public adapter interface consists only of `manifest` and `invoke()`. The registry accepts one adapter per application ID and does not implement backend plugins, automatic selection, environment probing, or fallback. The two calculator IDs deliberately make their implementations separately inspectable. A production adapter can encapsulate platform-specific choices behind one business contract; it must document and validate that choice before invocation.
+Today the public adapter interface consists of `manifest` and `invoke()`, with optional typed task outcomes. The registry accepts one adapter per application ID and does not implement backend plugins, automatic selection, environment probing, or fallback. The calculator IDs make their implementations separately inspectable. A production adapter can encapsulate platform-specific choices behind one business contract; it must document and validate that choice before invocation.
 
 Future work should add explicit preflight, invocation, and result-verification phases with recorded host/target/session requirements. A fallback must preserve authorization, data source, freshness, and completion semantics. A timeout after a possible mutation requires reconciliation, not another backend executing the same action.
 
@@ -61,7 +69,7 @@ Future work should add explicit preflight, invocation, and result-verification p
 
 | Layer | Current evidence and scope |
 | --- | --- |
-| CLI, registry, and native/subprocess calculators | Local validation on macOS; Windows and Linux are portability targets |
+| CLI, registry, and native/CLI/runtime calculators | Local validation on macOS; Windows and Linux are portability targets |
 | CI | A Windows/macOS/Ubuntu matrix for Python 3.11 and 3.13 is configured; configuration alone is not a successful cloud run |
 | Android and iOS target applications | Adapter kinds and platform names are representable; real target adapters are not implemented |
 | Optional calculator GUI | Developer example requiring Tk; launched explicitly and not part of headless execution |
