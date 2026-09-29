@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {spawn} from 'node:child_process';
 import vm from 'node:vm';
+import {QQMAIL_SENT_BASELINE_EXPRESSION,QQMAIL_SENT_VERIFICATION_EXPRESSION} from '../../applications/mail/lib/qqmail-send-proof.mjs';
 import {managedSendDOM} from '../../applications/mail/lib/managed-send-dom.mjs';
 import test from 'node:test';
 import {openSendJournal} from '../../applications/mail/lib/send-journal.mjs';
@@ -44,27 +45,30 @@ test('account mismatch fails before creating draft or invoking Send',async t=>{
  await assert.rejects(sendManagedMail(raw(),'gmail',runtime),{code:'email_account_identity_mismatch'});assert.equal(clicks,0);
 });
 
-async function sendingFixture(t,{lost=false,wrongReadback=false}={}){
- const dir=await root(t);const r=raw();let sends=0,tabs=0,discards=0;
+async function sendingFixture(t,{lost=false,wrongReadback=false,provider='gmail',sentEvidence=true,baseline={ids:[]}}={}){
+ const dir=await root(t);const r={...raw(),provider};let sends=0,tabs=0,discards=0;
+ const url=provider==='qq_mail'?'https://wx.mail.qq.com/home/index':'https://mail.google.com/mail/u/0/';
  const actual={to:[],cc:[],subject:r.message.subject,body:''};
- const tab={runReadCode:async()=>{},focus:async()=>{},press:async()=>{},fill:async(selector,value)=>{
+ const tab={runReadCode:async()=>{},waitFor:async()=>{},focus:async()=>{},press:async()=>{},fill:async(selector,value)=>{
   const field=/data-sc-mail-control="(\w+)"/u.exec(selector)[1];
   if(['to','cc'].includes(field))actual[field].push(value);else actual[field]=value;
  },click:async selector=>{if(selector==='[data-sc-managed-send="true"]'){sends++;if(lost)throw Error('response lost');}},inspect:async code=>{
   if(code.includes('return {waited:true}')||code.includes('return {marked:true}'))return {result:{ok:true}};
+  if(code===QQMAIL_SENT_BASELINE_EXPRESSION)return {result:baseline};
+  if(code.includes(QQMAIL_SENT_VERIFICATION_EXPRESSION))return {result:{sent_evidence:sentEvidence}};
   if(code.includes('function sentDOM('))return {result:{confirmed:true,ids:['unrelated-arrival']}};
-  const phase=[...code.matchAll(/\)\("gmail","(\w+)",/gu)].at(-1)?.[1];
+  const phase=[...code.matchAll(/\)\("(?:gmail|qq_mail)","(\w+)",/gu)].at(-1)?.[1];
   if(phase==='discard'){discards++;return {result:{discard_started:true}};}
   if(phase==='discard_confirm')return {result:{confirmed:false}};
   if(phase==='discard_status')return {result:{discarded:true}};
-  if(code.includes('function providerAccountDOM('))return {origin:'https://mail.google.com/mail/u/0/',result:{url:'https://mail.google.com/mail/u/0/',account_hash:crypto.createHash('sha256').update(r.account_address.toLowerCase()).digest('hex')}};
+  if(code.includes('function providerAccountDOM('))return {origin:url,result:{url,account_hash:crypto.createHash('sha256').update(r.account_address.toLowerCase()).digest('hex')}};
   if(phase==='open')return {result:{opened:true}};
   if(phase==='editor')return {result:{ready:true,has_subject:true,has_cc:true}};
   if(phase==='readback'){const hash=v=>crypto.createHash('sha256').update(v).digest('hex');const to=wrongReadback&&actual.to.length?['wrong@example.invalid']:actual.to;return {result:{to_count:to.length,cc_count:actual.cc.length,to_hash:hash(JSON.stringify([...to].sort())),cc_hash:hash(JSON.stringify([...actual.cc].sort())),subject_hash:hash(actual.subject),body_hash:hash(actual.body),send_ready:true,linked:true}};}
   throw Error(`unexpected fixture phase ${phase}`);
  }};
  const runtime={emailWorkspaceRoot:dir,withSendTab:fn=>{tabs++;return fn(tab)}};
- return {run:()=>sendManagedMail(r,'gmail',runtime),counts:()=>({sends,tabs}),discards:()=>discards};
+ return {run:()=>sendManagedMail(r,provider,runtime),counts:()=>({sends,tabs}),discards:()=>discards};
 }
 test('lost Send response persists dispatch and restart never invokes a second Send',async t=>{
  const f=await sendingFixture(t,{lost:true});await assert.rejects(f.run(),{code:'send_outcome_unknown'});
@@ -129,4 +133,14 @@ test('QQ keeps a unique aria-labelled recipient input when wrapper labels are ab
  const body=node({closest:()=>root});
  const value=vm.runInNewContext(`(${managedSendDOM.toString()})('qq_mail','editor',{})`,{document:{querySelectorAll:()=>[body]},__sparkclawManagedMail:{provider:'qq_mail',mode:'compose'},getComputedStyle:()=>({visibility:'visible'})});
  assert.equal(value.ready,true);
+});
+
+
+test('QQ managed sends require a new Sent-folder message and retain no-resend semantics',async t=>{
+ const success=await sendingFixture(t,{provider:'qq_mail'});
+ assert.equal((await success.run()).status,'sent');assert.equal((await success.run()).status,'sent');assert.deepEqual(success.counts(),{sends:1,tabs:1});
+ const absent=await sendingFixture(t,{provider:'qq_mail',sentEvidence:false});
+ await assert.rejects(absent.run(),{code:'send_outcome_unknown'});assert.equal((await absent.run()).status,'unknown');assert.deepEqual(absent.counts(),{sends:1,tabs:1});
+ const unproved=await sendingFixture(t,{provider:'qq_mail',baseline:null});
+ await assert.rejects(unproved.run(),{code:'email_send_precondition_failed'});assert.equal(unproved.counts().sends,0);
 });

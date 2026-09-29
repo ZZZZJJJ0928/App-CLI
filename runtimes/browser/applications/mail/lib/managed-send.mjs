@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import {QQMAIL_SENT_FOLDER_SELECTOR,QQMAIL_SENT_BASELINE_EXPRESSION,QQMAIL_SENT_VERIFICATION_EXPRESSION} from './qqmail-send-proof.mjs';
 import {managedSendDOM} from './managed-send-dom.mjs';
 import {openSendJournal} from './send-journal.mjs';
 import {collectUnread} from '../read.mjs';
@@ -143,14 +144,24 @@ export async function sendManagedMail(raw,provider,runtime){
  try{return await runtime.withSendTab(async tab=>{
   await tab.runReadCode(`async page=>{await page.goto(${JSON.stringify(READ_PROVIDERS[provider].url)});return true}`);
   if(runtime.prepareSendPage)await runtime.prepareSendPage();
-  let claimed;
+  let claimed, sentBaseline;
+  if(provider==='qq_mail'){
+   await tab.click(QQMAIL_SENT_FOLDER_SELECTOR);
+   sentBaseline=(await tab.inspect(QQMAIL_SENT_BASELINE_EXPRESSION)).result;
+   if(!Array.isArray(sentBaseline?.ids)||sentBaseline.ids.length>1000||sentBaseline.ids.some(id=>typeof id!=='string'||!id||id.length>1024))throw fail('email_send_precondition_failed');
+  }
   try{await prepareManagedDraft(tab,provider,request);await tab.inspect(`()=>(${sentDOM.toString()})(${JSON.stringify(provider)},true)`);claimed=await journal.write('dispatching');}catch(error){try{await discardManagedDraft(tab,provider)}catch{}throw error}
   if(!claimed){try{await discardManagedDraft(tab,provider)}catch{}return unknown;}
   attempted=true;
   await tab.inspect('()=>{if(globalThis.__sparkclawManagedMail)globalThis.__sparkclawManagedMail.sendAttempted=true;return {marked:true}}');
   await tab.click(MANAGED_SEND_SELECTOR);
   let proof;
-  for(let i=0;i<12;i++){
+  if(provider==='qq_mail'){
+   await tab.waitFor('.mail-list-page');
+   await tab.click(QQMAIL_SENT_FOLDER_SELECTOR);
+   const evidence=(await tab.inspect(`(${QQMAIL_SENT_VERIFICATION_EXPRESSION})(${JSON.stringify({ids:sentBaseline.ids,subject:digest(request.message.subject),emptySubject:false})})`)).result;
+   proof={confirmed:evidence?.sent_evidence===true};
+  }else for(let i=0;i<12;i++){
    proof=(await tab.inspect(`async()=>{await new Promise(r=>setTimeout(r,250));return (${sentDOM.toString()})(${JSON.stringify(provider)})}`)).result;
    if(proof?.confirmed)break;
   }
