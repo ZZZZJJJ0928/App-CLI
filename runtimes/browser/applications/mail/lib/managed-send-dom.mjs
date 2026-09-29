@@ -109,7 +109,9 @@ export function managedSendDOM(provider,phase,expected={}){
   let cc=all('[name="cc"] input[role="combobox"],input[name="cc"],textarea[name="cc"],input[aria-label="Cc"],input[aria-label="抄送"],[contenteditable="true"][aria-label="Cc"],[contenteditable="true"][aria-label="抄送"]',root);
   if(provider==='qq_mail'){
    const field=name=>all('.receiver-editor-wrap',root).filter(n=>(name==='to'?/^(To|收件人)$/u:/^(Cc|抄送)$/u).test(text(n.querySelector('.name-text')))).flatMap(n=>all('input.cmp-account-input',n));
-   to=field('to');cc=field('cc');
+   // Prefer explicit accessible editor labels. The wrapper label is a fallback
+   // for collapsed layouts, and must not erase an already proved native input.
+   if(to.length===0)to=field('to');if(cc.length===0)cc=field('cc');
    if(to.length!==1){const toggle=all('.receiver-btns .xmail-ui-btn',root).filter(n=>/^(Cc|抄送)$/u.test(text(n)));if(toggle.length===1)return action(toggle[0],{retry:true});}
   }
   if(to.length!==1){if(provider==='qq_mail'){const wraps=all('.receiver-editor-wrap',root);if(wraps.length===1){return action(wraps[0],{retry:true})}}if(provider==='gmail'){const collapsed=all('.aoD.hl',root);if(collapsed.length===1){return action(collapsed[0],{retry:true})}}const recipients=exactControl(/^(Recipients|收件人|To|To recipients|更改收件人)$/u,root);if(recipients.length===1){return action(recipients[0],{retry:true})}return error('email_recipient_editor_unverified')}

@@ -110,3 +110,14 @@ test('Bcc toggles are not recipients while populated native Bcc editors block se
  assert.equal(evaluate().send_ready,true);
  controls=[toggle,bcc];assert.equal(evaluate().error,'email_recipient_verification_failed');assert.equal(evaluate().check,'unexpected_bcc');
 });
+
+test('recipient proof reads an address-bearing label and rejects contradictory chip addresses',()=>{
+ let title='Display name';
+ const node=extra=>({isConnected:true,getBoundingClientRect:()=>({width:20,height:20}),getAttribute:()=>null,...extra});
+ const chip=node({getAttribute:k=>k==='title'?title:k==='aria-label'?'Display name <recipient@example.test>':null,textContent:'Display name'});
+ const input=node({value:'',querySelectorAll:()=>[chip],cloneNode:()=>({querySelectorAll:()=>[{remove(){}}]})});
+ const root=node({querySelector:s=>s==='[data-sc-mail-control="to"]'?input:s.includes('subject')?{value:'subject'}:null,querySelectorAll:()=>[]});
+ const evaluate=()=>vm.runInNewContext(`(${managedSendDOM.toString()})('outlook','readback',{})`,{document:{querySelectorAll:()=>[]},__sparkclawManagedMail:{root,body:node({innerText:'body'}),send:node({}),mode:'compose'},getComputedStyle:()=>({visibility:'visible'})});
+ assert.deepEqual([...evaluate().to],['recipient@example.test']);
+ title='different@example.test';assert.equal(evaluate().check,'unparsed_recipient');
+});
