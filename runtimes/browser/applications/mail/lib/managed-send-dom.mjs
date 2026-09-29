@@ -129,10 +129,13 @@ export function managedSendDOM(provider,phase,expected={}){
    const input=state.root.querySelector(`[data-sc-mail-control="${field}"]`)||gmailBox?.querySelector('input[role="combobox"],textarea');if(!input&&!gmailBox)return {values:[],pending:''};
    const box=gmailBox||(provider==='qq_mail'?input.closest('.receiver-editor'):provider==='gmail'?input.closest('tr')||input.parentElement:input);
    const chipSelector=provider==='qq_mail'?'.xmail-cmp-account':provider==='gmail'?(box.querySelector('[role="option"][data-hovercard-id]')?'[role="option"][data-hovercard-id]':'[email]'):'[draggable="true"][aria-label]';const chips=[...box.querySelectorAll(chipSelector)];
-   const values=chips.map(n=>n.getAttribute('email')||n.getAttribute('data-hovercard-id')||n.getAttribute('data-email')||n.getAttribute('data-address')||n.getAttribute('title')||n.getAttribute('aria-label')||text(n));
-   const parsed=values.map(v=>String(v).match(/[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/u)?.[0]??'');
+   const emailPattern=/[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/gu;
+   const attributes=['email','data-hovercard-id','data-email','data-address','title','aria-label'];
+   const candidates=chips.map(n=>[...attributes.map(k=>n.getAttribute(k)||''),text(n)].flatMap(v=>String(v).match(emailPattern)||[]));
+   const parsed=candidates.map(values=>{const unique=[...new Set(values.map(v=>v.toLowerCase()))];return unique.length===1?values[0]:''});
+   const shapes=chips.filter((n,i)=>!parsed[i]).slice(0,3).map(n=>{const key=Object.keys(n).find(k=>/^__react(?:Fiber|InternalInstance)\$/u.test(k));const props=[];for(let f=n[key],i=0;f&&i<5;f=f.return,i++)props.push(Object.keys(f.memoizedProps||{}).filter(k=>/^[a-zA-Z_]{1,40}$/u.test(k)).slice(0,20));return {attributes:attributes.map(k=>!!n.getAttribute(k)),text_has_address:!!text(n).match(emailPattern),props}});
    const copy=input?.cloneNode(true);copy?.querySelectorAll('[draggable="true"][aria-label]').forEach(n=>n.remove());
-   return {values:parsed,pending:input?.value??text(copy).replace(/[\u200b\ufeff]/gu,'')};
+   return {values:parsed,pending:input?.value??text(copy).replace(/[\u200b\ufeff]/gu,''),shapes};
   };
   if(provider==='qq_mail'){const key=Object.keys(state.root).find(k=>/^__react(?:Fiber|InternalInstance)\$/u.test(k));const props=key?state.root[key]?.return?.memoizedProps?.value:null;if(!props||['bcc','scc'].some(k=>!Array.isArray(props[k])||props[k].length)||state.mode!=='compose'&&props.replyMailId!==state.target)return error('email_draft_fields_unverified');}
   if(provider==='gmail'&&state.mode!=='compose'){const refs=[...state.root.querySelectorAll('input[name="rm"]')];if(refs.length!==1||!state.sourceNativeId||refs[0].value.replace(/^#/u,'')!==state.sourceNativeId)return error('email_reply_editor_unverified');}
@@ -140,7 +143,7 @@ export function managedSendDOM(provider,phase,expected={}){
   // A provider's Bcc toggle is a button, not an uncommitted recipient. Keep
   // checking actual editors, including Outlook's contenteditable recipient box.
   const check=to.pending.trim()?'pending_to':cc.pending.trim()?'pending_cc':[...to.values,...cc.values].some(v=>!v)?'unparsed_recipient':bcc.some(n=>(n.value||text(n)).trim())?'unexpected_bcc':null;
-  if(check)return {...error('email_recipient_verification_failed'),check};
+  if(check)return {...error('email_recipient_verification_failed'),check,...(check==='unparsed_recipient'?{shapes:[...to.shapes??[],...cc.shapes??[]]}:{})};
   const subject=state.root.querySelector('[data-sc-mail-control="subject"]')||state.root.querySelector('input[type="hidden"][name="subject"]');
   const body=state.body.innerText??state.body.textContent;
   return {to:to.values,cc:cc.values,subject:subject?.value??null,body:body.replace(/\r\n?/gu,'\n'),send_ready:visible(state.send)&&!state.send.disabled&&state.send.getAttribute('aria-disabled')!=='true',linked:state.mode==='compose'||!!state.target};

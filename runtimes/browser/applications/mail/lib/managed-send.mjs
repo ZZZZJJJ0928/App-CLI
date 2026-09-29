@@ -56,7 +56,7 @@ async function native(tab,provider,phase,expected={}){
  // browser-computed digests instead of trying to unmask or export that text.
  const r=await tab.inspect(`async()=>{const value=(${managedSendDOM.toString()})(${JSON.stringify(provider)},${JSON.stringify(phase)},${JSON.stringify(expected)});if(!value||value.error)return value;const hash=async value=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value))),v=>v.toString(16).padStart(2,'0')).join('');const addr=v=>{const i=v.lastIndexOf('@');return v.slice(0,i)+'@'+v.slice(i+1).toLowerCase()};if(${JSON.stringify(phase)}==='readback'){return {to_count:value.to.length,cc_count:value.cc.length,to_hash:await hash(JSON.stringify(value.to.map(addr).sort())),cc_hash:await hash(JSON.stringify(value.cc.map(addr).sort())),subject_hash:await hash(value.subject??''),body_hash:await hash(value.body),send_ready:value.send_ready,linked:value.linked};}if(value.subject!==undefined){value.subject_hash=await hash(value.subject);delete value.subject;}return value;}`);
  if(r?.result?.error){
-  if(['pending_to','pending_cc','unparsed_recipient','unexpected_bcc'].includes(r.result.check))process.stderr.write(JSON.stringify({event:'mail_recipient_validation_failed',provider,phase,check:r.result.check})+'\n');
+  if(['pending_to','pending_cc','unparsed_recipient','unexpected_bcc'].includes(r.result.check))process.stderr.write(JSON.stringify({event:'mail_recipient_validation_failed',provider,phase,check:r.result.check,...(r.result.shapes?{shapes:r.result.shapes}:{})})+'\n');
   throw fail(r.result.error);
  }
  if(!r?.result)throw fail('email_send_precondition_failed');if(r.result.action_selector)await tab.click(r.result.action_selector);return r.result;
