@@ -40,7 +40,10 @@ export class MailboxClient {
   async execute(request) {
     if (request.operation === 'observe') {
       if (request.input.action === 'stop') return this.stopWatch(request.provider);
-      if (request.input.action === 'status') return this.watchStatus(request.provider);
+      if (request.input.action === 'status') {
+        await this.pollWatch(request.provider);
+        return this.watchStatus(request.provider);
+      }
       return this.startWatch(request);
     }
     let admission, response;

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "infinimesh-app-cli"
-version = "0.3.0+sparkclaw.1"
+version = "0.3.0+sparkclaw.2"
 description = "Versioned application capabilities as agent-friendly commands"
 readme = "README.md"
 requires-python = ">=3.11"

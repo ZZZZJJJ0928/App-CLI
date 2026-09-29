@@ -57,7 +57,7 @@ async function sendingFixture(t,{lost=false,wrongReadback=false}={}){
   if(phase==='discard'){discards++;return {result:{discard_started:true}};}
   if(phase==='discard_confirm')return {result:{confirmed:false}};
   if(phase==='discard_status')return {result:{discarded:true}};
-  if(code.includes('function providerAccountDOM('))return {origin:'https://mail.google.com/mail/u/0/',result:{url:'https://mail.google.com/mail/u/0/',account_hash:crypto.createHash('sha256').update(r.account_address).digest('hex')}};
+  if(code.includes('function providerAccountDOM('))return {origin:'https://mail.google.com/mail/u/0/',result:{url:'https://mail.google.com/mail/u/0/',account_hash:crypto.createHash('sha256').update(r.account_address.toLowerCase()).digest('hex')}};
   if(phase==='open')return {result:{opened:true}};
   if(phase==='editor')return {result:{ready:true,has_subject:true,has_cc:true}};
   if(phase==='readback'){const hash=v=>crypto.createHash('sha256').update(v).digest('hex');const to=wrongReadback&&actual.to.length?['wrong@example.invalid']:actual.to;return {result:{to_count:to.length,cc_count:actual.cc.length,to_hash:hash(JSON.stringify([...to].sort())),cc_hash:hash(JSON.stringify([...actual.cc].sort())),subject_hash:hash(actual.subject),body_hash:hash(actual.body),send_ready:true,linked:true}};}

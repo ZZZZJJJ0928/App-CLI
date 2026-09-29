@@ -7,6 +7,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import tomllib
 
 ROOT = Path(__file__).resolve().parents[1]
 RUNTIME = ROOT / "runtimes/browser"
@@ -42,7 +43,8 @@ write(ROOT / "src/app_cli/release.json", {"id": release["id"], "runtime_digest":
 run(sys.executable, "-m", "build", "--wheel", "--outdir", str(OUT))
 packed = subprocess.check_output(["npm", "pack", "--json", "--pack-destination", str(OUT)], cwd=RUNTIME)
 npm_file = OUT / json.loads(packed)[0]["filename"]
-wheel = OUT / "infinimesh_app_cli-0.3.0+sparkclaw.1-py3-none-any.whl"
+version = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["version"]
+wheel = OUT / f"infinimesh_app_cli-{version}-py3-none-any.whl"
 source_files = sorted(p for p in (ROOT / "src").rglob("*.py"))
 source_digest = hashlib.sha256(json.dumps({p.relative_to(ROOT).as_posix(): sha(p) for p in source_files}, sort_keys=True).encode()).hexdigest()
 dependencies = OUT / "python-requirements.txt"

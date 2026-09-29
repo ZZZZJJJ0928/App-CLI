@@ -25,7 +25,7 @@ export function validateManagedSend(input,provider){
 }
 
 async function sendAccountHash(tab,provider){
- const evidence=await tab.inspect(`async()=>{if(!${JSON.stringify(READ_PROVIDERS[provider].origins)}.includes(location.origin))return {error:'email_provider_origin_invalid'};let observed;const deadline=Date.now()+5000;do{observed=(${providerAccountDOM.toString()})(${JSON.stringify(provider)});if(observed?.account_address)break;await new Promise(r=>setTimeout(r,100))}while(Date.now()<deadline);if(!observed?.account_address)return {url:location.href,account_hash:null};const a=observed.account_address,i=a.lastIndexOf('@'),value=a.slice(0,i)+'@'+a.slice(i+1).toLowerCase();return {url:location.href,account_hash:Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value))),v=>v.toString(16).padStart(2,'0')).join('')};}`);
+ const evidence=await tab.inspect(`async()=>{if(!${JSON.stringify(READ_PROVIDERS[provider].origins)}.includes(location.origin))return {error:'email_provider_origin_invalid'};let observed;const deadline=Date.now()+5000;do{const reader=window.SparkClawMailReader;if(reader){if(reader.provider!==${JSON.stringify(provider)}||reader.version!=='0.2.0')return {url:location.href,account_hash:null};try{observed=reader.snapshot();}catch(error){if(error.code!=='email_account_identity_unavailable')return {url:location.href,account_hash:null};}}else{observed=(${providerAccountDOM.toString()})(${JSON.stringify(provider)});}if(observed?.account_address)break;await new Promise(r=>setTimeout(r,100))}while(Date.now()<deadline);if(!observed?.account_address)return {url:location.href,account_hash:null};const value=observed.account_address.toLowerCase();return {url:location.href,account_hash:Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value))),v=>v.toString(16).padStart(2,'0')).join('')};}`);
  if(evidence?.result?.url!==evidence?.origin||!READ_PROVIDERS[provider].origins.includes(new URL(evidence.origin).origin))throw fail('email_provider_origin_invalid');
  return evidence.result.account_hash;
 }
@@ -35,7 +35,9 @@ export async function verifySendAccount(tab,provider,expected){
   await tab.click('#O365_MainLink_MePhoto, #O365_MeFlexPane_ButtonID, [data-testid="mectrl_headerPicture"]');
   accountHash=await sendAccountHash(tab,provider);await tab.press('Escape');
  }
- if(!accountHash||accountHash!==digest(canonicalAddress(expected)))throw fail('email_account_identity_mismatch');
+ // Account bindings use the Reader's case-insensitive provider identity. An
+ // Outlook login alias in the account menu is not necessarily its mailbox.
+ if(!accountHash||accountHash!==digest(expected.toLowerCase()))throw fail('email_account_identity_mismatch');
 }
 
 export async function openNativeReplyTarget(tab,provider,request){
