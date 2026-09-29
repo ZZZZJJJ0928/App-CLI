@@ -143,14 +143,17 @@ export function managedSendDOM(provider,phase,expected={}){
     for(let f=input[key],i=0;f&&i<6;f=f.return,i++){
      const props=f.memoizedProps;
      if(props&&Object.hasOwn(props,'recipients'))modelShape={array:Array.isArray(props.recipients),type:Object.prototype.toString.call(props.recipients),state:!!props.recipientEditorViewState,label_matches:props.ariaLabel===input.getAttribute('aria-label'),label_present:typeof props.ariaLabel==='string',keys:Object.keys(props.recipients??{}).filter(k=>/^[a-zA-Z_]{1,40}$/u.test(k)).slice(0,20),length:props.recipients?.length};
-     if(!Array.isArray(props?.recipients)||!props.recipientEditorViewState||props.ariaLabel!==input.getAttribute('aria-label'))continue;
-     const values=props.recipients.map(r=>{
+     const collection=props?.recipients;
+     if(Object.prototype.toString.call(collection)!=='[object Array]'||!Number.isSafeInteger(collection.length)||collection.length<0||collection.length>100||!props.recipientEditorViewState||props.ariaLabel!==input.getAttribute('aria-label'))continue;
+     // Outlook's observable arrays report [object Array] but Array.isArray is false.
+     const recipients=Array.from({length:collection.length},(_,index)=>collection[index]);
+     const values=recipients.map(r=>{
       const entries=[r.emailAddress,r.EmailAddress,r.persona?.EmailAddress,r.address].filter(Boolean);
       const addresses=entries.map(v=>typeof v==='string'?v:v.Address??v.address??v.EmailAddress??'').filter(v=>typeof v==='string'&&/^[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+$/u.test(v));
       const unique=[...new Set(addresses.map(v=>v.toLowerCase()))];
       return r.isResolved===false||r.isValid===false||entries.some(v=>v.RoutingType&&v.RoutingType!=='SMTP')||unique.length!==1?'':addresses[0];
      });
-     modelShape=props.recipients.slice(0,2).map(r=>({keys:Object.keys(r).filter(k=>/^[a-zA-Z_]{1,40}$/u.test(k)).slice(0,24),email_keys:Object.keys(r.emailAddress??r.EmailAddress??{}).filter(k=>/^[a-zA-Z_]{1,40}$/u.test(k)).slice(0,20)}));
+     modelShape=recipients.slice(0,2).map(r=>({keys:Object.keys(r).filter(k=>/^[a-zA-Z_]{1,40}$/u.test(k)).slice(0,24),email_keys:Object.keys(r.emailAddress??r.EmailAddress??{}).filter(k=>/^[a-zA-Z_]{1,40}$/u.test(k)).slice(0,20)}));
      if(values.length===chips.length&&values.every((v,i)=>v&&(!parsed[i]||parsed[i].toLowerCase()===v.toLowerCase())))parsed.splice(0,parsed.length,...values);else parsed.fill('');
      break;
     }

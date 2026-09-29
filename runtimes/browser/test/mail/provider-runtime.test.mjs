@@ -121,12 +121,15 @@ test("send runtime exposes separate mailbox navigation for reply target lookup",
   const client = {
     gmailTab: () => ({ inspect: async () => ({}) }),
     runReadCode: async code => { calls.push(code); return true; },
+    waitFor: async selector => { calls.push(selector); return true; },
   };
   const runtime = createProviderRuntime(client, registration);
   const tab = await runtime.withSendTab(value => value);
   await tab.navigate("https://mail.google.com/mail/u/0/#all");
   assert.equal(calls.length, 1);
   assert.match(calls[0], /page\.goto\("https:\/\/mail\.google\.com\/mail\/u\/0\/#all"\)/u);
+  await tab.waitFor('.mail-list-page');
+  assert.equal(calls[1], '.mail-list-page');
 });
 
 test("QQ draft rejects extra recipients and changed body before Send", async () => {

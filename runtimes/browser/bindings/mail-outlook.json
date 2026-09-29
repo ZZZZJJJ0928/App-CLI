@@ -1475,7 +1475,7 @@
       "script_id": "outlook.send",
       "revision": 1,
       "reconcile_requires_host": false,
-      "source_checksum": "sha256:1ece55bf6d11a097f4e04f541477eb2e222d51c156483ab4768c541dc35e37de",
+      "source_checksum": "sha256:8f8d89dc4b6a8a561064cf805a1d379526f5ac1bbf7591be49a3cdc29f7a9326",
       "host": {
         "family": "send",
         "activity": "exclusive",
