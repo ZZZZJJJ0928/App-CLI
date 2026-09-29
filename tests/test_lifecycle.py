@@ -219,12 +219,12 @@ class LifecycleTests(LifecycleCase):
 
 class WireTests(unittest.TestCase):
     def test_frozen_cross_language_intent_vectors(self):
-        vectors=json.loads((ROOT/'tests/fixtures/intent-vectors.json').read_text())
+        vectors=json.loads((ROOT/'tests/fixtures/intent-vectors.json').read_text(encoding='utf-8'))
         self.assertEqual([wire.digest(v['value']) for v in vectors],[v['sha256'] for v in vectors])
 
     @unittest.skipUnless(shutil.which('node'), 'Optional JavaScript conformance check requires Node')
     def test_javascript_and_python_intent_digests_match(self):
-        vectors=json.loads((ROOT/'tests/fixtures/intent-vectors.json').read_text())
+        vectors=json.loads((ROOT/'tests/fixtures/intent-vectors.json').read_text(encoding='utf-8'))
         raw=json.dumps([v['value'] for v in vectors],ensure_ascii=False).encode()
         result=subprocess.run([shutil.which('node'),str(ROOT/'tests/fixtures/canonical.mjs')],input=raw,
                               capture_output=True,timeout=10,check=True)
