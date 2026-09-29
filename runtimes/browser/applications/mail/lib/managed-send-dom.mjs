@@ -142,6 +142,7 @@ export function managedSendDOM(provider,phase,expected={}){
     const key=Object.keys(input).find(k=>/^__react(?:Fiber|InternalInstance)\$/u.test(k));
     for(let f=input[key],i=0;f&&i<6;f=f.return,i++){
      const props=f.memoizedProps;
+     if(props&&Object.hasOwn(props,'recipients'))modelShape={array:Array.isArray(props.recipients),type:Object.prototype.toString.call(props.recipients),state:!!props.recipientEditorViewState,label_matches:props.ariaLabel===input.getAttribute('aria-label'),label_present:typeof props.ariaLabel==='string',keys:Object.keys(props.recipients??{}).filter(k=>/^[a-zA-Z_]{1,40}$/u.test(k)).slice(0,20),length:props.recipients?.length};
      if(!Array.isArray(props?.recipients)||!props.recipientEditorViewState||props.ariaLabel!==input.getAttribute('aria-label'))continue;
      const values=props.recipients.map(r=>{
       const entries=[r.emailAddress,r.EmailAddress,r.persona?.EmailAddress,r.address].filter(Boolean);
