@@ -133,34 +133,31 @@ export function managedSendDOM(provider,phase,expected={}){
    const chipSelector=provider==='qq_mail'?'.xmail-cmp-account':provider==='gmail'?(box.querySelector('[role="option"][data-hovercard-id]')?'[role="option"][data-hovercard-id]':'[email]'):'[draggable="true"][aria-label]';const chips=[...box.querySelectorAll(chipSelector)];
    const emailPattern=/[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/gu;
    const attributes=['email','data-hovercard-id','data-email','data-address','title','aria-label'];
-   const candidates=chips.map(n=>[n,...n.querySelectorAll('[title],[aria-label],[email],[data-email],[data-address],[data-recipient]')].flatMap(node=>[...attributes.map(k=>node.getAttribute(k)||''),...[...node.attributes??[]].filter(a=>a.name.startsWith('data-')).map(a=>a.value),text(node)]).flatMap(v=>String(v).match(emailPattern)||[]));
+   const candidates=chips.map(n=>[...attributes.map(k=>n.getAttribute(k)||''),text(n)].flatMap(v=>String(v).match(emailPattern)||[]));
    const parsed=candidates.map(values=>{const unique=[...new Set(values.map(v=>v.toLowerCase()))];return unique.length===1?values[0]:''});
-   let modelShape;
    if(provider==='outlook'){
     // Outlook renders nickname-only pills imperatively inside its React-owned
     // editor. Read the same editor's committed recipient model, not suggestions.
     const key=Object.keys(input).find(k=>/^__react(?:Fiber|InternalInstance)\$/u.test(k));
     for(let f=input[key],i=0;f&&i<6;f=f.return,i++){
      const props=f.memoizedProps;
-     if(props&&Object.hasOwn(props,'recipients'))modelShape={array:Array.isArray(props.recipients),type:Object.prototype.toString.call(props.recipients),state:!!props.recipientEditorViewState,label_matches:props.ariaLabel===input.getAttribute('aria-label'),label_present:typeof props.ariaLabel==='string',keys:Object.keys(props.recipients??{}).filter(k=>/^[a-zA-Z_]{1,40}$/u.test(k)).slice(0,20),length:props.recipients?.length};
      const collection=props?.recipients;
      if(Object.prototype.toString.call(collection)!=='[object Array]'||!Number.isSafeInteger(collection.length)||collection.length<0||collection.length>100||!props.recipientEditorViewState||props.ariaLabel!==input.getAttribute('aria-label'))continue;
      // Outlook's observable arrays report [object Array] but Array.isArray is false.
      const recipients=Array.from({length:collection.length},(_,index)=>collection[index]);
      const values=recipients.map(r=>{
+      if(!r||typeof r!=='object')return '';
       const entries=[r.emailAddress,r.EmailAddress,r.persona?.EmailAddress,r.address].filter(Boolean);
       const addresses=entries.map(v=>typeof v==='string'?v:v.Address??v.address??v.EmailAddress??'').filter(v=>typeof v==='string'&&/^[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+$/u.test(v));
       const unique=[...new Set(addresses.map(v=>v.toLowerCase()))];
       return r.isResolved===false||r.isValid===false||entries.some(v=>v.RoutingType&&v.RoutingType!=='SMTP')||unique.length!==1?'':addresses[0];
      });
-     modelShape=recipients.slice(0,2).map(r=>({keys:Object.keys(r).filter(k=>/^[a-zA-Z_]{1,40}$/u.test(k)).slice(0,24),email_keys:Object.keys(r.emailAddress??r.EmailAddress??{}).filter(k=>/^[a-zA-Z_]{1,40}$/u.test(k)).slice(0,20)}));
      if(values.length===chips.length&&values.every((v,i)=>v&&(!parsed[i]||parsed[i].toLowerCase()===v.toLowerCase())))parsed.splice(0,parsed.length,...values);else parsed.fill('');
      break;
     }
    }
-   const shapes=parsed.some(v=>!v)?[{model:modelShape??null}]:[];
    const copy=input?.cloneNode(true);copy?.querySelectorAll('[draggable="true"][aria-label]').forEach(n=>n.remove());
-   return {values:parsed,pending:input?.value??text(copy).replace(/[\u200b\ufeff]/gu,''),shapes};
+   return {values:parsed,pending:input?.value??text(copy).replace(/[\u200b\ufeff]/gu,''),display:chips.map(n=>label(n).trim())};
   };
   if(provider==='qq_mail'){const key=Object.keys(state.root).find(k=>/^__react(?:Fiber|InternalInstance)\$/u.test(k));const props=key?state.root[key]?.return?.memoizedProps?.value:null;if(!props||['bcc','scc'].some(k=>!Array.isArray(props[k])||props[k].length)||state.mode!=='compose'&&props.replyMailId!==state.target)return error('email_draft_fields_unverified');}
   if(provider==='gmail'&&state.mode!=='compose'){const refs=[...state.root.querySelectorAll('input[name="rm"]')];if(refs.length!==1||!state.sourceNativeId||refs[0].value.replace(/^#/u,'')!==state.sourceNativeId)return error('email_reply_editor_unverified');}
@@ -168,10 +165,10 @@ export function managedSendDOM(provider,phase,expected={}){
   // A provider's Bcc toggle is a button, not an uncommitted recipient. Keep
   // checking actual editors, including Outlook's contenteditable recipient box.
   const check=to.pending.trim()?'pending_to':cc.pending.trim()?'pending_cc':[...to.values,...cc.values].some(v=>!v)?'unparsed_recipient':bcc.some(n=>(n.value||text(n)).trim())?'unexpected_bcc':null;
-  if(check)return {...error('email_recipient_verification_failed'),check,...(check==='unparsed_recipient'?{shapes:[...to.shapes??[],...cc.shapes??[]]}:{})};
+  if(check)return {...error('email_recipient_verification_failed'),check};
   const subject=state.root.querySelector('[data-sc-mail-control="subject"]')||state.root.querySelector('input[type="hidden"][name="subject"]');
   const body=state.body.innerText??state.body.textContent;
-  return {to:to.values,cc:cc.values,subject:subject?.value??null,body:body.replace(/\r\n?/gu,'\n'),send_ready:visible(state.send)&&!state.send.disabled&&state.send.getAttribute('aria-disabled')!=='true',linked:state.mode==='compose'||!!state.target};
+  return {to:to.values,cc:cc.values,...(provider==='outlook'&&to.display?.length===1?{to_display:to.display[0]}:{}),subject:subject?.value??null,body:body.replace(/\r\n?/gu,'\n'),send_ready:visible(state.send)&&!state.send.disabled&&state.send.getAttribute('aria-disabled')!=='true',linked:state.mode==='compose'||!!state.target};
  }
  return error('email_send_precondition_failed');
 }

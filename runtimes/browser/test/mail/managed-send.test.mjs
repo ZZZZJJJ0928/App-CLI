@@ -1,3 +1,4 @@
+import {OUTLOOK_SENT_BASELINE_EXPRESSION,OUTLOOK_SEND_VERIFICATION_EXPRESSION} from '../../applications/mail/lib/outlook-send-proof.mjs';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
@@ -46,18 +47,18 @@ test('account mismatch fails before creating draft or invoking Send',async t=>{
 });
 
 async function sendingFixture(t,{lost=false,wrongReadback=false,provider='gmail',sentEvidence=true,baseline={ids:[]}}={}){
- const dir=await root(t);const r={...raw(),provider};let sends=0,tabs=0,discards=0;
- const url=provider==='qq_mail'?'https://wx.mail.qq.com/home/index':'https://mail.google.com/mail/u/0/';
+ const dir=await root(t);const r={...raw(),provider};if(provider==='outlook')r.message.cc=[];let sends=0,tabs=0,discards=0;
+ const url=provider==='qq_mail'?'https://wx.mail.qq.com/home/index':provider==='outlook'?'https://outlook.live.com/mail/0/sentitems':'https://mail.google.com/mail/u/0/';
  const actual={to:[],cc:[],subject:r.message.subject,body:''};
  const tab={runReadCode:async()=>{},waitFor:async()=>{},focus:async()=>{},press:async()=>{},fill:async(selector,value)=>{
   const field=/data-sc-mail-control="(\w+)"/u.exec(selector)[1];
   if(['to','cc'].includes(field))actual[field].push(value);else actual[field]=value;
  },click:async selector=>{if(selector==='[data-sc-managed-send="true"]'){sends++;if(lost)throw Error('response lost');}},inspect:async code=>{
   if(code.includes('return {waited:true}')||code.includes('return {marked:true}'))return {result:{ok:true}};
-  if(code===QQMAIL_SENT_BASELINE_EXPRESSION)return {result:baseline};
-  if(code.includes(QQMAIL_SENT_VERIFICATION_EXPRESSION))return {result:{sent_evidence:sentEvidence}};
+  if(code===QQMAIL_SENT_BASELINE_EXPRESSION||code===OUTLOOK_SENT_BASELINE_EXPRESSION)return {result:baseline};
+  if(code.includes(QQMAIL_SENT_VERIFICATION_EXPRESSION)||code.includes(OUTLOOK_SEND_VERIFICATION_EXPRESSION))return {result:{sent_evidence:sentEvidence}};
   if(code.includes('function sentDOM('))return {result:{confirmed:true,ids:['unrelated-arrival']}};
-  const phase=[...code.matchAll(/\)\("(?:gmail|qq_mail)","(\w+)",/gu)].at(-1)?.[1];
+  const phase=[...code.matchAll(/\)\("(?:gmail|qq_mail|outlook)","(\w+)",/gu)].at(-1)?.[1];
   if(phase==='discard'){discards++;return {result:{discard_started:true}};}
   if(phase==='discard_confirm')return {result:{confirmed:false}};
   if(phase==='discard_status')return {result:{discarded:true}};
@@ -136,13 +137,15 @@ test('QQ keeps a unique aria-labelled recipient input when wrapper labels are ab
 });
 
 
-test('QQ managed sends require a new Sent-folder message and retain no-resend semantics',async t=>{
- const success=await sendingFixture(t,{provider:'qq_mail'});
+test('QQ and Outlook managed sends require native Sent-folder evidence and never resend',async t=>{
+ for(const provider of ['qq_mail','outlook']){
+ const success=await sendingFixture(t,{provider});
  assert.equal((await success.run()).status,'sent');assert.equal((await success.run()).status,'sent');assert.deepEqual(success.counts(),{sends:1,tabs:1});
- const absent=await sendingFixture(t,{provider:'qq_mail',sentEvidence:false});
+ const absent=await sendingFixture(t,{provider,sentEvidence:false});
  await assert.rejects(absent.run(),{code:'send_outcome_unknown'});assert.equal((await absent.run()).status,'unknown');assert.deepEqual(absent.counts(),{sends:1,tabs:1});
- const unproved=await sendingFixture(t,{provider:'qq_mail',baseline:null});
+ const unproved=await sendingFixture(t,{provider,baseline:null});
  await assert.rejects(unproved.run(),{code:'email_send_precondition_failed'});assert.equal(unproved.counts().sends,0);
+ }
 });
 
 test('Outlook nickname pills use only their own committed editor model and reject conflicts',()=>{
@@ -160,4 +163,17 @@ test('Outlook nickname pills use only their own committed editor model and rejec
  model.ariaLabel='Cc';assert.equal(evaluate().check,'unparsed_recipient');model.ariaLabel='To';
  label='other@example.test';assert.equal(evaluate().check,'unparsed_recipient');label='Friendly name';
  model.recipients[0].isResolved=false;assert.equal(evaluate().check,'unparsed_recipient');
+});
+
+
+test('Outlook Sent-folder proof accepts the preverified display label but requires a new matching row',async()=>{
+ const hash=v=>crypto.createHash('sha256').update(v).digest('hex');
+ const first={id:'new',isConnected:true,getBoundingClientRect:()=>({width:20,height:20}),querySelectorAll:()=>[{children:[],textContent:'Known nickname'},{children:[],textContent:'Unique subject'}]};
+ const location={pathname:'/mail/0/sentitems',href:'https://outlook.live.com/mail/0/sentitems'};
+ const inspect=async expected=>{let tick=0;return vm.runInNewContext(`${OUTLOOK_SEND_VERIFICATION_EXPRESSION}(${JSON.stringify(expected)})`,{document:{querySelectorAll:selector=>selector==='[role="option"][data-convid]'?[first,{id:'old'}]:[]},window:{location,getComputedStyle:()=>({display:'block',visibility:'visible',opacity:'1'})},crypto:crypto.webcrypto,TextEncoder,Uint8Array,getComputedStyle:()=>({display:'block',visibility:'visible',opacity:'1'}),Date:{now:()=>tick+=6000}})};
+ const expected={ids:['old'],recipient_hashes:[hash('recipient@example.test'),hash('known nickname')],subject:hash('Unique subject')};
+ assert.equal((await inspect(expected)).sent_evidence,true);
+ assert.equal((await inspect({...expected,ids:['new']})).sent_evidence,false);
+ assert.equal((await inspect({...expected,subject:hash('Other subject')})).sent_evidence,false);
+ assert.equal((await inspect({...expected,recipient_hashes:[hash('Other person')]})).sent_evidence,false);
 });

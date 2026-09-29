@@ -1,3 +1,4 @@
+import {OUTLOOK_SENT_BASELINE_EXPRESSION,OUTLOOK_SEND_VERIFICATION_EXPRESSION} from './outlook-send-proof.mjs';
 import crypto from 'node:crypto';
 import {QQMAIL_SENT_FOLDER_SELECTOR,QQMAIL_SENT_BASELINE_EXPRESSION,QQMAIL_SENT_VERIFICATION_EXPRESSION} from './qqmail-send-proof.mjs';
 import {managedSendDOM} from './managed-send-dom.mjs';
@@ -55,9 +56,9 @@ export const MANAGED_SEND_SELECTOR='[data-sc-managed-send="true"]';
 async function native(tab,provider,phase,expected={}){
  // The CLI intentionally redacts message secrets in returned DOM text. Compare
  // browser-computed digests instead of trying to unmask or export that text.
- const r=await tab.inspect(`async()=>{const value=(${managedSendDOM.toString()})(${JSON.stringify(provider)},${JSON.stringify(phase)},${JSON.stringify(expected)});if(!value||value.error)return value;const hash=async value=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value))),v=>v.toString(16).padStart(2,'0')).join('');const addr=v=>{const i=v.lastIndexOf('@');return v.slice(0,i)+'@'+v.slice(i+1).toLowerCase()};if(${JSON.stringify(phase)}==='readback'){return {to_count:value.to.length,cc_count:value.cc.length,to_hash:await hash(JSON.stringify(value.to.map(addr).sort())),cc_hash:await hash(JSON.stringify(value.cc.map(addr).sort())),subject_hash:await hash(value.subject??''),body_hash:await hash(value.body),send_ready:value.send_ready,linked:value.linked};}if(value.subject!==undefined){value.subject_hash=await hash(value.subject);delete value.subject;}return value;}`);
+ const r=await tab.inspect(`async()=>{const value=(${managedSendDOM.toString()})(${JSON.stringify(provider)},${JSON.stringify(phase)},${JSON.stringify(expected)});if(!value||value.error)return value;const hash=async value=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value))),v=>v.toString(16).padStart(2,'0')).join('');const addr=v=>{const i=v.lastIndexOf('@');return v.slice(0,i)+'@'+v.slice(i+1).toLowerCase()};if(${JSON.stringify(phase)}==='readback'){return {to_count:value.to.length,cc_count:value.cc.length,to_hash:await hash(JSON.stringify(value.to.map(addr).sort())),cc_hash:await hash(JSON.stringify(value.cc.map(addr).sort())),subject_hash:await hash(value.subject??''),...(value.to_display?{recipient_display_hash:await hash(value.to_display.toLowerCase())}:{}),body_hash:await hash(value.body),send_ready:value.send_ready,linked:value.linked};}if(value.subject!==undefined){value.subject_hash=await hash(value.subject);delete value.subject;}return value;}`);
  if(r?.result?.error){
-  if(['pending_to','pending_cc','unparsed_recipient','unexpected_bcc'].includes(r.result.check))process.stderr.write(JSON.stringify({event:'mail_recipient_validation_failed',provider,phase,check:r.result.check,...(r.result.shapes?{shapes:r.result.shapes}:{})})+'\n');
+  if(['pending_to','pending_cc','unparsed_recipient','unexpected_bcc'].includes(r.result.check))process.stderr.write(JSON.stringify({event:'mail_recipient_validation_failed',provider,phase,check:r.result.check})+'\n');
   throw fail(r.result.error);
  }
  if(!r?.result)throw fail('email_send_precondition_failed');if(r.result.action_selector)await tab.click(r.result.action_selector);return r.result;
@@ -111,7 +112,7 @@ export async function prepareManagedDraft(tab,provider,request){
  const readback=await native(tab,provider,'readback');
  if(readback.to_hash!==addressDigest(request.message.to)||readback.cc_hash!==addressDigest(request.message.cc)||readback.subject_hash!==digest(request.message.subject)||readback.body_hash!==digest(request.message.body.content.replace(/\r\n?/gu,'\n'))||!readback.send_ready||!readback.linked)throw fail('email_draft_fields_unverified');
  await verifySendAccount(tab,provider,request.account_address);
- return {target};
+ return {target,recipientDisplayHash:readback.recipient_display_hash};
 }
 
 export async function discardManagedDraft(tab,provider){
@@ -141,16 +142,19 @@ export async function sendManagedMail(raw,provider,runtime){
  if(request.mode==='reconcile'||journal.saved?.stage==='dispatching')return unknown;
  if(typeof runtime.withSendTab!=='function')throw fail('email_send_configuration_error');
  let attempted=false;
+ const outlookFolderProof=provider==='outlook'&&request.mode==='compose'&&request.message.to.length===1&&request.message.cc.length===0;
  try{return await runtime.withSendTab(async tab=>{
-  await tab.runReadCode(`async page=>{await page.goto(${JSON.stringify(READ_PROVIDERS[provider].url)});return true}`);
+  await tab.runReadCode(`async page=>{await page.goto(${JSON.stringify(outlookFolderProof?'https://outlook.live.com/mail/0/sentitems':READ_PROVIDERS[provider].url)});return true}`);
   if(runtime.prepareSendPage)await runtime.prepareSendPage();
-  let claimed, sentBaseline;
+  let claimed, sentBaseline, prepared;
   if(provider==='qq_mail'){
    await tab.click(QQMAIL_SENT_FOLDER_SELECTOR);
    sentBaseline=(await tab.inspect(QQMAIL_SENT_BASELINE_EXPRESSION)).result;
+  }else if(outlookFolderProof)sentBaseline=(await tab.inspect(OUTLOOK_SENT_BASELINE_EXPRESSION)).result;
+  if(provider==='qq_mail'||outlookFolderProof){
    if(!Array.isArray(sentBaseline?.ids)||sentBaseline.ids.length>1000||sentBaseline.ids.some(id=>typeof id!=='string'||!id||id.length>1024))throw fail('email_send_precondition_failed');
   }
-  try{await prepareManagedDraft(tab,provider,request);await tab.inspect(`()=>(${sentDOM.toString()})(${JSON.stringify(provider)},true)`);claimed=await journal.write('dispatching');}catch(error){try{await discardManagedDraft(tab,provider)}catch{}throw error}
+  try{prepared=await prepareManagedDraft(tab,provider,request);await tab.inspect(`()=>(${sentDOM.toString()})(${JSON.stringify(provider)},true)`);claimed=await journal.write('dispatching');}catch(error){try{await discardManagedDraft(tab,provider)}catch{}throw error}
   if(!claimed){try{await discardManagedDraft(tab,provider)}catch{}return unknown;}
   attempted=true;
   await tab.inspect('()=>{if(globalThis.__sparkclawManagedMail)globalThis.__sparkclawManagedMail.sendAttempted=true;return {marked:true}}');
@@ -160,6 +164,10 @@ export async function sendManagedMail(raw,provider,runtime){
    await tab.waitFor('.mail-list-page');
    await tab.click(QQMAIL_SENT_FOLDER_SELECTOR);
    const evidence=(await tab.inspect(`(${QQMAIL_SENT_VERIFICATION_EXPRESSION})(${JSON.stringify({ids:sentBaseline.ids,subject:digest(request.message.subject),emptySubject:false})})`)).result;
+   proof={confirmed:evidence?.sent_evidence===true};
+  }else if(outlookFolderProof){
+   const recipientHashes=[digest(request.message.to[0].toLowerCase()),prepared.recipientDisplayHash].filter(Boolean);
+   const evidence=(await tab.inspect(`${OUTLOOK_SEND_VERIFICATION_EXPRESSION}(${JSON.stringify({ids:sentBaseline.ids,recipient_hashes:recipientHashes,subject:digest(request.message.subject),emptySubject:false})})`)).result;
    proof={confirmed:evidence?.sent_evidence===true};
   }else for(let i=0;i<12;i++){
    proof=(await tab.inspect(`async()=>{await new Promise(r=>setTimeout(r,250));return (${sentDOM.toString()})(${JSON.stringify(provider)})}`)).result;
