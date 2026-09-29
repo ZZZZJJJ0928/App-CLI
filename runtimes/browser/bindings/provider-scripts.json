@@ -1,0 +1,248 @@
+{
+  "schema_version": 1,
+  "scripts": [
+    {
+      "provider": "gmail",
+      "operation": "capture",
+      "script_id": "gmail.capture",
+      "revision": 1,
+      "timeout_ms": 180000,
+      "app": "mail-gmail",
+      "command": "capture"
+    },
+    {
+      "provider": "gmail",
+      "operation": "collect_page",
+      "script_id": "gmail.collect_page",
+      "revision": 1,
+      "timeout_ms": 1800000,
+      "app": "mail-gmail",
+      "command": "collect_page"
+    },
+    {
+      "provider": "gmail",
+      "operation": "discover",
+      "script_id": "gmail.discover",
+      "revision": 1,
+      "timeout_ms": 180000,
+      "app": "mail-gmail",
+      "command": "discover"
+    },
+    {
+      "provider": "gmail",
+      "operation": "enumerate_thread",
+      "script_id": "gmail.enumerate_thread",
+      "revision": 1,
+      "timeout_ms": 180000,
+      "app": "mail-gmail",
+      "command": "enumerate_thread"
+    },
+    {
+      "provider": "gmail",
+      "operation": "mark_read",
+      "script_id": "gmail.mark_read",
+      "revision": 1,
+      "timeout_ms": 180000,
+      "app": "mail-gmail",
+      "command": "mark_read"
+    },
+    {
+      "provider": "gmail",
+      "operation": "observe",
+      "script_id": "gmail.observe",
+      "revision": 1,
+      "timeout_ms": 120000,
+      "app": "mail-gmail",
+      "command": "watch"
+    },
+    {
+      "provider": "gmail",
+      "operation": "probe",
+      "script_id": "gmail.login_probe",
+      "revision": 1,
+      "timeout_ms": 45000,
+      "app": "mail-gmail",
+      "command": "probe"
+    },
+    {
+      "provider": "gmail",
+      "operation": "read",
+      "script_id": "gmail.read",
+      "revision": 1,
+      "timeout_ms": 180000,
+      "app": "mail-gmail",
+      "command": "read"
+    },
+    {
+      "provider": "gmail",
+      "operation": "send",
+      "script_id": "gmail.send",
+      "revision": 1,
+      "timeout_ms": 180000,
+      "app": "mail-gmail",
+      "command": "send"
+    },
+    {
+      "provider": "outlook",
+      "operation": "capture",
+      "script_id": "outlook.capture",
+      "revision": 1,
+      "timeout_ms": 180000,
+      "app": "mail-outlook",
+      "command": "capture"
+    },
+    {
+      "provider": "outlook",
+      "operation": "collect_page",
+      "script_id": "outlook.collect_page",
+      "revision": 1,
+      "timeout_ms": 1800000,
+      "app": "mail-outlook",
+      "command": "collect_page"
+    },
+    {
+      "provider": "outlook",
+      "operation": "discover",
+      "script_id": "outlook.discover",
+      "revision": 1,
+      "timeout_ms": 180000,
+      "app": "mail-outlook",
+      "command": "discover"
+    },
+    {
+      "provider": "outlook",
+      "operation": "enumerate_thread",
+      "script_id": "outlook.enumerate_thread",
+      "revision": 1,
+      "timeout_ms": 180000,
+      "app": "mail-outlook",
+      "command": "enumerate_thread"
+    },
+    {
+      "provider": "outlook",
+      "operation": "mark_read",
+      "script_id": "outlook.mark_read",
+      "revision": 1,
+      "timeout_ms": 180000,
+      "app": "mail-outlook",
+      "command": "mark_read"
+    },
+    {
+      "provider": "outlook",
+      "operation": "observe",
+      "script_id": "outlook.observe",
+      "revision": 1,
+      "timeout_ms": 120000,
+      "app": "mail-outlook",
+      "command": "watch"
+    },
+    {
+      "provider": "outlook",
+      "operation": "probe",
+      "script_id": "outlook.login_probe",
+      "revision": 1,
+      "timeout_ms": 45000,
+      "app": "mail-outlook",
+      "command": "probe"
+    },
+    {
+      "provider": "outlook",
+      "operation": "read",
+      "script_id": "outlook.read",
+      "revision": 1,
+      "timeout_ms": 180000,
+      "app": "mail-outlook",
+      "command": "read"
+    },
+    {
+      "provider": "outlook",
+      "operation": "send",
+      "script_id": "outlook.send",
+      "revision": 1,
+      "timeout_ms": 180000,
+      "app": "mail-outlook",
+      "command": "send"
+    },
+    {
+      "provider": "qq_mail",
+      "operation": "capture",
+      "script_id": "qqmail.capture",
+      "revision": 1,
+      "timeout_ms": 180000,
+      "app": "mail-qq-mail",
+      "command": "capture"
+    },
+    {
+      "provider": "qq_mail",
+      "operation": "collect_page",
+      "script_id": "qqmail.collect_page",
+      "revision": 1,
+      "timeout_ms": 1800000,
+      "app": "mail-qq-mail",
+      "command": "collect_page"
+    },
+    {
+      "provider": "qq_mail",
+      "operation": "discover",
+      "script_id": "qqmail.discover",
+      "revision": 1,
+      "timeout_ms": 180000,
+      "app": "mail-qq-mail",
+      "command": "discover"
+    },
+    {
+      "provider": "qq_mail",
+      "operation": "enumerate_thread",
+      "script_id": "qqmail.enumerate_thread",
+      "revision": 1,
+      "timeout_ms": 180000,
+      "app": "mail-qq-mail",
+      "command": "enumerate_thread"
+    },
+    {
+      "provider": "qq_mail",
+      "operation": "mark_read",
+      "script_id": "qqmail.mark_read",
+      "revision": 1,
+      "timeout_ms": 180000,
+      "app": "mail-qq-mail",
+      "command": "mark_read"
+    },
+    {
+      "provider": "qq_mail",
+      "operation": "observe",
+      "script_id": "qq_mail.observe",
+      "revision": 1,
+      "timeout_ms": 120000,
+      "app": "mail-qq-mail",
+      "command": "watch"
+    },
+    {
+      "provider": "qq_mail",
+      "operation": "probe",
+      "script_id": "qqmail.login_probe",
+      "revision": 1,
+      "timeout_ms": 90000,
+      "app": "mail-qq-mail",
+      "command": "probe"
+    },
+    {
+      "provider": "qq_mail",
+      "operation": "read",
+      "script_id": "qqmail.read",
+      "revision": 1,
+      "timeout_ms": 180000,
+      "app": "mail-qq-mail",
+      "command": "read"
+    },
+    {
+      "provider": "qq_mail",
+      "operation": "send",
+      "script_id": "qqmail.send",
+      "revision": 1,
+      "timeout_ms": 180000,
+      "app": "mail-qq-mail",
+      "command": "send"
+    }
+  ]
+}

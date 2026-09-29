@@ -12,12 +12,12 @@ from ..tasks import TaskResult
 class RuntimeAdapter:
     """Use a reviewed manifest and fixed argv to call a trusted local executor.
 
-    The executor speaks runtime protocol 1.0 on stdin/stdout. The adapter makes
-    one attempt and never retries, polls, approves or changes backend selection.
-    It admits only read_only commands until mutation coordination is available.
+    Protocol 1.0 preserves read-only invocation. Explicit protocol 2.0 uses
+    Registry lifecycle admission and a bounded transport. Neither path retries,
+    polls, grants approval or changes backend selection automatically.
     """
 
-    def __init__(self, manifest, argv, *, timeout_seconds=30):
+    def __init__(self, manifest, argv, *, timeout_seconds=30, protocol_version="1.0"):
         self.manifest = _json_copy(manifest, "MANIFEST_INVALID", "Runtime manifest must be JSON.")
         Registry([self])  # Validate the same public manifest as other adapters.
         if self.manifest["adapter"]["kind"] != "runtime":
@@ -29,6 +29,9 @@ class RuntimeAdapter:
         if (type(timeout_seconds) not in (int, float) or not 0 < timeout_seconds <= 300
                 or not math.isfinite(timeout_seconds)):
             raise AppCLIError("MANIFEST_INVALID", "Runtime timeout must be greater than zero and at most 300 seconds.", 2)
+        if type(protocol_version) is not str or protocol_version not in {"1.0", "2.0"} or (protocol_version == "2.0" and timeout_seconds > 30):
+            raise AppCLIError("MANIFEST_INVALID", "Select runtime 1.0 or bounded runtime 2.0 explicitly.", 2)
+        self._protocol_version = protocol_version
         # Keep virtualenv interpreter symlinks intact; never resolve them to the
         # base interpreter. argv is supplied during trusted registration only.
         self._argv = tuple(argv)
@@ -39,6 +42,8 @@ class RuntimeAdapter:
         self._response = validator("response")
 
     def invoke(self, command, arguments):
+        if self._protocol_version != "1.0":
+            raise AppCLIError("CAPABILITY_NOT_SUPPORTED", "Runtime 2.0 requires Registry lifecycle admission.")
         if type(command) is not str or command not in self._commands:
             raise AppCLIError("COMMAND_NOT_FOUND", "The runtime command is not registered.", 2)
         effect, inputs = self._commands[command]
@@ -67,3 +72,21 @@ class RuntimeAdapter:
             return TaskResult(response["task"]["status"], response.get("data"), response["task"].get("id"))
         except ValueError:
             raise AppCLIError("BACKEND_PROTOCOL_INVALID", "The runtime returned an invalid task outcome.") from None
+
+    def invoke_lifecycle(self, request, context):
+        from ..lifecycle import ExecutionContext
+        from .. import lifecycle_protocol as wire
+        from ..runtime_transport import exchange
+
+        if self._protocol_version != wire.VERSION:
+            raise AppCLIError("CAPABILITY_NOT_SUPPORTED", "Runtime 1.0 does not support lifecycle operations.")
+        request = wire.validate_request(request)
+        if (type(context) is not ExecutionContext or context.authorization_ref != request["authorization_ref"]
+                or request["app"] != self._app_id or request["command"] not in self._commands
+                or context.grant.app != self._app_id or context.grant.command != request["command"]):
+            raise AppCLIError("AUTHORIZATION_DENIED", "Runtime admission context does not match the request.")
+        # The executor must resolve this reference again; caller context is not a wire grant.
+        raw = exchange(self._argv, wire.encode(request), timeout=self._timeout,
+                       max_response=wire.MAX_RESPONSE_BYTES)
+        return wire.validate_response(request, wire.decode(raw, wire.MAX_RESPONSE_BYTES,
+                                                          code="BACKEND_PROTOCOL_INVALID"))

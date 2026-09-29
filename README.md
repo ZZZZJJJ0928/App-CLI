@@ -10,7 +10,7 @@ The project is independent of any device runtime. Its intended scope includes Wi
 
 An internal function call is a useful starting point. Reliable commands also need the right application state, thread, session, authorization, and verified outcome. App-CLI does not automatically convert every GUI application, and a returned value alone does not prove a remote transaction completed.
 
-## Status: 0.2 runtime contracts
+## Status: 0.3 SparkClaw maintenance fork
 
 This repository provides an installable CLI, a manifest contract, an explicitly registered adapter interface, JSON Schema validation, and task outcome handling. A self-owned calculator demonstrates native functions, an existing CLI, and the generic runtime protocol. An optional GUI uses the same functions. All examples and tests run independently from this repository.
 
@@ -27,9 +27,16 @@ This repository provides an installable CLI, a manifest contract, an explicitly 
 | Application API, IPC, scripting, browser, UI, instrumentation, file and vision integrations | Planned target-adapter work; recognized kinds do not install implementations |
 | Generic `RuntimeAdapter` and `TaskResult` | Implemented; explicit subprocess protocol and task outcomes |
 | MCP server, automatic backend selection | Planned integration work |
-| Mutations, transactions, durable tasks, approvals | Not implemented; mutation commands are rejected before dispatch |
+| Fork lifecycle extension | Registry admission, trusted context, machine protocol 2.0 and bounded POSIX runtime transport implemented; self-owned durable mutation fixture |
+| Optional resident Executor, BrowserHostPort and QQ/Gmail/Outlook | Implemented in the fork; paired release and product admission required, live-mail acceptance separate |
 
 Current releases establish reusable contracts and independent reference implementations. They do not claim production application coverage.
+
+The fork's [lifecycle extension](docs/LIFECYCLE.md) adds `Registry.control()` and
+`--machine` without changing v1 calls. Applications require explicit reviewed
+lifecycle registration and a trusted authorization provider. None of the default
+calculator registrations enables mutation. Node services, browser/mail adapters
+and signed deployment authorization are delivered by the optional [paired application release](docs/APPLICATION-RUNTIME.md), not by the default Python-only installation.
 
 ## Try it locally
 

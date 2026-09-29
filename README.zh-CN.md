@@ -12,6 +12,8 @@ GUI 事件背后的函数是有价值的分析入口。将它变成可靠命令�
 
 ## 当前可用
 
+本 fork 的 `0.3.0-sparkclaw.1` 已实现[生命周期扩展](docs/LIFECYCLE.zh-CN.md)、owner-local 常驻 Executor、BrowserHostPort、三家邮件应用及成套发行。完整维护与安装说明见[应用运行时](docs/APPLICATION-RUNTIME.zh-CN.md)。Python Registry 仍为唯一公共入口；原生/CLI 核心无需 Node 或浏览器，默认和旧入口仍拒绝写操作。真实邮箱验收与生产上线另行记录。
+
 当前 `0.2` 提供可安装 CLI、显式适配器注册、Manifest 与 JSON Schema、参数及输出校验、通用运行时协议和任务结果契约。`calculator` 直接调用业务函数，`calculator-cli` 调用计算器 CLI，`calculator-runtime` 通过 JSON 协议调用独立的自有计算器执行进程；可选 Tk GUI 也复用业务函数。所有示例与测试均可独立运行。Manifest 版本仍为 `1.0`，支持 13 种接入声明；声明类型不等于已交付对应后端。
 
 ```sh
@@ -43,7 +45,7 @@ app-cli calculator-runtime multiply --a 6 --b 7
 
 通用 `RuntimeAdapter` 使用开发者显式注册的 Manifest 和固定执行命令，通过标准输入传递 JSON 业务参数。`TaskResult` 保留任务状态和公开任务 ID；执行中、等待确认、不确定、失败、取消、受阻等状态均返回 `ok: false` 和退出码 `1`。只有任务完成且输出满足业务合同才返回成功，既有同步适配器的返回格式保持兼容。接口与独立示例见[运行时接入](docs/RUNTIME.md)。计算器运行时示例是同步、无持久状态的协议验证。
 
-当前没有交付 Android/iOS/第三方桌面应用适配器，也没有自动后端选路、远程执行或 MCP 服务。写操作的授权、幂等和持久任务协调尚待实现，mutation 命令仍在适配器调用前被拒绝。Windows/macOS/Linux 的 CI 矩阵已经配置，实际验证范围单独记录在[验收记录](docs/VALIDATION.md)。
+当前没有交付 Android/iOS/第三方桌面应用适配器，也没有自动后端选路、远程执行或 MCP 服务。生命周期扩展提供显式授权准入和独立本地持久夹具；可选生产执行器及应用侧恢复已实现并通过隔离夹具验证，默认适配器和旧入口仍拒绝 mutation。Windows/macOS/Linux 的 CI 矩阵已经配置，实际验证范围单独记录在[验收记录](docs/VALIDATION.md)。
 
 ## 如何选择技术方案
 

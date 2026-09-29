@@ -1,0 +1,2003 @@
+{
+  "version": "1.0",
+  "application": {
+    "group": "mail",
+    "provider": "qq_mail"
+  },
+  "manifest": {
+    "schema_version": "1.0",
+    "id": "mail-qq-mail",
+    "name": "qq_mail mail",
+    "version": "0.3.0",
+    "platforms": [
+      "linux"
+    ],
+    "adapter": {
+      "kind": "runtime",
+      "name": "BrowserHostPort mail application"
+    },
+    "commands": [
+      {
+        "name": "probe",
+        "description": "Run probe in the explicitly authorized qq_mail account.",
+        "side_effect": "read_only",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "schema_version": {
+              "const": 1
+            },
+            "operation": {
+              "const": "probe"
+            },
+            "invocation_id": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+            },
+            "provider": {
+              "const": "qq_mail"
+            },
+            "account": {
+              "const": "default"
+            }
+          },
+          "required": [
+            "schema_version",
+            "operation",
+            "invocation_id",
+            "provider",
+            "account"
+          ],
+          "additionalProperties": false
+        },
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "schema_version": {
+              "const": 1
+            },
+            "provider": {
+              "const": "qq_mail"
+            },
+            "status": {
+              "const": "ready"
+            },
+            "account_hint": {
+              "type": "string",
+              "maxLength": 4096
+            }
+          },
+          "required": [
+            "schema_version",
+            "provider",
+            "status"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "send",
+        "description": "Run send in the explicitly authorized qq_mail account.",
+        "side_effect": "remote_mutation",
+        "input_schema": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "schema_version": {
+                  "const": 1
+                },
+                "operation": {
+                  "const": "send"
+                },
+                "invocation_id": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+                },
+                "provider": {
+                  "const": "qq_mail"
+                },
+                "account": {
+                  "const": "default"
+                },
+                "message": {
+                  "type": "object",
+                  "properties": {
+                    "recipient": {
+                      "type": "string",
+                      "minLength": 3,
+                      "maxLength": 320,
+                      "pattern": "^[^\\s<>@]+@[^\\s<>@]+\\.[^\\s<>@]+$"
+                    },
+                    "subject": {
+                      "type": "string",
+                      "maxLength": 998
+                    },
+                    "body": {
+                      "type": "object",
+                      "properties": {
+                        "format": {
+                          "const": "text"
+                        },
+                        "content": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 204800
+                        }
+                      },
+                      "required": [
+                        "format",
+                        "content"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "recipient",
+                    "body"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "schema_version",
+                "operation",
+                "invocation_id",
+                "provider",
+                "account",
+                "message"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "schema_version": {
+                  "const": 1
+                },
+                "operation": {
+                  "const": "send"
+                },
+                "invocation_id": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+                },
+                "provider": {
+                  "const": "qq_mail"
+                },
+                "account": {
+                  "const": "default"
+                },
+                "message": {
+                  "type": "object",
+                  "properties": {
+                    "to": {
+                      "type": "array",
+                      "minItems": 1,
+                      "maxItems": 100,
+                      "items": {
+                        "type": "string",
+                        "minLength": 3,
+                        "maxLength": 320,
+                        "pattern": "^[^\\s<>@]+@[^\\s<>@]+\\.[^\\s<>@]+$"
+                      }
+                    },
+                    "cc": {
+                      "type": "array",
+                      "maxItems": 100,
+                      "items": {
+                        "type": "string",
+                        "minLength": 3,
+                        "maxLength": 320,
+                        "pattern": "^[^\\s<>@]+@[^\\s<>@]+\\.[^\\s<>@]+$"
+                      }
+                    },
+                    "subject": {
+                      "type": "string",
+                      "maxLength": 998
+                    },
+                    "body": {
+                      "type": "object",
+                      "properties": {
+                        "format": {
+                          "const": "text"
+                        },
+                        "content": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 204800
+                        }
+                      },
+                      "required": [
+                        "format",
+                        "content"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "to",
+                    "body"
+                  ],
+                  "additionalProperties": false
+                },
+                "account_address": {
+                  "type": "string",
+                  "minLength": 3,
+                  "maxLength": 320,
+                  "pattern": "^[^\\s<>@]+@[^\\s<>@]+\\.[^\\s<>@]+$"
+                },
+                "mode": {
+                  "enum": [
+                    "compose",
+                    "reply",
+                    "reply_all",
+                    "reconcile"
+                  ]
+                },
+                "reply_target": {
+                  "type": "object",
+                  "properties": {
+                    "account_address": {
+                      "type": "string",
+                      "minLength": 3,
+                      "maxLength": 320,
+                      "pattern": "^[^\\s<>@]+@[^\\s<>@]+\\.[^\\s<>@]+$"
+                    },
+                    "provider_message_id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 1024,
+                      "pattern": "^[A-Za-z0-9_+=:.~/\\-]+$"
+                    },
+                    "provider_selection_id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 1024,
+                      "pattern": "^[A-Za-z0-9_+=:.~/\\-]+$"
+                    },
+                    "provider_thread_id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 1024,
+                      "pattern": "^[A-Za-z0-9_+=:.~/\\-]+$"
+                    },
+                    "folder": {
+                      "type": "string",
+                      "maxLength": 1032
+                    },
+                    "subject": {
+                      "type": "string",
+                      "maxLength": 4000
+                    }
+                  },
+                  "required": [
+                    "account_address",
+                    "provider_message_id",
+                    "provider_selection_id",
+                    "folder",
+                    "subject"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "schema_version",
+                "operation",
+                "invocation_id",
+                "provider",
+                "account",
+                "message",
+                "account_address"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "schema_version": {
+              "const": 1
+            },
+            "provider": {
+              "const": "qq_mail"
+            },
+            "status": {
+              "const": "sent"
+            },
+            "recipient_digest": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "provider_message_id": {
+              "type": "string",
+              "maxLength": 4096
+            },
+            "provider_thread_id": {
+              "type": "string",
+              "maxLength": 4096
+            }
+          },
+          "required": [
+            "schema_version",
+            "provider",
+            "status",
+            "recipient_digest"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "read",
+        "description": "Run read in the explicitly authorized qq_mail account.",
+        "side_effect": "local_mutation",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "schema_version": {
+              "const": 1
+            },
+            "operation": {
+              "const": "read"
+            },
+            "invocation_id": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+            },
+            "provider": {
+              "const": "qq_mail"
+            },
+            "account": {
+              "const": "default"
+            },
+            "owner_scope": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            }
+          },
+          "required": [
+            "schema_version",
+            "operation",
+            "invocation_id",
+            "provider",
+            "account",
+            "owner_scope"
+          ],
+          "additionalProperties": false
+        },
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "schema_version": {
+              "const": 1
+            },
+            "provider": {
+              "const": "qq_mail"
+            },
+            "status": {
+              "enum": [
+                "empty",
+                "collected",
+                "partial"
+              ]
+            },
+            "capture": {
+              "type": [
+                "object",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "schema_version",
+            "provider",
+            "status",
+            "capture"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "discover",
+        "description": "Run discover in the explicitly authorized qq_mail account.",
+        "side_effect": "read_only",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "schema_version": {
+              "const": 1
+            },
+            "operation": {
+              "const": "discover"
+            },
+            "invocation_id": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+            },
+            "provider": {
+              "const": "qq_mail"
+            },
+            "account": {
+              "const": "default"
+            },
+            "owner_scope": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "discovery": {
+              "type": "object",
+              "properties": {
+                "account_address": {
+                  "type": "string",
+                  "minLength": 3,
+                  "maxLength": 320,
+                  "pattern": "^[^\\s<>@]+@[^\\s<>@]+\\.[^\\s<>@]+$"
+                },
+                "continuation": {
+                  "type": "string",
+                  "maxLength": 1100
+                },
+                "lane": {
+                  "const": "recent_inbound"
+                },
+                "limit": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 100
+                },
+                "interval_start": {
+                  "type": "string",
+                  "maxLength": 40
+                },
+                "interval_end": {
+                  "type": "string",
+                  "maxLength": 40
+                },
+                "provider_mode": {
+                  "enum": [
+                    "change_cursor",
+                    "time_range"
+                  ]
+                },
+                "retry_targets": {
+                  "type": "array",
+                  "maxItems": 50,
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "account_address": {
+                        "type": "string",
+                        "minLength": 3,
+                        "maxLength": 320,
+                        "pattern": "^[^\\s<>@]+@[^\\s<>@]+\\.[^\\s<>@]+$"
+                      },
+                      "provider_message_id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 1024,
+                        "pattern": "^[A-Za-z0-9_+=:.~/\\-]+$"
+                      },
+                      "provider_selection_id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 1024,
+                        "pattern": "^[A-Za-z0-9_+=:.~/\\-]+$"
+                      },
+                      "provider_thread_id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 1024,
+                        "pattern": "^[A-Za-z0-9_+=:.~/\\-]+$"
+                      },
+                      "provider_native_id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 1024,
+                        "pattern": "^[A-Za-z0-9_+=:.~/\\-]+$"
+                      },
+                      "received_at": {
+                        "type": "string",
+                        "maxLength": 40
+                      },
+                      "folder": {
+                        "type": "string",
+                        "maxLength": 1032
+                      },
+                      "recovery_capture": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "pattern": "^cap_[a-f0-9]{32}$"
+                          },
+                          "manifest_json": {
+                            "type": "string",
+                            "maxLength": 65536
+                          },
+                          "manifest_sha256": {
+                            "type": "string",
+                            "pattern": "^sha256:[a-f0-9]{64}$"
+                          },
+                          "original_sha256": {
+                            "type": "string",
+                            "pattern": "^sha256:[a-f0-9]{64}$"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "manifest_json",
+                          "manifest_sha256",
+                          "original_sha256"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "account_address",
+                      "provider_message_id",
+                      "provider_selection_id"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "skip_provider_message_ids": {
+                  "type": "array",
+                  "maxItems": 100,
+                  "uniqueItems": true,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1024,
+                    "pattern": "^[A-Za-z0-9_+=:.~/\\-]+$"
+                  }
+                }
+              },
+              "required": [
+                "account_address",
+                "continuation",
+                "lane",
+                "limit",
+                "interval_start",
+                "interval_end"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "schema_version",
+            "operation",
+            "invocation_id",
+            "provider",
+            "account",
+            "owner_scope"
+          ],
+          "additionalProperties": false
+        },
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "schema_version": {
+              "const": 1
+            },
+            "provider": {
+              "const": "qq_mail"
+            },
+            "status": {
+              "enum": [
+                "listed",
+                "empty",
+                "partial"
+              ]
+            },
+            "account_address": {
+              "type": "string",
+              "maxLength": 4096
+            },
+            "candidates": {
+              "type": "array",
+              "maxItems": 100,
+              "items": {
+                "type": "object"
+              }
+            },
+            "threads": {
+              "type": "array",
+              "maxItems": 100,
+              "items": {
+                "type": "object"
+              }
+            },
+            "coverage": {
+              "type": "object"
+            },
+            "observed_at": {
+              "type": "string",
+              "maxLength": 4096
+            }
+          },
+          "required": [
+            "schema_version",
+            "provider",
+            "status",
+            "account_address",
+            "candidates",
+            "coverage",
+            "observed_at"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "capture",
+        "description": "Run capture in the explicitly authorized qq_mail account.",
+        "side_effect": "local_mutation",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "schema_version": {
+              "const": 1
+            },
+            "operation": {
+              "const": "capture"
+            },
+            "invocation_id": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+            },
+            "provider": {
+              "const": "qq_mail"
+            },
+            "account": {
+              "const": "default"
+            },
+            "owner_scope": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "target": {
+              "type": "object",
+              "properties": {
+                "account_address": {
+                  "type": "string",
+                  "minLength": 3,
+                  "maxLength": 320,
+                  "pattern": "^[^\\s<>@]+@[^\\s<>@]+\\.[^\\s<>@]+$"
+                },
+                "provider_message_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 1024,
+                  "pattern": "^[A-Za-z0-9_+=:.~/\\-]+$"
+                },
+                "provider_selection_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 1024,
+                  "pattern": "^[A-Za-z0-9_+=:.~/\\-]+$"
+                },
+                "provider_thread_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 1024,
+                  "pattern": "^[A-Za-z0-9_+=:.~/\\-]+$"
+                },
+                "provider_native_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 1024,
+                  "pattern": "^[A-Za-z0-9_+=:.~/\\-]+$"
+                },
+                "received_at": {
+                  "type": "string",
+                  "maxLength": 40
+                },
+                "folder": {
+                  "type": "string",
+                  "maxLength": 1032
+                },
+                "recovery_capture": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "pattern": "^cap_[a-f0-9]{32}$"
+                    },
+                    "manifest_json": {
+                      "type": "string",
+                      "maxLength": 65536
+                    },
+                    "manifest_sha256": {
+                      "type": "string",
+                      "pattern": "^sha256:[a-f0-9]{64}$"
+                    },
+                    "original_sha256": {
+                      "type": "string",
+                      "pattern": "^sha256:[a-f0-9]{64}$"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "manifest_json",
+                    "manifest_sha256",
+                    "original_sha256"
+                  ]
+                }
+              },
+              "required": [
+                "account_address",
+                "provider_message_id",
+                "provider_selection_id"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "schema_version",
+            "operation",
+            "invocation_id",
+            "provider",
+            "account",
+            "owner_scope",
+            "target"
+          ],
+          "additionalProperties": false
+        },
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "schema_version": {
+              "const": 1
+            },
+            "provider": {
+              "const": "qq_mail"
+            },
+            "status": {
+              "enum": [
+                "empty",
+                "collected",
+                "partial"
+              ]
+            },
+            "capture": {
+              "type": [
+                "object",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "schema_version",
+            "provider",
+            "status",
+            "capture"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "enumerate_thread",
+        "description": "Run enumerate_thread in the explicitly authorized qq_mail account.",
+        "side_effect": "read_only",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "schema_version": {
+              "const": 1
+            },
+            "operation": {
+              "const": "enumerate_thread"
+            },
+            "invocation_id": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+            },
+            "provider": {
+              "const": "qq_mail"
+            },
+            "account": {
+              "const": "default"
+            },
+            "owner_scope": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "thread": {
+              "type": "object",
+              "properties": {
+                "account_address": {
+                  "type": "string",
+                  "minLength": 3,
+                  "maxLength": 320,
+                  "pattern": "^[^\\s<>@]+@[^\\s<>@]+\\.[^\\s<>@]+$"
+                },
+                "folder": {
+                  "type": "string",
+                  "maxLength": 1032
+                },
+                "provider_selection_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 1024,
+                  "pattern": "^[A-Za-z0-9_+=:.~/\\-]+$"
+                },
+                "provider_thread_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 1024,
+                  "pattern": "^[A-Za-z0-9_+=:.~/\\-]+$"
+                }
+              },
+              "required": [
+                "account_address",
+                "folder",
+                "provider_selection_id",
+                "provider_thread_id"
+              ],
+              "additionalProperties": false
+            },
+            "continuation": {
+              "type": "string",
+              "maxLength": 1100
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          },
+          "required": [
+            "schema_version",
+            "operation",
+            "invocation_id",
+            "provider",
+            "account",
+            "owner_scope",
+            "thread",
+            "continuation",
+            "limit"
+          ],
+          "additionalProperties": false
+        },
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "schema_version": {
+              "const": 1
+            },
+            "provider": {
+              "const": "qq_mail"
+            },
+            "status": {
+              "enum": [
+                "partial",
+                "complete_for_observation"
+              ]
+            },
+            "thread": {
+              "type": "object"
+            },
+            "members": {
+              "type": "array",
+              "maxItems": 100,
+              "items": {
+                "type": "object"
+              }
+            },
+            "coverage": {
+              "type": "object"
+            },
+            "observed_at": {
+              "type": "string",
+              "maxLength": 4096
+            }
+          },
+          "required": [
+            "schema_version",
+            "provider",
+            "status",
+            "thread",
+            "members",
+            "coverage",
+            "observed_at"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "mark_read",
+        "description": "Run mark_read in the explicitly authorized qq_mail account.",
+        "side_effect": "remote_mutation",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "schema_version": {
+              "const": 1
+            },
+            "operation": {
+              "const": "mark_read"
+            },
+            "invocation_id": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+            },
+            "provider": {
+              "const": "qq_mail"
+            },
+            "account": {
+              "const": "default"
+            },
+            "owner_scope": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "target": {
+              "type": "object",
+              "properties": {
+                "account_address": {
+                  "type": "string",
+                  "minLength": 3,
+                  "maxLength": 320,
+                  "pattern": "^[^\\s<>@]+@[^\\s<>@]+\\.[^\\s<>@]+$"
+                },
+                "provider_message_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 1024,
+                  "pattern": "^[A-Za-z0-9_+=:.~/\\-]+$"
+                },
+                "provider_selection_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 1024,
+                  "pattern": "^[A-Za-z0-9_+=:.~/\\-]+$"
+                },
+                "provider_thread_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 1024,
+                  "pattern": "^[A-Za-z0-9_+=:.~/\\-]+$"
+                },
+                "provider_native_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 1024,
+                  "pattern": "^[A-Za-z0-9_+=:.~/\\-]+$"
+                },
+                "received_at": {
+                  "type": "string",
+                  "maxLength": 40
+                },
+                "folder": {
+                  "type": "string",
+                  "maxLength": 1032
+                },
+                "recovery_capture": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "pattern": "^cap_[a-f0-9]{32}$"
+                    },
+                    "manifest_json": {
+                      "type": "string",
+                      "maxLength": 65536
+                    },
+                    "manifest_sha256": {
+                      "type": "string",
+                      "pattern": "^sha256:[a-f0-9]{64}$"
+                    },
+                    "original_sha256": {
+                      "type": "string",
+                      "pattern": "^sha256:[a-f0-9]{64}$"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "manifest_json",
+                    "manifest_sha256",
+                    "original_sha256"
+                  ]
+                }
+              },
+              "required": [
+                "account_address",
+                "provider_message_id",
+                "provider_selection_id"
+              ],
+              "additionalProperties": false
+            },
+            "committed_capture": {
+              "type": "object",
+              "properties": {
+                "attachments_count": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 20
+                },
+                "capture_id": {
+                  "type": "string",
+                  "pattern": "^cap_[a-f0-9]{32}$"
+                },
+                "mail_id": {
+                  "type": "string",
+                  "maxLength": 128
+                },
+                "mailbox_id": {
+                  "type": "string",
+                  "maxLength": 128
+                },
+                "manifest_path": {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                "manifest_sha256": {
+                  "type": "string",
+                  "pattern": "^sha256:[a-f0-9]{64}$"
+                },
+                "read_state": {
+                  "enum": [
+                    "read",
+                    "unread",
+                    "unknown"
+                  ]
+                }
+              },
+              "required": [
+                "attachments_count",
+                "capture_id",
+                "mail_id",
+                "mailbox_id",
+                "manifest_path",
+                "manifest_sha256",
+                "read_state"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "schema_version",
+            "operation",
+            "invocation_id",
+            "provider",
+            "account",
+            "owner_scope",
+            "target",
+            "committed_capture"
+          ],
+          "additionalProperties": false
+        },
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "schema_version": {
+              "const": 1
+            },
+            "provider": {
+              "const": "qq_mail"
+            },
+            "target": {
+              "type": "object"
+            },
+            "read_state": {
+              "enum": [
+                "read",
+                "unread",
+                "unknown"
+              ]
+            },
+            "observed_at": {
+              "type": "string",
+              "maxLength": 4096
+            }
+          },
+          "required": [
+            "schema_version",
+            "provider",
+            "target",
+            "read_state",
+            "observed_at"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "collect_page",
+        "description": "Run collect_page in the explicitly authorized qq_mail account.",
+        "side_effect": "local_mutation",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "schema_version": {
+              "const": 1
+            },
+            "operation": {
+              "const": "collect_page"
+            },
+            "invocation_id": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+            },
+            "provider": {
+              "const": "qq_mail"
+            },
+            "account": {
+              "const": "default"
+            },
+            "owner_scope": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "discovery": {
+              "type": "object",
+              "properties": {
+                "account_address": {
+                  "type": "string",
+                  "minLength": 3,
+                  "maxLength": 320,
+                  "pattern": "^[^\\s<>@]+@[^\\s<>@]+\\.[^\\s<>@]+$"
+                },
+                "continuation": {
+                  "type": "string",
+                  "maxLength": 1100
+                },
+                "lane": {
+                  "const": "recent_inbound"
+                },
+                "limit": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 100
+                },
+                "interval_start": {
+                  "type": "string",
+                  "maxLength": 40
+                },
+                "interval_end": {
+                  "type": "string",
+                  "maxLength": 40
+                },
+                "provider_mode": {
+                  "enum": [
+                    "change_cursor",
+                    "time_range"
+                  ]
+                },
+                "retry_targets": {
+                  "type": "array",
+                  "maxItems": 50,
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "account_address": {
+                        "type": "string",
+                        "minLength": 3,
+                        "maxLength": 320,
+                        "pattern": "^[^\\s<>@]+@[^\\s<>@]+\\.[^\\s<>@]+$"
+                      },
+                      "provider_message_id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 1024,
+                        "pattern": "^[A-Za-z0-9_+=:.~/\\-]+$"
+                      },
+                      "provider_selection_id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 1024,
+                        "pattern": "^[A-Za-z0-9_+=:.~/\\-]+$"
+                      },
+                      "provider_thread_id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 1024,
+                        "pattern": "^[A-Za-z0-9_+=:.~/\\-]+$"
+                      },
+                      "provider_native_id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 1024,
+                        "pattern": "^[A-Za-z0-9_+=:.~/\\-]+$"
+                      },
+                      "received_at": {
+                        "type": "string",
+                        "maxLength": 40
+                      },
+                      "folder": {
+                        "type": "string",
+                        "maxLength": 1032
+                      },
+                      "recovery_capture": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "pattern": "^cap_[a-f0-9]{32}$"
+                          },
+                          "manifest_json": {
+                            "type": "string",
+                            "maxLength": 65536
+                          },
+                          "manifest_sha256": {
+                            "type": "string",
+                            "pattern": "^sha256:[a-f0-9]{64}$"
+                          },
+                          "original_sha256": {
+                            "type": "string",
+                            "pattern": "^sha256:[a-f0-9]{64}$"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "manifest_json",
+                          "manifest_sha256",
+                          "original_sha256"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "account_address",
+                      "provider_message_id",
+                      "provider_selection_id"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "skip_provider_message_ids": {
+                  "type": "array",
+                  "maxItems": 100,
+                  "uniqueItems": true,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1024,
+                    "pattern": "^[A-Za-z0-9_+=:.~/\\-]+$"
+                  }
+                }
+              },
+              "required": [
+                "account_address",
+                "continuation",
+                "lane",
+                "limit",
+                "interval_start",
+                "interval_end"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "schema_version",
+            "operation",
+            "invocation_id",
+            "provider",
+            "account",
+            "owner_scope",
+            "discovery"
+          ],
+          "additionalProperties": false
+        },
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "schema_version": {
+              "const": 1
+            },
+            "provider": {
+              "const": "qq_mail"
+            },
+            "status": {
+              "enum": [
+                "empty",
+                "collected",
+                "partial"
+              ]
+            },
+            "page_id": {
+              "type": "string",
+              "maxLength": 4096
+            },
+            "account_address": {
+              "type": "string",
+              "maxLength": 4096
+            },
+            "discovery": {
+              "type": "object"
+            },
+            "discovery_options": {
+              "type": "object"
+            },
+            "captures": {
+              "type": "array",
+              "maxItems": 100,
+              "items": {
+                "type": "object"
+              }
+            },
+            "failures": {
+              "type": "array",
+              "maxItems": 100,
+              "items": {
+                "type": "object"
+              }
+            },
+            "observed_at": {
+              "type": "string",
+              "maxLength": 4096
+            }
+          },
+          "required": [
+            "schema_version",
+            "provider",
+            "status",
+            "page_id",
+            "account_address",
+            "discovery",
+            "discovery_options",
+            "captures",
+            "failures",
+            "observed_at"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "watch",
+        "description": "Run watch in the explicitly authorized qq_mail account.",
+        "side_effect": "read_only",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "schema_version": {
+              "const": 1
+            },
+            "account_address": {
+              "type": "string",
+              "minLength": 3,
+              "maxLength": 320,
+              "pattern": "^[^\\s<>@]+@[^\\s<>@]+\\.[^\\s<>@]+$"
+            },
+            "owner_scope": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            }
+          },
+          "required": [
+            "schema_version",
+            "account_address",
+            "owner_scope"
+          ],
+          "additionalProperties": false
+        },
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "schema_version": {
+              "const": 1
+            },
+            "provider": {
+              "const": "qq_mail"
+            },
+            "status": {
+              "const": "stopped"
+            }
+          },
+          "required": [
+            "schema_version",
+            "provider",
+            "status"
+          ],
+          "additionalProperties": false
+        }
+      }
+    ]
+  },
+  "manifest_digest": "6d4623554938a40a452eaf27924c17b7feb8b27fd4d136a73511e4e24389e72d",
+  "commands": {
+    "probe": {
+      "handler": "qq_mail.probe",
+      "resource": "qq_mail",
+      "timeout_ms": 90000,
+      "script_id": "qqmail.login_probe",
+      "revision": 1,
+      "source_checksum": "sha256:765eb203d351638ac1d01b701ece270fdd5de2b0d5a149063d0f6edb40f35c9c",
+      "host": {
+        "family": "probe",
+        "activity": "exclusive",
+        "invalidate_on_failure": false,
+        "reuse_idle_ms": 0,
+        "methods": [
+          "currentURL",
+          "count",
+          "attribute",
+          "value",
+          "text",
+          "lines",
+          "readMany",
+          "visible",
+          "enabled",
+          "evaluate",
+          "click",
+          "runReadCode",
+          "download",
+          "fill",
+          "focus",
+          "press",
+          "waitFor",
+          "waitMilliseconds",
+          "navigate",
+          "prepareBackgroundPage",
+          "inspect",
+          "act",
+          "probeReads",
+          "setSecrets",
+          "hookActivate",
+          "hookEvents"
+        ],
+        "page": {
+          "secretReadback": false,
+          "trustedDownloadSelectors": [
+            "#sparkclaw-mail-original"
+          ],
+          "origins": [
+            "https://mail.qq.com",
+            "https://wx.mail.qq.com"
+          ],
+          "downloadOrigins": [],
+          "loginURL": "https://wx.mail.qq.com/",
+          "timeoutMS": 90000,
+          "backgroundBeforeNavigation": false,
+          "codeEnabled": false,
+          "readOnlyCode": false,
+          "downloadEnabled": false,
+          "awaitedRead": false,
+          "effectSelectors": [],
+          "deniedURLs": [],
+          "beforeNavigationAssets": []
+        }
+      }
+    },
+    "send": {
+      "handler": "qq_mail.send",
+      "resource": "qq_mail",
+      "timeout_ms": 180000,
+      "script_id": "qqmail.send",
+      "revision": 1,
+      "reconcile_requires_host": false,
+      "source_checksum": "sha256:6e2111f68b4d114933b3a2e2817e9a7c5425094ed613d617171dc3d6df8fd5bc",
+      "host": {
+        "family": "send",
+        "activity": "exclusive",
+        "invalidate_on_failure": false,
+        "reuse_idle_ms": 0,
+        "methods": [
+          "currentURL",
+          "count",
+          "attribute",
+          "value",
+          "text",
+          "lines",
+          "readMany",
+          "visible",
+          "enabled",
+          "evaluate",
+          "click",
+          "runReadCode",
+          "download",
+          "fill",
+          "focus",
+          "press",
+          "waitFor",
+          "waitMilliseconds",
+          "navigate",
+          "prepareBackgroundPage",
+          "inspect",
+          "act",
+          "probeReads",
+          "setSecrets",
+          "hookActivate",
+          "hookEvents"
+        ],
+        "page": {
+          "secretReadback": true,
+          "trustedDownloadSelectors": [
+            "#sparkclaw-mail-original"
+          ],
+          "origins": [
+            "https://mail.qq.com",
+            "https://wx.mail.qq.com"
+          ],
+          "downloadOrigins": [],
+          "loginURL": "https://wx.mail.qq.com/",
+          "timeoutMS": 180000,
+          "backgroundBeforeNavigation": false,
+          "codeEnabled": true,
+          "readOnlyCode": false,
+          "downloadEnabled": false,
+          "awaitedRead": false,
+          "effectSelectors": [
+            ".mail-compose-header .xmail-ui-btn[data-a11y=\"button\"]",
+            "[data-sc-managed-send=\"true\"]"
+          ],
+          "deniedURLs": [],
+          "beforeNavigationAssets": []
+        }
+      }
+    },
+    "read": {
+      "handler": "qq_mail.read",
+      "resource": "qq_mail",
+      "timeout_ms": 180000,
+      "script_id": "qqmail.read",
+      "revision": 1,
+      "source_checksum": "sha256:3435326307837c3456d9692949be0526431c0b0c27f5919cdd00aa377eb5133d",
+      "host": {
+        "family": "read",
+        "activity": "exclusive",
+        "invalidate_on_failure": false,
+        "reuse_idle_ms": 0,
+        "methods": [
+          "currentURL",
+          "count",
+          "attribute",
+          "value",
+          "text",
+          "lines",
+          "readMany",
+          "visible",
+          "enabled",
+          "evaluate",
+          "click",
+          "runReadCode",
+          "download",
+          "fill",
+          "focus",
+          "press",
+          "waitFor",
+          "waitMilliseconds",
+          "navigate",
+          "prepareBackgroundPage",
+          "inspect",
+          "act",
+          "probeReads",
+          "setSecrets",
+          "hookActivate",
+          "hookEvents"
+        ],
+        "page": {
+          "secretReadback": false,
+          "trustedDownloadSelectors": [
+            "#sparkclaw-mail-original"
+          ],
+          "origins": [
+            "https://wx.mail.qq.com",
+            "https://mail.qq.com"
+          ],
+          "downloadOrigins": [
+            "https://wx.mail.qq.com",
+            "https://mail.qq.com"
+          ],
+          "loginURL": "https://wx.mail.qq.com/home/index#/list/1/1",
+          "timeoutMS": 180000,
+          "backgroundBeforeNavigation": true,
+          "codeEnabled": true,
+          "readOnlyCode": true,
+          "downloadEnabled": true,
+          "awaitedRead": true,
+          "effectSelectors": [],
+          "deniedURLs": [],
+          "beforeNavigationAssets": []
+        }
+      }
+    },
+    "discover": {
+      "handler": "qq_mail.discover",
+      "resource": "qq_mail",
+      "timeout_ms": 180000,
+      "script_id": "qqmail.discover",
+      "revision": 1,
+      "source_checksum": "sha256:3435326307837c3456d9692949be0526431c0b0c27f5919cdd00aa377eb5133d",
+      "host": {
+        "family": "discover",
+        "activity": "exclusive",
+        "invalidate_on_failure": false,
+        "reuse_idle_ms": 0,
+        "methods": [
+          "currentURL",
+          "count",
+          "attribute",
+          "value",
+          "text",
+          "lines",
+          "readMany",
+          "visible",
+          "enabled",
+          "evaluate",
+          "click",
+          "runReadCode",
+          "download",
+          "fill",
+          "focus",
+          "press",
+          "waitFor",
+          "waitMilliseconds",
+          "navigate",
+          "prepareBackgroundPage",
+          "inspect",
+          "act",
+          "probeReads",
+          "setSecrets",
+          "hookActivate",
+          "hookEvents"
+        ],
+        "page": {
+          "secretReadback": false,
+          "trustedDownloadSelectors": [
+            "#sparkclaw-mail-original"
+          ],
+          "origins": [
+            "https://wx.mail.qq.com",
+            "https://mail.qq.com"
+          ],
+          "downloadOrigins": [
+            "https://wx.mail.qq.com",
+            "https://mail.qq.com"
+          ],
+          "loginURL": "https://wx.mail.qq.com/home/index#/list/1/1",
+          "timeoutMS": 180000,
+          "backgroundBeforeNavigation": true,
+          "codeEnabled": true,
+          "readOnlyCode": true,
+          "downloadEnabled": false,
+          "awaitedRead": true,
+          "effectSelectors": [],
+          "deniedURLs": [],
+          "beforeNavigationAssets": []
+        }
+      }
+    },
+    "capture": {
+      "handler": "qq_mail.capture",
+      "resource": "qq_mail",
+      "timeout_ms": 180000,
+      "script_id": "qqmail.capture",
+      "revision": 1,
+      "source_checksum": "sha256:3435326307837c3456d9692949be0526431c0b0c27f5919cdd00aa377eb5133d",
+      "host": {
+        "family": "capture",
+        "activity": "exclusive",
+        "invalidate_on_failure": false,
+        "reuse_idle_ms": 0,
+        "methods": [
+          "currentURL",
+          "count",
+          "attribute",
+          "value",
+          "text",
+          "lines",
+          "readMany",
+          "visible",
+          "enabled",
+          "evaluate",
+          "click",
+          "runReadCode",
+          "download",
+          "fill",
+          "focus",
+          "press",
+          "waitFor",
+          "waitMilliseconds",
+          "navigate",
+          "prepareBackgroundPage",
+          "inspect",
+          "act",
+          "probeReads",
+          "setSecrets",
+          "hookActivate",
+          "hookEvents"
+        ],
+        "page": {
+          "secretReadback": false,
+          "trustedDownloadSelectors": [
+            "#sparkclaw-mail-original"
+          ],
+          "origins": [
+            "https://wx.mail.qq.com",
+            "https://mail.qq.com"
+          ],
+          "downloadOrigins": [
+            "https://wx.mail.qq.com",
+            "https://mail.qq.com"
+          ],
+          "loginURL": "https://wx.mail.qq.com/home/index#/list/1/1",
+          "timeoutMS": 180000,
+          "backgroundBeforeNavigation": true,
+          "codeEnabled": true,
+          "readOnlyCode": true,
+          "downloadEnabled": true,
+          "awaitedRead": true,
+          "effectSelectors": [],
+          "deniedURLs": [],
+          "beforeNavigationAssets": []
+        }
+      }
+    },
+    "enumerate_thread": {
+      "handler": "qq_mail.enumerate_thread",
+      "resource": "qq_mail",
+      "timeout_ms": 180000,
+      "script_id": "qqmail.enumerate_thread",
+      "revision": 1,
+      "source_checksum": "sha256:3435326307837c3456d9692949be0526431c0b0c27f5919cdd00aa377eb5133d",
+      "host": {
+        "family": "enumerate_thread",
+        "activity": "exclusive",
+        "invalidate_on_failure": false,
+        "reuse_idle_ms": 0,
+        "methods": [
+          "currentURL",
+          "count",
+          "attribute",
+          "value",
+          "text",
+          "lines",
+          "readMany",
+          "visible",
+          "enabled",
+          "evaluate",
+          "click",
+          "runReadCode",
+          "download",
+          "fill",
+          "focus",
+          "press",
+          "waitFor",
+          "waitMilliseconds",
+          "navigate",
+          "prepareBackgroundPage",
+          "inspect",
+          "act",
+          "probeReads",
+          "setSecrets",
+          "hookActivate",
+          "hookEvents"
+        ],
+        "page": {
+          "secretReadback": false,
+          "trustedDownloadSelectors": [
+            "#sparkclaw-mail-original"
+          ],
+          "origins": [
+            "https://wx.mail.qq.com",
+            "https://mail.qq.com"
+          ],
+          "downloadOrigins": [
+            "https://wx.mail.qq.com",
+            "https://mail.qq.com"
+          ],
+          "loginURL": "https://wx.mail.qq.com/home/index#/list/1/1",
+          "timeoutMS": 180000,
+          "backgroundBeforeNavigation": true,
+          "codeEnabled": true,
+          "readOnlyCode": false,
+          "downloadEnabled": false,
+          "awaitedRead": false,
+          "effectSelectors": [],
+          "deniedURLs": [],
+          "beforeNavigationAssets": []
+        }
+      }
+    },
+    "mark_read": {
+      "handler": "qq_mail.mark_read",
+      "resource": "qq_mail",
+      "timeout_ms": 180000,
+      "script_id": "qqmail.mark_read",
+      "revision": 1,
+      "source_checksum": "sha256:3435326307837c3456d9692949be0526431c0b0c27f5919cdd00aa377eb5133d",
+      "host": {
+        "family": "mark_read",
+        "activity": "exclusive",
+        "invalidate_on_failure": false,
+        "reuse_idle_ms": 0,
+        "methods": [
+          "currentURL",
+          "count",
+          "attribute",
+          "value",
+          "text",
+          "lines",
+          "readMany",
+          "visible",
+          "enabled",
+          "evaluate",
+          "click",
+          "runReadCode",
+          "download",
+          "fill",
+          "focus",
+          "press",
+          "waitFor",
+          "waitMilliseconds",
+          "navigate",
+          "prepareBackgroundPage",
+          "inspect",
+          "act",
+          "probeReads",
+          "setSecrets",
+          "hookActivate",
+          "hookEvents"
+        ],
+        "page": {
+          "secretReadback": false,
+          "trustedDownloadSelectors": [
+            "#sparkclaw-mail-original"
+          ],
+          "origins": [
+            "https://wx.mail.qq.com",
+            "https://mail.qq.com"
+          ],
+          "downloadOrigins": [
+            "https://wx.mail.qq.com",
+            "https://mail.qq.com"
+          ],
+          "loginURL": "https://wx.mail.qq.com/home/index#/list/1/1",
+          "timeoutMS": 180000,
+          "backgroundBeforeNavigation": true,
+          "codeEnabled": true,
+          "readOnlyCode": false,
+          "downloadEnabled": false,
+          "awaitedRead": false,
+          "effectSelectors": [],
+          "deniedURLs": [],
+          "beforeNavigationAssets": []
+        }
+      }
+    },
+    "collect_page": {
+      "handler": "qq_mail.collect_page",
+      "resource": "qq_mail",
+      "timeout_ms": 1800000,
+      "script_id": "qqmail.collect_page",
+      "revision": 1,
+      "source_checksum": "sha256:3435326307837c3456d9692949be0526431c0b0c27f5919cdd00aa377eb5133d",
+      "host": {
+        "family": "qq_mail.inbound",
+        "activity": "read",
+        "invalidate_on_failure": true,
+        "reuse_idle_ms": 1800000,
+        "methods": [
+          "currentURL",
+          "count",
+          "attribute",
+          "value",
+          "text",
+          "lines",
+          "readMany",
+          "visible",
+          "enabled",
+          "evaluate",
+          "click",
+          "runReadCode",
+          "download",
+          "fill",
+          "focus",
+          "press",
+          "waitFor",
+          "waitMilliseconds",
+          "navigate",
+          "prepareBackgroundPage",
+          "inspect",
+          "act",
+          "probeReads",
+          "setSecrets",
+          "hookActivate",
+          "hookEvents"
+        ],
+        "page": {
+          "secretReadback": false,
+          "trustedDownloadSelectors": [
+            "#sparkclaw-mail-original"
+          ],
+          "origins": [
+            "https://wx.mail.qq.com",
+            "https://mail.qq.com"
+          ],
+          "downloadOrigins": [
+            "https://wx.mail.qq.com",
+            "https://mail.qq.com"
+          ],
+          "loginURL": "https://wx.mail.qq.com/home/index#/list/1/1",
+          "timeoutMS": 1800000,
+          "backgroundBeforeNavigation": true,
+          "codeEnabled": true,
+          "readOnlyCode": true,
+          "downloadEnabled": true,
+          "awaitedRead": true,
+          "effectSelectors": [],
+          "deniedURLs": [],
+          "beforeNavigationAssets": [],
+          "hook": {
+            "module": "applications/mail/runtime/mail-observer-runtime.cjs",
+            "provider": "qq_mail",
+            "origins": [
+              "https://wx.mail.qq.com",
+              "https://mail.qq.com"
+            ]
+          }
+        }
+      }
+    },
+    "watch": {
+      "handler": "qq_mail.watch",
+      "resource": "qq_mail.watch",
+      "renewable": true,
+      "timeout_ms": 120000,
+      "script_id": "qq_mail.observe",
+      "revision": 1,
+      "source_checksum": "sha256:1682df0da479fc3bb6c7ade47b480bae06ab18898db8386309d6f3137c0cc1aa",
+      "host": {
+        "family": "qq_mail.inbound",
+        "activity": "watch",
+        "invalidate_on_failure": false,
+        "reuse_idle_ms": 1800000,
+        "methods": [
+          "currentURL",
+          "count",
+          "attribute",
+          "value",
+          "text",
+          "lines",
+          "readMany",
+          "visible",
+          "enabled",
+          "evaluate",
+          "click",
+          "runReadCode",
+          "download",
+          "fill",
+          "focus",
+          "press",
+          "waitFor",
+          "waitMilliseconds",
+          "navigate",
+          "prepareBackgroundPage",
+          "inspect",
+          "act",
+          "probeReads",
+          "setSecrets",
+          "hookActivate",
+          "hookEvents"
+        ],
+        "page": {
+          "secretReadback": false,
+          "trustedDownloadSelectors": [
+            "#sparkclaw-mail-original"
+          ],
+          "origins": [
+            "https://wx.mail.qq.com",
+            "https://mail.qq.com"
+          ],
+          "downloadOrigins": [],
+          "loginURL": "https://wx.mail.qq.com/home/index#/list/1/1",
+          "timeoutMS": 300000,
+          "backgroundBeforeNavigation": true,
+          "codeEnabled": true,
+          "readOnlyCode": true,
+          "downloadEnabled": false,
+          "awaitedRead": true,
+          "effectSelectors": [],
+          "deniedURLs": [],
+          "beforeNavigationAssets": [],
+          "hook": {
+            "module": "applications/mail/runtime/mail-observer-runtime.cjs",
+            "provider": "qq_mail",
+            "origins": [
+              "https://wx.mail.qq.com",
+              "https://mail.qq.com"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

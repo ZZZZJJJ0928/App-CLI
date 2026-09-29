@@ -70,7 +70,7 @@ Application and command identifiers use lowercase letters, digits, and separated
 
 Command schemas are validated as Draft 2020-12. Use only local fragment references such as `#/$defs/operand`; network and filesystem references are unsupported. A schema identifies acceptable data, not permission to perform an operation.
 
-`side_effect` accepts `read_only`, `local_mutation`, or `remote_mutation`. App-CLI registers all three declarations but executes only `read_only`. Mutation attempts fail with `CAPABILITY_NOT_SUPPORTED` before the adapter is invoked. Do not classify navigation, application state changes, or remote writes as read-only to work around this restriction.
+`side_effect` accepts `read_only`, `local_mutation`, or `remote_mutation`. Legacy execution registers all three declarations but executes only `read_only`; mutation attempts fail with `CAPABILITY_NOT_SUPPORTED` before invocation. The fork's separate [lifecycle extension](LIFECYCLE.md) requires explicit reviewed registration and trusted authorization. Do not classify navigation, application state changes, or remote writes as read-only to work around admission.
 
 ## CLI and result contract
 

@@ -1,0 +1,42 @@
+{
+  "name": "@infinimesh/app-cli-runtime",
+  "version": "0.3.0-sparkclaw.1",
+  "type": "module",
+  "description": "Owner-local lifecycle execution backend for App-CLI",
+  "license": "(MIT AND Apache-2.0)",
+  "engines": {
+    "node": ">=26 <27"
+  },
+  "files": [
+    "src",
+    "schemas",
+    "applications",
+    "assets",
+    "LICENSE",
+    "NOTICE",
+    "bindings",
+    "release.json",
+    "npm-shrinkwrap.json"
+  ],
+  "exports": {
+    "./authorization": "./src/authorization.mjs",
+    "./protocol": "./src/protocol.mjs",
+    "./executor": "./src/executor.mjs",
+    "./host-port": "./src/host-port.mjs",
+    "./bindings/*": "./bindings/*",
+    "./assets/*": "./assets/*",
+    "./mail-hook": "./applications/mail/runtime/mail-observer-runtime.cjs",
+    "./product-client": "./src/product-client.mjs",
+    "./mail-client": "./applications/mail/client.mjs",
+    "./release": "./src/release.mjs"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs test/mail/*.test.mjs"
+  },
+  "dependencies": {
+    "ajv": "8.17.1"
+  },
+  "devDependencies": {
+    "mailparser": "3.9.22"
+  }
+}

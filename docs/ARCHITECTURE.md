@@ -1,5 +1,11 @@
 # Architecture
 
+This page describes the retained v1 architecture. The fork's implemented
+[lifecycle core extension](LIFECYCLE.md) adds explicit authorized control through
+the same Registry. The [optional application runtime](APPLICATION-RUNTIME.md) implements
+resident execution, BrowserHostPort and the mail application without changing
+that public ownership boundary.
+
 App-CLI exposes reviewed application capabilities as business commands for scripts and agents. A caller supplies business parameters and receives structured results; GUI navigation is not part of the consumer contract. An access backend may still require an interactive desktop or device session. Developers record those requirements when maintaining adapters and investigating failures.
 
 ## Core and adapters
@@ -37,7 +43,7 @@ The [technical options guide](TECHNICAL-OPTIONS.md) maps these kinds to concrete
 
 `Registry(adapters)` accepts an explicit collection of trusted adapter objects. It validates and retains a detached manifest snapshot, rejects duplicate application and command identifiers, and validates JSON inputs and outputs. Command schemas use Draft 2020-12 and local fragment references; schema retrieval over the network is disabled. There is no automatic plugin scan, CLI path import, or adapter download.
 
-Registration grants in-process code execution. It is not a sandbox or an assertion that an application vendor permits a particular operation. The registry rejects commands declared `local_mutation` or `remote_mutation` before invocation. A `read_only` declaration still requires implementation review: the registry cannot make arbitrary Python code read-only.
+Registration grants in-process code execution. It is not a sandbox or an assertion that an application vendor permits a particular operation. Legacy execution rejects commands declared `local_mutation` or `remote_mutation` before invocation. The separate lifecycle entry additionally requires reviewed capability registration and trusted authorization. A `read_only` declaration still requires implementation review: the registry cannot make arbitrary Python code read-only.
 
 ## Business behavior needs evidence
 

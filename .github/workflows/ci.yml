@@ -24,3 +24,21 @@ jobs:
       - run: python -m build
       - run: app-cli calculator add --a 2 --b 3
       - run: app-cli calculator-runtime multiply --a 6 --b 7
+
+  lifecycle-runtime:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "26"
+      - run: python -m venv .venv
+      - run: .venv/bin/python -m pip install -e ".[dev]"
+      - run: npm ci --prefix runtimes/browser --ignore-scripts
+      - run: npm test --prefix runtimes/browser
+      - run: node runtimes/browser/applications/mail/userscripts/build.mjs --check
+      - run: node runtimes/browser/applications/mail/build-bindings.mjs --check
+      - run: .venv/bin/python release/build.py

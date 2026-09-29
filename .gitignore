@@ -8,6 +8,8 @@ __pycache__/
 .ruff_cache/
 build/
 dist/
+node_modules/
+*.tgz
 .DS_Store
 .idea/
 .vscode/

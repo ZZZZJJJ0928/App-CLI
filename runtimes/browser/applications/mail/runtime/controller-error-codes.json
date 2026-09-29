@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "description": "Every error code the Controller may return to Gateway and the browsercontrol code Gateway projects it to. errors.mjs rejects unknown codes at construction; client_test.go asserts mapControllerFailure agrees with this table.",
+  "codes": {
+    "browser_busy": { "gateway_code": "browser_busy", "gateway_retryable": true },
+    "browser_controller_stale": { "gateway_code": "browser_controller_stale", "gateway_retryable": false },
+    "browser_controller_stopping": { "gateway_code": "browser_controller_unavailable", "gateway_retryable": true },
+    "browser_controller_unavailable": { "gateway_code": "browser_controller_unavailable", "gateway_retryable": true },
+    "browser_extension_rejected": { "gateway_code": "browser_extension_rejected", "gateway_retryable": false },
+    "browser_extension_unavailable": { "gateway_code": "browser_extension_unavailable", "gateway_retryable": true },
+    "browser_lane_unavailable": { "gateway_code": "browser_operation_unavailable", "gateway_retryable": false },
+    "browser_operation_unavailable": { "gateway_code": "browser_operation_unavailable", "gateway_retryable": false },
+    "browser_page_stale": { "gateway_code": "browser_page_stale", "gateway_retryable": false },
+    "browser_script_timeout": { "gateway_code": "browser_script_timeout", "gateway_retryable": true },
+    "browser_script_unavailable": { "gateway_code": "browser_script_unavailable", "gateway_retryable": false },
+    "browser_session_invalid": { "gateway_code": "browser_session_stale", "gateway_retryable": false },
+    "browser_session_not_found": { "gateway_code": "browser_session_not_found", "gateway_retryable": false },
+    "browser_session_stale": { "gateway_code": "browser_session_stale", "gateway_retryable": false },
+    "invalid_request": { "gateway_code": "browser_control_invalid_request", "gateway_retryable": false }
+  }
+}

@@ -1,0 +1,45 @@
+[
+  {
+    "value": null,
+    "sha256": "5e2cc5130f232a437c79d1363dbf012379ee5d000cf6842e5036af99fd1eafc8"
+  },
+  {
+    "value": true,
+    "sha256": "bceff91cd35f1e5c4a7a0958196c6f20ce03093ed6f8fe2845e5d3da08fa304b"
+  },
+  {
+    "value": 1,
+    "sha256": "d05ae265510fd1f600cb191ccc293cb5c277e99d686b65c8ca465fb98b13fcc3"
+  },
+  {
+    "value": 1.0,
+    "sha256": "d05ae265510fd1f600cb191ccc293cb5c277e99d686b65c8ca465fb98b13fcc3"
+  },
+  {
+    "value": -0.0,
+    "sha256": "1a9f0da0f8d0a663686a8bbc021402cc59f8db8f1afc83010f9334a483746ab6"
+  },
+  {
+    "value": {
+      "邮箱": "example",
+      "": 0.125,
+      "𐀀": [
+        1e-07,
+        5e-324
+      ]
+    },
+    "sha256": "155f2f0decf8859aa20f999534080434b7095cec9025d1b44065bdb912fa8176"
+  },
+  {
+    "value": {
+      "app": "fixture-counter",
+      "command": "increment",
+      "request_key": "example-intent",
+      "arguments": {
+        "amount": 2
+      },
+      "deadline_ms": 2000000000000
+    },
+    "sha256": "2b738f46e61088ff6df28b60f4cb3800edada1a002dfc49e2c915d1d2aaa2c1c"
+  }
+]

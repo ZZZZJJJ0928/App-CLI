@@ -1,5 +1,9 @@
 # Runtime adapters and task outcomes
 
+This document remains the protocol 1.0 reference. The fork's explicit
+[lifecycle protocol 2.0](LIFECYCLE.md) preserves this path and adds a separately
+admitted control interface and bounded POSIX client transport.
+
 App-CLI 0.2 adds a public, implementation-independent contract for execution runtimes. It shares command validation and task-result semantics while keeping executable selection and any persistent task lifecycle inside a reviewed adapter and its executor. The package has no required runtime service, account, device, or adjacent repository.
 
 ## Try the independent reference

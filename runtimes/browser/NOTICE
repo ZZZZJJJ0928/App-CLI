@@ -1,0 +1,7 @@
+App-CLI runtime
+
+Generic runtime source is MIT, copyright App-CLI contributors.
+applications/mail/, assets/mail/ and test/mail/ include code originally from
+Infinimesh-ai/SparkClaw at 6f4c97e4d0d7e03fab2de48661ddd6aed3034cd9,
+licensed Apache-2.0. See applications/mail/LICENSE and NOTICE.
+These licenses and notices must remain in redistributed artifacts.

@@ -1,0 +1,4 @@
+Mail application modules originate from SparkClaw, https://github.com/Infinimesh-ai/SparkClaw
+Source revision: 6f4c97e4d0d7e03fab2de48661ddd6aed3034cd9
+Copyright SparkClaw contributors. Licensed under Apache-2.0 (see LICENSE).
+App-CLI core and generic execution backend remain under their respective MIT license.

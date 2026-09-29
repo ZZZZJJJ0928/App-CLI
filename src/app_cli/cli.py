@@ -4,6 +4,7 @@ import argparse
 import json
 import math
 import re
+import sys
 
 from . import __version__
 from .adapters import builtin_adapters
@@ -111,9 +112,15 @@ def _write(value):
 
 
 def main(argv=None, *, registry=None):
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    if "--machine" in arguments:
+        from .machine import main as machine_main
+        return machine_main(arguments, registry=registry)
     try:
-        registry = registry if registry is not None else Registry(builtin_adapters())
-        args = parser(registry).parse_args(argv)
+        if registry is None:
+            from .deployment import configured_registry
+            registry = configured_registry()
+        args = parser(registry).parse_args(arguments)
         if args._action == "apps":
             _write({"ok": True, "data": {"apps": registry.list_apps()}})
         elif args._action == "describe":

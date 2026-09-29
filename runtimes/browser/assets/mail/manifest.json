@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "scripts": [
+    {
+      "file": "qq-mail-reader.user.js",
+      "version": "0.2.0",
+      "sha256": "f02d6f3a278a0162b97c72ca2dd8b43867ec54b7930811b4160e5e62bda488d8",
+      "requires": [],
+      "uuid": "5b4323dc-326f-4fbb-a1a0-4ac8c00631c0"
+    },
+    {
+      "file": "gmail-mail-reader.user.js",
+      "version": "0.2.0",
+      "sha256": "71fa7adbba7956dcc497d7f69a0631ecab14898160044373c1f7e28dbf0f177f",
+      "requires": [],
+      "uuid": "1b57e83c-a914-48c1-a490-77d4bca191d5"
+    },
+    {
+      "file": "outlook-mail-reader.user.js",
+      "version": "0.2.0",
+      "sha256": "02774e9414bad59ee859fc409e1c52450aa249712807a5d227ec9263ffc132de",
+      "requires": [],
+      "uuid": "c2b90f5c-629d-41bd-8fc8-179729ad70b4"
+    }
+  ]
+}

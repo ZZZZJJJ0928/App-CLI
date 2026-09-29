@@ -1,0 +1,68 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import {compileSchema} from '../../src/protocol.mjs';
+import {outputSchema} from '../../applications/mail/output-schema.mjs';
+import {mailHandlers} from '../../applications/mail/handlers.mjs';
+import {openSendJournal} from '../../applications/mail/lib/send-journal.mjs';
+import {validateManagedSend} from '../../applications/mail/lib/managed-send.mjs';
+import {MailPage} from '../../applications/mail/runtime/mail-page.mjs';
+
+test('mark-read public schema accepts the product observation receipt without inventing a status field', () => {
+  const validate = compileSchema(outputSchema('qq_mail', 'mark_read'));
+  const receipt = {schema_version: 1, provider: 'qq_mail', target: {}, read_state: 'read', observed_at: '2026-09-29T00:00:00Z'};
+  assert.equal(validate(receipt), true);
+  assert.equal(validate({...receipt, read_state: 'invented'}), false);
+  assert.equal(validate({...receipt, status: 'sent'}), false);
+});
+test('all three installed send reconciliation handlers read journals without a browser or a second effect', async t => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'mail-lifecycle-'));
+  t.after(() => fs.rm(root, {recursive: true, force: true}));
+  const handlers = await mailHandlers();
+  for (const provider of ['gmail', 'outlook', 'qq_mail']) {
+    const input = {schema_version: 1, operation: 'send', provider, account: 'default', account_address: 'owner@example.invalid',
+      invocation_id: `fixture-${provider}`, mode: 'compose', message: {to: ['recipient@example.invalid'], subject: 'Fixture', body: {format: 'text', content: 'Synthetic fixture'}}};
+    const validated = validateManagedSend(input, provider);
+    const journal = await openSendJournal(root, validated);
+    await journal.write('dispatching');
+    const context = {resource: {workspace_root: root}, beforeEffect: () => assert.fail('reconciliation must not dispatch')};
+    assert.equal((await handlers[`${provider}.send`].reconcile(input, context)).status, 'uncertain');
+    const receipt = {schema_version: 1, provider, status: 'sent', recipient_digest: validated.recipientDigest};
+    await journal.write('sent', receipt);
+    assert.deepEqual((await handlers[`${provider}.send`].reconcile(input, context)).data, receipt);
+    assert.equal(compileSchema(outputSchema(provider, 'send'))(receipt), true);
+  }
+});
+test('probe loading waits use the action port while read batches remain read-only', async () => {
+  const calls = [];
+  const page = new MailPage({call: async (method, ...args) => {calls.push([method, args]); return method === 'probeReads' ? [] : true;}},
+    {operation: 'probe'}, {resource: {}});
+  await page.qqTask().onTab([['get', 'url']]);
+  await page.qqTask().onTab([['wait', '200']]);
+  assert.deepEqual(calls.map(value => value[0]), ['probeReads', 'act']);
+});
+
+test('retry of an uncertain local capture reconciles the original task; remote writes are not replayed', async () => {
+  const {MailboxClient} = await import('../../applications/mail/client.mjs');
+  for (const operation of ['collect_page', 'capture', 'read', 'send', 'mark_read']) {
+    const mailbox = Object.create(MailboxClient.prototype), calls = [];
+    mailbox.admission = () => ({existing: true, grant: {max_deadline_ms: Date.now() + 10000}});
+    mailbox.describe = () => ({spec: {source_checksum: 'fixture-checksum'}});
+    mailbox.client = {
+      async invoke() {return {kind: 'task', task: {id: 'original', status: 'uncertain'}};},
+      refresh(admission, id, op) {
+        calls.push({id, op});
+        return {admission, acknowledged: Promise.resolve({kind: 'task', task: {id, status: 'completed'}, data: {status: 'collected'}})};
+      },
+      async wait(admission, response) {return response;},
+    };
+    const result = await mailbox.execute({provider: 'gmail', operation, input: {}});
+    if (['send', 'mark_read'].includes(operation)) {
+      assert.deepEqual(calls, []); assert.equal(result.state, 'failed');
+    } else {
+      assert.deepEqual(calls, [{id: 'original', op: 'reconcile'}]); assert.equal(result.state, 'completed');
+    }
+  }
+});

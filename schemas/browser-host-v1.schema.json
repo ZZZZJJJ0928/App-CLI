@@ -1,0 +1,138 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BrowserHostPort 1.0 signed request",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "protocol_version": {
+      "const": "1.0"
+    },
+    "operation": {
+      "enum": [
+        "hello",
+        "acquire",
+        "call",
+        "heartbeat",
+        "release"
+      ]
+    },
+    "epoch": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "mac": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "generation": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "bindings": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{64}$"
+      }
+    },
+    "release_digest": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "authorization_ref": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "task_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "lease_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "method": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "arguments": {
+      "type": "array",
+      "maxItems": 32
+    },
+    "park": {
+      "type": "boolean"
+    },
+    "invalidate": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "protocol_version",
+    "operation",
+    "epoch",
+    "mac"
+  ],
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "operation": {
+            "const": "hello"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "bindings"
+        ]
+      },
+      "else": {
+        "required": [
+          "generation",
+          "authorization_ref",
+          "task_id"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "operation": {
+            "enum": [
+              "call",
+              "heartbeat",
+              "release"
+            ]
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "lease_id"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "operation": {
+            "const": "call"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "method",
+          "arguments"
+        ]
+      }
+    }
+  ]
+}

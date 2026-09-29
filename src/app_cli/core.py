@@ -95,7 +95,7 @@ def _schema_validator(schema) -> Draft202012Validator:
 class Registry:
     """Explicit registration grants code execution in this process, not a sandbox."""
 
-    def __init__(self, adapters: Iterable[Adapter]):
+    def __init__(self, adapters: Iterable[Adapter], *, lifecycle=(), authorization=None, clock=None):
         self._apps = {}
         manifest_schema = json.loads(files("app_cli").joinpath("manifests/app-manifest.schema.json").read_text(encoding="utf-8"))
         manifest_validator = Draft202012Validator(manifest_schema, registry=SchemaRegistry())
@@ -122,6 +122,14 @@ class Registry:
                     _schema_validator(command["output_schema"]),
                 )
             self._apps[manifest["id"]] = (adapter, manifest, commands)
+        # Optional reviewed lifecycle capabilities do not change legacy invoke.
+        from .lifecycle import LifecycleDispatcher
+        options = {} if clock is None else {"clock": clock}
+        self._lifecycle = LifecycleDispatcher(self, lifecycle, authorization, **options)
+
+    def control(self, request: dict) -> dict:
+        """Validate and authorize one lifecycle operation without automatic retries."""
+        return self._lifecycle.dispatch(request)
 
     def list_apps(self) -> list[dict]:
         return [{"id": manifest["id"], "name": manifest["name"], "version": manifest["version"],

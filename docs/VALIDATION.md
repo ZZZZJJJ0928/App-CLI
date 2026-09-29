@@ -1,5 +1,35 @@
 # Validation record
 
+## 2026-09-29: SparkClaw application extraction
+
+See [application runtime](APPLICATION-RUNTIME.md) for architecture, build,
+release boundaries and maintenance. Tested locally on Linux ARM64, Python 3.12,
+Node.js 26.2.0; fork release `0.3.0-sparkclaw.1`.
+
+| Check | Observed result |
+| --- | --- |
+| Python source | 86 tests, original 60 retained; ResourceWarning promoted to error |
+| Optional runtime and migrated mail | 273 tests, no skips |
+| Public contract | Three root/runtime schema copies and Python lifecycle copy agree; cross-language canonical vectors match |
+| Durable service | Real subprocess, flock exclusion, response loss, restart/epoch takeover and reconciliation |
+| Recovery | Immutable scoped key; cancelled queued work retains lane; read-only shutdown remains resumable; missing/older ledger rejected |
+| Capacity | New admission stops at the watermark; existing key replay/conflict checks remain |
+| Host | Read/watch lease separation, warm page, epoch/generation fencing, cleanup failure, stale RPC and single invalidation cleanup |
+| Providers | Migrated account, list, Reader, original, send and receipt tests; mark-read schema and browser-free send journal reconciliation |
+| Paired packaging | Hashed wheel/npm/dependencies; independent installation; mixed-version/file-tamper rejection |
+| Rollback | Two compatible artifact sets in disposable state; whole consumer/runtime/wheel restoration retains state and increases epoch |
+| Product integration | SparkClaw non-mail fixture through public Python entry to actual isolated Electron task page; ordinary browser regression separate |
+
+The same Python suite is also run against a fresh wheel outside the repository;
+repeated installation tests do not add distinct test cases. Built-in native,
+CLI and Runtime v1 multiplication return 42. The native mutation fixture uses
+its own transaction, not Node or a browser.
+
+These checks use self-owned local fixtures and synthetic mail evidence, not real
+QQ/Gmail/Outlook accounts. They do not prove remote exactly-once effects or live
+provider compatibility. No production deployment or real email send was made.
+Cloud CI and non-POSIX Runtime v2 cleanup are not claimed as locally executed.
+
 ## 2026-09-16: 0.2 runtime contracts
 
 Scope: generic task outcomes, runtime protocol 1.0, the explicitly registered runtime adapter, and self-owned calculator references. This is a local development validation record; no release was published.
