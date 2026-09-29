@@ -1,10 +1,11 @@
 // Native Sent-folder evidence shared by legacy and managed sends.
 export const QQMAIL_SENT_FOLDER_SELECTOR='.frame-sidebar-menu .sidebar-menu-text:text-is("Sent"), .frame-sidebar-menu .sidebar-menu-text:text-is("已发送")';
 export const QQMAIL_SENT_BASELINE_EXPRESSION = `async () => {
+  const visible = element => element && element.getBoundingClientRect().width > 0 && element.getBoundingClientRect().height > 0 && getComputedStyle(element).visibility !== "hidden";
   const deadline = Date.now() + 5000;
   while (Date.now() < deadline) {
     if (/^#\\/list\\/3(?:$|[/?])/.test(location.hash) && document.querySelector(".mail-list-page")) {
-      return { ids: Array.from(document.querySelectorAll(".mail-list-page-item[data-mailid]"), row => row.getAttribute("data-mailid")) };
+      return { ids: Array.from(document.querySelectorAll(".mail-list-page-item[data-mailid]")).filter(visible).map(row => row.getAttribute("data-mailid")) };
     }
     await new Promise(resolve => setTimeout(resolve, 100));
   }
@@ -16,7 +17,7 @@ export const QQMAIL_SENT_VERIFICATION_EXPRESSION = `async expected => {
     element.getBoundingClientRect().height > 0 && getComputedStyle(element).visibility !== "hidden";
   const deadline = Date.now() + 5000;
   while (Date.now() < deadline) {
-    const rows = Array.from(document.querySelectorAll(".mail-list-page-item[data-mailid]"));
+    const rows = Array.from(document.querySelectorAll(".mail-list-page-item[data-mailid]")).filter(visible);
     const first = rows[0];
     const id = first?.getAttribute("data-mailid");
     if (/^#\\/list\\/3(?:$|[/?])/.test(location.hash) &&

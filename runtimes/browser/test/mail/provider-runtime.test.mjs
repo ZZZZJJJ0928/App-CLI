@@ -184,7 +184,7 @@ test("QQ confirms a new matching sent record, not an old message or another fold
       querySelector: () => ({ textContent: scenario === "wrong_subject" ? "wrong" : "subject" }),
     };
     const rows = scenario === "missing" ? [] : scenario === "empty" ? [first] :
-      [first, { getAttribute: () => scenario === "unrelated_insert" ? "other" : "old" }];
+      [first, { ...first, getAttribute: () => scenario === "unrelated_insert" ? "other" : "old" }];
     const verify = vm.runInNewContext(QQMAIL_SENT_VERIFICATION_EXPRESSION, {
       Date: { now: () => now }, setTimeout: callback => { now += 6000; callback(); },
       crypto: crypto.webcrypto, TextEncoder, Uint8Array,
@@ -209,7 +209,7 @@ test("Outlook confirms only a newly inserted matching sent item after compose cl
     const inspect = vm.runInNewContext(OUTLOOK_SEND_VERIFICATION_EXPRESSION, {
       Date: { now: () => now += 6000 }, setTimeout, crypto: crypto.webcrypto, TextEncoder, Uint8Array,
       window: { location: { href: "https://outlook.live.com/mail/0/sentitems", pathname: scenario === "inbox" ? "/mail/0/inbox" : "/mail/0/sentitems" }, getComputedStyle: () => ({}) },
-      document: { querySelectorAll: selector => selector.includes('[data-convid]') ? scenario === "missing" ? [] : scenario === "empty" ? [row] : [row, {id: scenario === "unrelated_insert" ? "unexpected" : "old"}] : scenario === "open" ? [row] : [] },
+      document: { querySelectorAll: selector => selector.includes('[data-convid]') ? scenario === "missing" ? [] : scenario === "empty" ? [row] : [row, {...row, id: scenario === "unrelated_insert" ? "unexpected" : "old"}] : scenario === "open" ? [row] : [] },
     });
     const result = await inspect({ids: scenario === "empty" ? [] : ["old"], recipient: hash("one@example.test"), subject: hash("subject")});
     assert.equal(result.sent_evidence, ["sent", "empty"].includes(scenario), scenario);

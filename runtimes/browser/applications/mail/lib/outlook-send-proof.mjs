@@ -13,9 +13,10 @@ export const OUTLOOK_SEND_SELECTOR = [
 ].join(", ");
 
 export const OUTLOOK_SENT_BASELINE_EXPRESSION = `async () => {
+  const visible = element => element && element.getBoundingClientRect().width > 0 && element.getBoundingClientRect().height > 0 && getComputedStyle(element).visibility !== "hidden";
   const deadline = Date.now() + 10000;
   while (Date.now() < deadline) {
-    const rows = Array.from(document.querySelectorAll('[role="option"][data-convid]'));
+    const rows = Array.from(document.querySelectorAll('[role="option"][data-convid]')).filter(visible);
     const empty = Array.from(document.querySelectorAll('[role="treeitem"][data-folder-name="sent items"][aria-selected="true"]'))
       .some(folder => / - 0 items(?:\\s|$)/.test(folder.getAttribute("title") || ""));
     if (/\\/sentitems\\/?$/.test(location.pathname) && (rows.length > 0 || empty) && rows.length <= 1000) {
@@ -43,7 +44,7 @@ export const OUTLOOK_SEND_VERIFICATION_EXPRESSION = String.raw`(async (expected)
     "SHA-256", new TextEncoder().encode(value))), byte => byte.toString(16).padStart(2, "0")).join("");
   const collect = async () => {
     const composeOpen = anyVisible(bodySelector) || anyVisible(sendSelector);
-    const rows = Array.from(document.querySelectorAll('[role="option"][data-convid]'));
+    const rows = Array.from(document.querySelectorAll('[role="option"][data-convid]')).filter(isVisible);
     const first = rows[0];
     let sentEvidence = false;
     if (!composeOpen && /\/sentitems\/?$/.test(window.location.pathname) && first &&
