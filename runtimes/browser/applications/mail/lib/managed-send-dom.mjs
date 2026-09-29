@@ -133,9 +133,9 @@ export function managedSendDOM(provider,phase,expected={}){
    const chipSelector=provider==='qq_mail'?'.xmail-cmp-account':provider==='gmail'?(box.querySelector('[role="option"][data-hovercard-id]')?'[role="option"][data-hovercard-id]':'[email]'):'[draggable="true"][aria-label]';const chips=[...box.querySelectorAll(chipSelector)];
    const emailPattern=/[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/gu;
    const attributes=['email','data-hovercard-id','data-email','data-address','title','aria-label'];
-   const candidates=chips.map(n=>[...attributes.map(k=>n.getAttribute(k)||''),text(n)].flatMap(v=>String(v).match(emailPattern)||[]));
+   const candidates=chips.map(n=>[n,...n.querySelectorAll('[title],[aria-label],[email],[data-email],[data-address],[data-recipient]')].flatMap(node=>[...attributes.map(k=>node.getAttribute(k)||''),...[...node.attributes??[]].filter(a=>a.name.startsWith('data-')).map(a=>a.value),text(node)]).flatMap(v=>String(v).match(emailPattern)||[]));
    const parsed=candidates.map(values=>{const unique=[...new Set(values.map(v=>v.toLowerCase()))];return unique.length===1?values[0]:''});
-   const shapes=chips.filter((n,i)=>!parsed[i]).slice(0,3).map(n=>{const key=Object.keys(n).find(k=>/^__react(?:Fiber|InternalInstance)\$/u.test(k));const props=[];for(let f=n[key],i=0;f&&i<5;f=f.return,i++)props.push(Object.keys(f.memoizedProps||{}).filter(k=>/^[a-zA-Z_]{1,40}$/u.test(k)).slice(0,20));return {attributes:attributes.map(k=>!!n.getAttribute(k)),text_has_address:!!text(n).match(emailPattern),props}});
+   const shapes=chips.filter((n,i)=>!parsed[i]).slice(0,3).map(n=>{const key=Object.keys(n).find(k=>/^__react(?:Fiber|InternalInstance)\$/u.test(k));const props=[];for(let f=n[key],i=0;f&&i<5;f=f.return,i++)props.push(Object.keys(f.memoizedProps||{}).filter(k=>/^[a-zA-Z_]{1,40}$/u.test(k)).slice(0,20));return {attributes:attributes.map(k=>!!n.getAttribute(k)),attribute_names:[...n.attributes??[]].map(a=>a.name).filter(k=>/^[a-z-]{1,40}$/u.test(k)),own_keys:Object.keys(n).filter(k=>/^[a-zA-Z_]{1,40}$/u.test(k)).slice(0,20),text_has_address:!!text(n).match(emailPattern),props}});
    const copy=input?.cloneNode(true);copy?.querySelectorAll('[draggable="true"][aria-label]').forEach(n=>n.remove());
    return {values:parsed,pending:input?.value??text(copy).replace(/[\u200b\ufeff]/gu,''),shapes};
   };

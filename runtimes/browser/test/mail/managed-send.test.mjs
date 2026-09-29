@@ -114,10 +114,19 @@ test('Bcc toggles are not recipients while populated native Bcc editors block se
 test('recipient proof reads an address-bearing label and rejects contradictory chip addresses',()=>{
  let title='Display name';
  const node=extra=>({isConnected:true,getBoundingClientRect:()=>({width:20,height:20}),getAttribute:()=>null,...extra});
- const chip=node({getAttribute:k=>k==='title'?title:k==='aria-label'?'Display name <recipient@example.test>':null,textContent:'Display name'});
+ const chip=node({querySelectorAll:()=>[],getAttribute:k=>k==='title'?title:k==='aria-label'?'Display name <recipient@example.test>':null,textContent:'Display name'});
  const input=node({value:'',querySelectorAll:()=>[chip],cloneNode:()=>({querySelectorAll:()=>[{remove(){}}]})});
  const root=node({querySelector:s=>s==='[data-sc-mail-control="to"]'?input:s.includes('subject')?{value:'subject'}:null,querySelectorAll:()=>[]});
  const evaluate=()=>vm.runInNewContext(`(${managedSendDOM.toString()})('outlook','readback',{})`,{document:{querySelectorAll:()=>[]},__sparkclawManagedMail:{root,body:node({innerText:'body'}),send:node({}),mode:'compose'},getComputedStyle:()=>({visibility:'visible'})});
  assert.deepEqual([...evaluate().to],['recipient@example.test']);
  title='different@example.test';assert.equal(evaluate().check,'unparsed_recipient');
+});
+
+test('QQ keeps a unique aria-labelled recipient input when wrapper labels are absent',()=>{
+ const node=extra=>({isConnected:true,getBoundingClientRect:()=>({width:20,height:20}),getAttribute:()=>null,setAttribute(){},...extra});
+ const to=node({}),subject=node({value:''}),send=node({innerText:'Send'});
+ const root=node({__reactFiber$fixture:{return:{memoizedProps:{value:{isResumeMail:false,isEdited:false}}}},querySelectorAll:s=>s.includes('subjectbox')?[subject]:s.startsWith('[name="to"]')?[to]:s.startsWith('.mail-compose-header')?[send]:[]});
+ const body=node({closest:()=>root});
+ const value=vm.runInNewContext(`(${managedSendDOM.toString()})('qq_mail','editor',{})`,{document:{querySelectorAll:()=>[body]},__sparkclawManagedMail:{provider:'qq_mail',mode:'compose'},getComputedStyle:()=>({visibility:'visible'})});
+ assert.equal(value.ready,true);
 });
