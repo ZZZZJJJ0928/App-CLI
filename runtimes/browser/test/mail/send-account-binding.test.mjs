@@ -10,7 +10,7 @@ test('managed send binds the Reader mailbox instead of an Outlook login alias', 
   let observed = 'Mailbox@Outlook.COM';
   const tab = {inspect: async expression => ({origin: url, result: await vm.runInNewContext(`(${expression})()`, {
     location: {origin: 'https://outlook.live.com', href: url}, TextEncoder, Uint8Array, crypto: crypto.webcrypto,
-    window: {SparkClawMailReader: {provider: 'outlook', version: '0.2.0', snapshot: () => ({account_address: observed})}},
+    window: {SparkClawMailReader: {provider: 'outlook', version: '0.2.0', snapshot: options => {assert.equal(options.interval_start, '1970-01-01T00:00:00Z'); assert.equal(options.interval_end, '1970-01-01T00:00:01Z'); return {account_address: observed};}}},
     document: {querySelector() {throw new Error('login alias must not replace Reader evidence');}},
   })})};
   await verifySendAccount(tab, 'outlook', 'mailbox@outlook.com');
