@@ -1463,7 +1463,7 @@
       "script_id": "gmail.send",
       "revision": 1,
       "reconcile_requires_host": false,
-      "source_checksum": "sha256:8e410568cfb36a4db6d6a35049e730a53c25969eaf90ac2990e4c15a1b711a3c",
+      "source_checksum": "sha256:788033c61435dbae41c9ad71b56b841d81acfc19bc510f624966b88b2fd4fd22",
       "host": {
         "family": "send",
         "activity": "exclusive",

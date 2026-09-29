@@ -144,3 +144,17 @@ test('QQ managed sends require a new Sent-folder message and retain no-resend se
  const unproved=await sendingFixture(t,{provider:'qq_mail',baseline:null});
  await assert.rejects(unproved.run(),{code:'email_send_precondition_failed'});assert.equal(unproved.counts().sends,0);
 });
+
+test('Outlook nickname pills use only their own committed editor model and reject conflicts',()=>{
+ const node=extra=>({isConnected:true,getBoundingClientRect:()=>({width:20,height:20}),getAttribute:()=>null,...extra});
+ let label='Friendly name';
+ const chip=node({querySelectorAll:()=>[],getAttribute:k=>k==='aria-label'?label:null,textContent:'Friendly name'});
+ const model={recipients:[{emailAddress:{Address:'recipient@example.test',RoutingType:'SMTP'},isResolved:true}],recipientEditorViewState:{},ariaLabel:'To'};
+ const input=node({value:'',getAttribute:k=>k==='aria-label'?'To':null,__reactFiber$fixture:{return:{memoizedProps:model}},querySelectorAll:()=>[chip],cloneNode:()=>({querySelectorAll:()=>[{remove(){}}]})});
+ const root=node({querySelector:s=>s==='[data-sc-mail-control="to"]'?input:s.includes('subject')?{value:'subject'}:null,querySelectorAll:()=>[]});
+ const evaluate=()=>vm.runInNewContext(`(${managedSendDOM.toString()})('outlook','readback',{})`,{document:{querySelectorAll:()=>[]},__sparkclawManagedMail:{root,body:node({innerText:'body'}),send:node({}),mode:'compose'},getComputedStyle:()=>({visibility:'visible'})});
+ assert.deepEqual([...evaluate().to],['recipient@example.test']);
+ model.ariaLabel='Cc';assert.equal(evaluate().check,'unparsed_recipient');model.ariaLabel='To';
+ label='other@example.test';assert.equal(evaluate().check,'unparsed_recipient');label='Friendly name';
+ model.recipients[0].isResolved=false;assert.equal(evaluate().check,'unparsed_recipient');
+});

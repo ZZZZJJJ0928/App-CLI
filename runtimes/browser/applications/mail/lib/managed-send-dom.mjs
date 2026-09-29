@@ -136,7 +136,7 @@ export function managedSendDOM(provider,phase,expected={}){
    const candidates=chips.map(n=>[n,...n.querySelectorAll('[title],[aria-label],[email],[data-email],[data-address],[data-recipient]')].flatMap(node=>[...attributes.map(k=>node.getAttribute(k)||''),...[...node.attributes??[]].filter(a=>a.name.startsWith('data-')).map(a=>a.value),text(node)]).flatMap(v=>String(v).match(emailPattern)||[]));
    const parsed=candidates.map(values=>{const unique=[...new Set(values.map(v=>v.toLowerCase()))];return unique.length===1?values[0]:''});
    let modelShape;
-   if(provider==='outlook'&&parsed.some(v=>!v)){
+   if(provider==='outlook'){
     // Outlook renders nickname-only pills imperatively inside its React-owned
     // editor. Read the same editor's committed recipient model, not suggestions.
     const key=Object.keys(input).find(k=>/^__react(?:Fiber|InternalInstance)\$/u.test(k));
@@ -150,7 +150,7 @@ export function managedSendDOM(provider,phase,expected={}){
       return r.isResolved===false||r.isValid===false||entries.some(v=>v.RoutingType&&v.RoutingType!=='SMTP')||unique.length!==1?'':addresses[0];
      });
      modelShape=props.recipients.slice(0,2).map(r=>({keys:Object.keys(r).filter(k=>/^[a-zA-Z_]{1,40}$/u.test(k)).slice(0,24),email_keys:Object.keys(r.emailAddress??r.EmailAddress??{}).filter(k=>/^[a-zA-Z_]{1,40}$/u.test(k)).slice(0,20)}));
-     if(values.length===chips.length&&values.every((v,i)=>v&&(!parsed[i]||parsed[i].toLowerCase()===v.toLowerCase())))parsed.splice(0,parsed.length,...values);
+     if(values.length===chips.length&&values.every((v,i)=>v&&(!parsed[i]||parsed[i].toLowerCase()===v.toLowerCase())))parsed.splice(0,parsed.length,...values);else parsed.fill('');
      break;
     }
    }
