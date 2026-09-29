@@ -135,7 +135,26 @@ export function managedSendDOM(provider,phase,expected={}){
    const attributes=['email','data-hovercard-id','data-email','data-address','title','aria-label'];
    const candidates=chips.map(n=>[n,...n.querySelectorAll('[title],[aria-label],[email],[data-email],[data-address],[data-recipient]')].flatMap(node=>[...attributes.map(k=>node.getAttribute(k)||''),...[...node.attributes??[]].filter(a=>a.name.startsWith('data-')).map(a=>a.value),text(node)]).flatMap(v=>String(v).match(emailPattern)||[]));
    const parsed=candidates.map(values=>{const unique=[...new Set(values.map(v=>v.toLowerCase()))];return unique.length===1?values[0]:''});
-   const shapes=chips.filter((n,i)=>!parsed[i]).slice(0,3).map(n=>{const props=[];for(let parent=n,depth=0;parent&&depth<5;parent=parent.parentElement,depth++){const key=Object.keys(parent).find(k=>/^__react(?:Fiber|InternalInstance)\$/u.test(k));for(let f=parent[key],i=0;f&&i<4;f=f.return,i++){const keys=Object.keys(f.memoizedProps||{}).filter(k=>/^[a-zA-Z_]{1,40}$/u.test(k)).slice(0,20);const paths=[];const scan=(o,p,d)=>{if(!o||typeof o!=='object'||d>3)return;for(const [k,v]of Object.entries(o)){if(!/^[a-zA-Z_0-9]{1,40}$/u.test(k)||k==='children'||k==='ref')continue;if(typeof v==='string'&&v.match(emailPattern))paths.push(p+k);else if(v&&typeof v==='object'&&!v.nodeType&&Object.getPrototypeOf(v)===Object.prototype)scan(v,p+k+'.',d+1)}};scan(f.memoizedProps,'',0);props.push({depth,keys,paths:paths.slice(0,12)})}};return {attributes:attributes.map(k=>!!n.getAttribute(k)),id_has_address:!!String(n.id||'').match(emailPattern),attribute_names:[...n.attributes??[]].map(a=>a.name).filter(k=>/^[a-z-]{1,40}$/u.test(k)),own_keys:Object.keys(n).filter(k=>/^[a-zA-Z_]{1,40}$/u.test(k)).slice(0,20),text_has_address:!!text(n).match(emailPattern),props}});
+   let modelShape;
+   if(provider==='outlook'&&parsed.some(v=>!v)){
+    // Outlook renders nickname-only pills imperatively inside its React-owned
+    // editor. Read the same editor's committed recipient model, not suggestions.
+    const key=Object.keys(input).find(k=>/^__react(?:Fiber|InternalInstance)\$/u.test(k));
+    for(let f=input[key],i=0;f&&i<6;f=f.return,i++){
+     const props=f.memoizedProps;
+     if(!Array.isArray(props?.recipients)||!props.recipientEditorViewState||props.ariaLabel!==input.getAttribute('aria-label'))continue;
+     const values=props.recipients.map(r=>{
+      const entries=[r.emailAddress,r.EmailAddress,r.persona?.EmailAddress,r.address].filter(Boolean);
+      const addresses=entries.map(v=>typeof v==='string'?v:v.Address??v.address??v.EmailAddress??'').filter(v=>typeof v==='string'&&/^[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+$/u.test(v));
+      const unique=[...new Set(addresses.map(v=>v.toLowerCase()))];
+      return r.isResolved===false||r.isValid===false||entries.some(v=>v.RoutingType&&v.RoutingType!=='SMTP')||unique.length!==1?'':addresses[0];
+     });
+     modelShape=props.recipients.slice(0,2).map(r=>({keys:Object.keys(r).filter(k=>/^[a-zA-Z_]{1,40}$/u.test(k)).slice(0,24),email_keys:Object.keys(r.emailAddress??r.EmailAddress??{}).filter(k=>/^[a-zA-Z_]{1,40}$/u.test(k)).slice(0,20)}));
+     if(values.length===chips.length&&values.every((v,i)=>v&&(!parsed[i]||parsed[i].toLowerCase()===v.toLowerCase())))parsed.splice(0,parsed.length,...values);
+     break;
+    }
+   }
+   const shapes=parsed.some(v=>!v)?[{model:modelShape??null}]:[];
    const copy=input?.cloneNode(true);copy?.querySelectorAll('[draggable="true"][aria-label]').forEach(n=>n.remove());
    return {values:parsed,pending:input?.value??text(copy).replace(/[\u200b\ufeff]/gu,''),shapes};
   };

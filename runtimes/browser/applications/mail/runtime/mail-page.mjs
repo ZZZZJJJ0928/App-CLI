@@ -149,6 +149,7 @@ export function createProviderRuntime(client, registration) {
         },
         focus:selector=>client.focus(selector),
         press:key=>client.press(key),
+        waitFor:selector=>client.waitFor(selector),
         // Reply lookup shares the read-side list observers. Send registrations
         // use a run-code navigation because their fixed login URL can differ
         // from the mailbox route needed to verify the reply target.

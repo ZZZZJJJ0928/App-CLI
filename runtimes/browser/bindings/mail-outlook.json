@@ -1475,7 +1475,7 @@
       "script_id": "outlook.send",
       "revision": 1,
       "reconcile_requires_host": false,
-      "source_checksum": "sha256:c5461a2bc344a6af9893ed6b1a2dd253172848dd37b8185d6987a7be0d96f121",
+      "source_checksum": "sha256:a16990c372860b6fb27f2d89f710665e5b11a13519d81fa75589a5fac8c749a1",
       "host": {
         "family": "send",
         "activity": "exclusive",
@@ -2055,7 +2055,7 @@
       "timeout_ms": 120000,
       "script_id": "outlook.observe",
       "revision": 1,
-      "source_checksum": "sha256:1682df0da479fc3bb6c7ade47b480bae06ab18898db8386309d6f3137c0cc1aa",
+      "source_checksum": "sha256:3cc7c10ef5a1e3faa36200de50f887cbc1a11e84004037977432a1d1a1d7042c",
       "host": {
         "family": "outlook.inbound",
         "activity": "watch",
