@@ -136,8 +136,11 @@ export function managedSendDOM(provider,phase,expected={}){
   };
   if(provider==='qq_mail'){const key=Object.keys(state.root).find(k=>/^__react(?:Fiber|InternalInstance)\$/u.test(k));const props=key?state.root[key]?.return?.memoizedProps?.value:null;if(!props||['bcc','scc'].some(k=>!Array.isArray(props[k])||props[k].length)||state.mode!=='compose'&&props.replyMailId!==state.target)return error('email_draft_fields_unverified');}
   if(provider==='gmail'&&state.mode!=='compose'){const refs=[...state.root.querySelectorAll('input[name="rm"]')];if(refs.length!==1||!state.sourceNativeId||refs[0].value.replace(/^#/u,'')!==state.sourceNativeId)return error('email_reply_editor_unverified');}
-  const to=addresses('to'),cc=addresses('cc'),bcc=all('input[name="bcc"],textarea[name="bcc"],[aria-label="Bcc"],[aria-label="密送"]',state.root);
-  if(to.pending.trim()||cc.pending.trim()||[...to.values,...cc.values].some(v=>!v)||bcc.some(n=>(n.value||text(n)).trim()))return error('email_recipient_verification_failed');
+  const to=addresses('to'),cc=addresses('cc'),bcc=all('input[name="bcc"],textarea[name="bcc"],[aria-label="Bcc"],[aria-label="密送"]',state.root).filter(n=>n.matches('input,textarea,[contenteditable="true"],[role="combobox"]'));
+  // A provider's Bcc toggle is a button, not an uncommitted recipient. Keep
+  // checking actual editors, including Outlook's contenteditable recipient box.
+  const check=to.pending.trim()?'pending_to':cc.pending.trim()?'pending_cc':[...to.values,...cc.values].some(v=>!v)?'unparsed_recipient':bcc.some(n=>(n.value||text(n)).trim())?'unexpected_bcc':null;
+  if(check)return {...error('email_recipient_verification_failed'),check};
   const subject=state.root.querySelector('[data-sc-mail-control="subject"]')||state.root.querySelector('input[type="hidden"][name="subject"]');
   const body=state.body.innerText??state.body.textContent;
   return {to:to.values,cc:cc.values,subject:subject?.value??null,body:body.replace(/\r\n?/gu,'\n'),send_ready:visible(state.send)&&!state.send.disabled&&state.send.getAttribute('aria-disabled')!=='true',linked:state.mode==='compose'||!!state.target};

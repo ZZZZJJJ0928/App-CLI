@@ -98,3 +98,15 @@ test('native draft proof rejects resumed Gmail/QQ drafts and mismatched reply ma
   assert.equal(result.error,scenario==='gmail-wrong-reply'?'email_reply_editor_unverified':'email_existing_draft',scenario);assert.equal(mutations,0,scenario);
  }
 });
+
+test('Bcc toggles are not recipients while populated native Bcc editors block sending',()=>{
+ const element=extra=>({isConnected:true,getBoundingClientRect:()=>({width:20,height:20}),getAttribute:()=>null,...extra});
+ const toggle=element({innerText:'Bcc',matches:()=>false});
+ const bcc=element({value:'hidden@example.test',matches:()=>true});
+ let controls=[toggle];
+ const body=element({innerText:'body'}),send=element({});
+ const root=element({querySelector:s=>s.includes('subject')?{value:'subject'}:null,querySelectorAll:s=>s.includes('bcc')?controls:[]});
+ const evaluate=()=>vm.runInNewContext(`(${managedSendDOM.toString()})('outlook','readback',{})`,{document:{querySelectorAll:()=>[]},__sparkclawManagedMail:{root,body,send,mode:'compose'},getComputedStyle:()=>({visibility:'visible'})});
+ assert.equal(evaluate().send_ready,true);
+ controls=[toggle,bcc];assert.equal(evaluate().error,'email_recipient_verification_failed');assert.equal(evaluate().check,'unexpected_bcc');
+});
