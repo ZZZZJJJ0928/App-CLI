@@ -45,14 +45,16 @@ export class MailboxClient {
     }
     let admission, response;
     if (request.operation === 'send' && request.input.mode === 'reconcile') {
-      const {binding, command} = this.describe(request.provider, request.operation);
-      const original = this.client.original({principal: 'product-owner', owner: this.config.owner_id,
+      const {binding, command, spec} = this.describe(request.provider, request.operation);
+      requireCondition(request.scriptID === spec.script_id && request.revision === spec.revision, 'RELEASE_MISMATCH');
+      admission = this.client.restore({principal: 'product-owner', owner: this.config.owner_id,
         request_key: digest({taskID: request.taskID, app: binding.manifest.id, command})});
-      requireCondition(original, 'ADMISSION_UNRESOLVED');
+      const original = admission.request;
       const args = {...request.input, mode: original.arguments.mode};
       if (original.arguments.mode === undefined) delete args.mode;
       requireCondition(digest(args) === digest(original.arguments), 'REQUEST_KEY_CONFLICT');
-      admission = this.admission({...request, input: original.arguments});
+      // Journal-only reconciliation retains the original resource binding even
+      // when the current Bridge credential has changed. It cannot acquire a page.
       response = await this.client.control(admission, 'lookup');
       requireCondition(response.task, 'ADMISSION_UNRESOLVED');
       if (response.task.status === 'uncertain') {

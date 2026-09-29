@@ -73,11 +73,19 @@ export class ProductClient {
     const directory = fs.openSync(this.index, 'r'); try {fs.fsyncSync(directory);} finally {fs.closeSync(directory);}
     const admission = existing(); admission.existing = false; return admission;
   }
-  original({principal, owner, request_key}) {
-    const filename = path.join(this.index, digest({principal, owner, request_key}) + ".json");
-    requireCondition(fs.existsSync(filename), "ADMISSION_UNRESOLVED");
-    return decode(privateRead(filename, 2 * 1024 * 1024)).request;
+  restore({principal, owner, request_key}) {
+    const filename = path.join(this.index, digest({principal, owner, request_key}) + '.json');
+    requireCondition(fs.existsSync(filename), 'ADMISSION_UNRESOLVED');
+    const saved = decode(privateRead(filename, 2 * 1024 * 1024));
+    let reference = saved.reference;
+    while (fs.existsSync(path.join(this.index, reference + '.next'))) reference = decode(privateRead(path.join(this.index, reference + '.next'))).reference;
+    const {grant, resource} = this.authorization.record(reference);
+    const request = {...saved.request, authorization_ref: reference};
+    requireCondition(grant.principal === principal && grant.owner === owner && grant.request_key === request_key &&
+      grant.intent_digest === intentDigest(request), 'TASK_ACCESS_DENIED');
+    return {request, grant, resource, existing: true};
   }
+  original(identity) {return this.restore(identity).request;}
   control(admission, operation, task_id, extra = {}) {
     const {request} = admission;
     return this.machine({protocol_version: '2.0', app: request.app, command: request.command,

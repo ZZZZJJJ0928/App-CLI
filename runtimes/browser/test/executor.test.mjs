@@ -249,3 +249,17 @@ test('a stale database backup from the same execution epoch is rejected', t => {
   fs.copyFileSync(snapshot, file);
   assert.throws(() => new Ledger(f.directory), {code: 'LEDGER_RECOVERY_REQUIRED'});
 });
+
+test('restoring original task access retains its resource after current credentials change', async t => {
+  const f = fixture(t), client = new ProductClient({configFile: f.configFile, python});
+  const identity = {principal: 'fixture-principal', owner: 'fixture-owner', request_key: 'credential-change'};
+  const options = {...identity, app: 'local-fixture', command: 'increment', arguments: {}, side_effect: 'local_mutation',
+    timeout_ms: 60000, resource: {binding_digest: digest(binding), credential_generation: 1, token: 'fixture-old-token'}};
+  const first = client.authorize(options);
+  assert.throws(() => client.authorize({...options, resource: {...options.resource, credential_generation: 2}}), {code: 'REQUEST_KEY_CONFLICT'});
+  const restored = client.restore(identity);
+  assert.equal(restored.request.authorization_ref, first.request.authorization_ref);
+  assert.deepEqual(restored.resource, first.resource);
+  assert.equal(restored.existing, true);
+  assert.throws(() => client.restore({...identity, owner: 'foreign-owner'}), {code: 'ADMISSION_UNRESOLVED'});
+});

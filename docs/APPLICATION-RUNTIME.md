@@ -58,7 +58,7 @@ commits request key, principal, owner, immutable intent, task, effect fence and
 events before side effects. Each launch advances `execution_epoch`; an atomic
 `authority.json` high-water mark tracks epoch and commit sequence, rejecting a missing or older database, including same-epoch backups. Restart
 blocks unfinished reads and makes unfinished effects uncertain, with an event
-gap. Reconciliation reads original send evidence and never clicks Send again.
+gap. Reconciliation reads original send evidence and never clicks Send again. Journal-only recovery retains the original resource-bound authority after a Bridge credential change; it does not acquire a browser page.
 A product index entry followed by unresolved lookup never creates another invoke.
 These guarantees do not claim exactly-once remote delivery.
 
@@ -127,7 +127,7 @@ paired-release qualifier exercise these steps.
 
 ## Validation boundary
 
-Source Python (86) and optional runtime/provider (273) tests pass locally.
+Source Python (86) and optional runtime/provider (275) tests pass locally.
 A fresh installation and two compatible artifact sets verify tamper rejection,
 mixed-version rejection, stopped-service activation and state-preserving
 rollback. SparkClaw additionally qualifies a non-mail command through the

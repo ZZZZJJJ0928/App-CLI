@@ -21,7 +21,7 @@ Python Registry 是唯一公共能力目录和准入点；Node binding 只是内
 
 ## 状态与固定边界
 
-Python 启动器持有继承的 POSIX flock。SQLite WAL/FULL 在效果发生前持久提交主体、owner、request key、意图、task、效果围栏和事件。每次启动增加 execution_epoch；原子 `authority.json` 高水位同时记录 epoch 与提交序列，阻止缺失或旧账本（含同一 epoch 的旧快照）启动。重启将未完成读取置 blocked、有副作用任务置 uncertain，并发 gap。发送对账只读原 journal，不再次点击发送。产品索引存在但 lookup 无法确认时不再次 invoke；不声称远端 exactly-once。
+Python 启动器持有继承的 POSIX flock。SQLite WAL/FULL 在效果发生前持久提交主体、owner、request key、意图、task、效果围栏和事件。每次启动增加 execution_epoch；原子 `authority.json` 高水位同时记录 epoch 与提交序列，阻止缺失或旧账本（含同一 epoch 的旧快照）启动。重启将未完成读取置 blocked、有副作用任务置 uncertain，并发 gap。发送对账只读原 journal，不再次点击发送。Bridge 凭据变化后，journal 对账保留原任务资源绑定的授权，不领浏览器页。产品索引存在但 lookup 无法确认时不再次 invoke；不声称远端 exactly-once。
 
 | 边界 | 冻结值 |
 | --- | --- |
@@ -60,6 +60,6 @@ npm test --prefix runtimes/browser
 
 ## 验证边界
 
-本机 Python 86 项、运行时/供应商 273 项测试通过。仓库外安装和两组兼容制品验证了篡改拒绝、混版拒绝、运行中禁止切换和持久状态回退。SparkClaw 另以安装后的 Python Registry、常驻 Executor、实际隔离 Electron 任务页验证非邮件命令，同时回归普通 MCP/CLI 和个人页隔离。
+本机 Python 86 项、运行时/供应商 275 项测试通过。仓库外安装和两组兼容制品验证了篡改拒绝、混版拒绝、运行中禁止切换和持久状态回退。SparkClaw 另以安装后的 Python Registry、常驻 Executor、实际隔离 Electron 任务页验证非邮件命令，同时回归普通 MCP/CLI 和个人页隔离。
 
 供应商测试使用合成邮件，覆盖账户/文档、发送完成证据、原件处理和 watch 契约。本次最终验证不发送真实邮件、不操作真实 QQ/Gmail/Outlook 账号；三家实机业务验收及生产激活留用户最终验收。未宣称云端矩阵或非 POSIX 生命周期传输通过。

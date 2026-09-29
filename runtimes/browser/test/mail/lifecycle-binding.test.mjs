@@ -66,3 +66,23 @@ test('retry of an uncertain local capture reconciles the original task; remote w
     }
   }
 });
+
+test('send reconciliation after credential rotation uses original journal authority without new admission', async () => {
+  const {MailboxClient} = await import('../../applications/mail/client.mjs');
+  const mailbox = Object.create(MailboxClient.prototype), calls = [];
+  mailbox.config = {owner_id: 'fixture-owner'};
+  const original = {arguments: {mode: 'compose', message: {body: 'original'}}};
+  const admission = {request: original, grant: {}, resource: {credential_generation: 1}, existing: true};
+  mailbox.describe = () => ({binding: {manifest: {id: 'mail-gmail'}}, command: 'send', spec: {script_id: 'send', revision: 'test', source_checksum: 'test'}});
+  mailbox.admission = () => assert.fail('journal reconciliation must not rebind current credentials');
+  mailbox.client = {
+    restore() {calls.push('restore'); return admission;},
+    async control(value, operation) {assert.equal(value, admission); calls.push(operation); return {kind: 'task', task: {id: 'original-task', status: 'uncertain'}};},
+    refresh(value, id, operation) {assert.equal(value, admission); assert.equal(id, 'original-task'); calls.push(operation);
+      return {admission, acknowledged: Promise.resolve({kind: 'task', task: {id, status: 'completed'}, data: {status: 'sent'}})};},
+    async wait(value, response) {return response;},
+  };
+  const result = await mailbox.execute({provider: 'gmail', operation: 'send', input: {...original.arguments, mode: 'reconcile'},
+    taskID: 'original', credentialGeneration: 2, token: 'fixture-new-token', scriptID: 'send', revision: 'test'});
+  assert.equal(result.state, 'completed'); assert.deepEqual(calls, ['restore', 'lookup', 'reconcile']);
+});

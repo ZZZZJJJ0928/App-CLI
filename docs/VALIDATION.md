@@ -9,7 +9,7 @@ Node.js 26.2.0; fork release `0.3.0-sparkclaw.1`.
 | Check | Observed result |
 | --- | --- |
 | Python source | 86 tests, original 60 retained; ResourceWarning promoted to error |
-| Optional runtime and migrated mail | 273 tests, no skips |
+| Optional runtime and migrated mail | 275 tests, no skips |
 | Public contract | Three root/runtime schema copies and Python lifecycle copy agree; cross-language canonical vectors match |
 | Durable service | Real subprocess, flock exclusion, response loss, restart/epoch takeover and reconciliation |
 | Recovery | Immutable scoped key; cancelled queued work retains lane; read-only shutdown remains resumable; missing/older ledger rejected |
