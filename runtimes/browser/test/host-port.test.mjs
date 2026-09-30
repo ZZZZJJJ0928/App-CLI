@@ -53,6 +53,19 @@ test('watch expiry removes only its activity and preserves an active shared read
   assert.deepEqual(await f.send('call', 'read', {lease_id: read.lease_id, method: 'read', arguments: ['ok']}), {result: ['ok']});
   await f.send('release', 'read', {lease_id: read.lease_id}); assert.equal(f.handles.size, 0);
 });
+test('foreground idle drain preserves live watch authority but closes a parked Reader', async t => {
+  const f = setup(t, {idleMS: 5000}); await f.hello();
+  const watch = await f.send('acquire', 'watch');
+  await f.host.drainIdle();
+  assert.equal(f.handles.size, 1);
+  assert.deepEqual(await f.send('call', 'watch', {lease_id: watch.lease_id, method: 'watch', arguments: ['still-observing']}), {result: ['still-observing']});
+  await f.send('release', 'watch', {lease_id: watch.lease_id});
+  const read = await f.send('acquire');
+  await f.send('release', 'read', {lease_id: read.lease_id, park: true});
+  assert.equal(f.handles.size, 1);
+  await f.host.drainIdle();
+  assert.equal(f.handles.size, 0);
+});
 for (const firstCommand of ['read', 'watch']) test(`concurrent ${firstCommand} and shared peer join one creation`, async t => {
   const f = setup(t); await f.hello();
   let finish, creations = 0;

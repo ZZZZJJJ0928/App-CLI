@@ -218,7 +218,10 @@ export class BrowserHostPort {
   }
   async drainIdle() {
     for (const slot of this.resources.values()) {
-      if (!slot.creating && [...slot.leases].every(id => this.leases.get(id)?.kind === 'watch')) await this.dispose(slot);
+      // A live watcher owns a bounded lease even when no Reader reservation
+      // is held. Foreground work must not treat that page as idle and retire
+      // its subscription. Only parked resources without activities are idle.
+      if (!slot.creating && !slot.leases.size) await this.dispose(slot);
     }
   }
   async close() {
