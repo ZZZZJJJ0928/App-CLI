@@ -1463,7 +1463,7 @@
       "script_id": "qqmail.send",
       "revision": 1,
       "reconcile_requires_host": false,
-      "source_checksum": "sha256:087c7252b01e2f87b73fcacc35b7c3851538749ca7ccb615a85bbba2a5aaabc2",
+      "source_checksum": "sha256:703d6995a4c994e3c03bbe88f4dc2245359246bf400dc5cafde1e1bb7a4ac674",
       "host": {
         "family": "send",
         "activity": "exclusive",
