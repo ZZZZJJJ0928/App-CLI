@@ -2050,7 +2050,7 @@
     },
     "watch": {
       "handler": "outlook.watch",
-      "resource": "outlook",
+      "resource": "outlook.watch",
       "renewable": true,
       "timeout_ms": 120000,
       "script_id": "outlook.observe",

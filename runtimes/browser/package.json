@@ -1,6 +1,6 @@
 {
   "name": "@infinimesh/app-cli-runtime",
-  "version": "0.3.0-sparkclaw.6",
+  "version": "0.3.0-sparkclaw.7",
   "type": "module",
   "description": "Owner-local lifecycle execution backend for App-CLI",
   "license": "(MIT AND Apache-2.0)",

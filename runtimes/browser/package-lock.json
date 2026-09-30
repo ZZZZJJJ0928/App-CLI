@@ -1,12 +1,12 @@
 {
   "name": "@infinimesh/app-cli-runtime",
-  "version": "0.3.0-sparkclaw.6",
+  "version": "0.3.0-sparkclaw.7",
   "lockfileVersion": 3,
   "requires": true,
   "packages": {
     "": {
       "name": "@infinimesh/app-cli-runtime",
-      "version": "0.3.0-sparkclaw.6",
+      "version": "0.3.0-sparkclaw.7",
       "license": "(MIT AND Apache-2.0)",
       "dependencies": {
         "ajv": "8.17.1"

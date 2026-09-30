@@ -1929,7 +1929,7 @@
     },
     "watch": {
       "handler": "qq_mail.watch",
-      "resource": "qq_mail",
+      "resource": "qq_mail.watch",
       "renewable": true,
       "timeout_ms": 120000,
       "script_id": "qq_mail.observe",
