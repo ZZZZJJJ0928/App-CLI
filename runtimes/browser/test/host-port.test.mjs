@@ -53,6 +53,34 @@ test('watch expiry removes only its activity and preserves an active shared read
   assert.deepEqual(await f.send('call', 'read', {lease_id: read.lease_id, method: 'read', arguments: ['ok']}), {result: ['ok']});
   await f.send('release', 'read', {lease_id: read.lease_id}); assert.equal(f.handles.size, 0);
 });
+test('queued shared admission refreshes a live lease before the first client heartbeat',async t=>{
+ const f=setup(t);await f.hello();
+ f.driver.beginActivity=async()=>f.setNow(1025000);
+ const lease=await f.send('acquire');
+ assert.equal(lease.expires_ms,1055000);
+ f.setNow(1036000);
+ assert.deepEqual(await f.send('call','read',{lease_id:lease.lease_id,method:'read',arguments:['live']}),{result:['live']});
+});
+test('a lease that expires during admission is rejected without reviving it',async t=>{
+ const f=setup(t);await f.hello();
+ f.driver.beginActivity=async()=>f.setNow(1030001);
+ await assert.rejects(()=>f.send('acquire'),{code:'HOST_LEASE_EXPIRED'});
+ assert.equal(f.host.leases.size,0);assert.equal(f.handles.size,0);
+});
+test('expired queued Reader admission preserves the heartbeat of its shared watcher',async t=>{
+ const f=setup(t);await f.hello();
+ f.refs.watch=f.authorization.issue({principal:'owner',owner:'owner',app:'browser-fixture',command:'watch',request_key:'watch',intent_digest:digest('watch'),side_effect:'read_only',execution_expires_ms:1100000,access_expires_ms:1200000,revision:1},{binding_digest:digest(f.binding),profile_id:'default',credential_generation:1,pool_key:'same-account'});
+ const watch=await f.send('acquire','watch');
+ f.driver.beginActivity=async()=>{
+  f.setNow(1025000);
+  await f.send('heartbeat','watch',{lease_id:watch.lease_id});
+  f.setNow(1030001);
+ };
+ await assert.rejects(()=>f.send('acquire'),{code:'HOST_LEASE_EXPIRED'});
+ assert.equal(f.handles.size,1);assert.equal(f.host.leases.size,1);
+ assert.deepEqual(await f.send('call','watch',{lease_id:watch.lease_id,method:'watch',arguments:['still-watching']}),{result:['still-watching']});
+ assert.ok(!f.calls.includes('close'));
+});
 test('foreground idle drain preserves live watch authority but closes a parked Reader', async t => {
   const f = setup(t, {idleMS: 5000}); await f.hello();
   const watch = await f.send('acquire', 'watch');

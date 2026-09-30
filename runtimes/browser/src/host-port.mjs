@@ -159,6 +159,12 @@ export class BrowserHostPort {
     this.leases.set(lease.id, lease); slot.leases.add(lease.id);
     try {
       await this.driver.beginActivity?.(slot.handle, {id: lease.id, kind, spec, grant, resource, task: request.task_id, signal: lease.abort.signal});
+      // The driver may wait for a shared-resource reservation. A live lease
+      // starts its heartbeat window when admission returns; an expired or
+      // retired lease must be dropped, never revived or handed to a caller.
+      requireCondition(!lease.retired && this.live(lease) && grant.execution_expires_ms > this.clock(), 'HOST_LEASE_EXPIRED');
+      lease.expires = Math.min(this.clock() + LEASE_MS, grant.execution_expires_ms);
+      lease.monotonicDeadline = this.monotonic() + Math.max(0, lease.expires - this.clock());
       await this.driver.updateLease(slot.handle, this.stamp(slot));
     }
     catch (error) {await this.drop(lease); throw error;}
