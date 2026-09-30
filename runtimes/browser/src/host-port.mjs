@@ -132,7 +132,13 @@ export class BrowserHostPort {
       this.resources.set(key, slot);
       slot.creation = this.driver.create({task: request.task_id, epoch: this.epoch, generation: this.generation, spec, grant, resource});
       try {slot.handle = await slot.creation;}
-      catch (error) {slot.handle = error.resourceHandle ?? null; slot.fenced = true; throw error;}
+      catch (error) {
+        slot.handle = error.resourceHandle ?? null; slot.fenced = true;
+        // A driver supplies resourceHandle when cleanup cannot be proved.
+        // A rejected reservation that created no resource may be retried.
+        if (!slot.handle) this.resources.delete(key);
+        throw error;
+      }
       finally {slot.creating = false;}
       if (this.changing || request.epoch !== this.epoch || this.closed || grant.execution_expires_ms <= this.clock()) {
         await this.dispose(slot); throw new RuntimeError('HOST_STALE');

@@ -88,6 +88,17 @@ test('a peer whose grant expires during shared creation receives no lease', asyn
   assert.equal(f.host.leases.size, 1);
   await f.send('release', 'read', {lease_id: lease.lease_id});
 });
+test('a rejected creation with no surviving resource does not fence an empty pool', async t => {
+  const f = setup(t); await f.hello();
+  const create = f.driver.create;
+  f.driver.create = async () => {throw Object.assign(new Error('busy'), {code: 'BROWSER_BUSY'});};
+  await assert.rejects(() => f.send('acquire'), {code: 'BROWSER_BUSY'});
+  assert.equal(f.host.resources.size, 0); assert.equal(f.handles.size, 0);
+  f.driver.create = create;
+  const lease = await f.send('acquire');
+  await f.send('release', 'read', {lease_id: lease.lease_id});
+  assert.equal(f.handles.size, 0);
+});
 test('epoch takeover aborts old calls, rejects queued actions and stale leases', async t => {
   const f = setup(t); await f.hello(); const lease = await f.send('acquire');
   const first = f.send('call', 'read', {lease_id: lease.lease_id, method: 'wait', arguments: []});

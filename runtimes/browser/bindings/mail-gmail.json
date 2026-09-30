@@ -1928,7 +1928,7 @@
     },
     "watch": {
       "handler": "gmail.watch",
-      "resource": "gmail.watch",
+      "resource": "gmail",
       "renewable": true,
       "timeout_ms": 120000,
       "script_id": "gmail.observe",

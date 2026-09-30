@@ -29,7 +29,10 @@ for (const provider of ['gmail', 'outlook', 'qq_mail']) {
     const name = entry.operation === 'observe' ? 'watch' : entry.operation;
     const read = ['read', 'discover', 'capture', 'enumerate_thread', 'mark_read', 'collect_page', 'watch'].includes(name);
     const shared = ['collect_page', 'watch'].includes(name);
-    return [name, {handler: `${provider}.${name}`, resource: name === 'watch' ? `${provider}.watch` : provider,
+    // A watch holds this provider's scheduler slot until its page and hook
+    // are ready. hookActivate releases it while keeping the watch lease.
+    // A shared Reader must not overtake that initial preparation.
+    return [name, {handler: `${provider}.${name}`, resource: provider,
       ...(name === 'watch' ? {renewable: true} : {}), timeout_ms: entry.timeoutMS, script_id: entry.scriptID,
       revision: entry.revision, ...(name === 'send' ? {reconcile_requires_host: false} : {}), source_checksum: entry.sourceChecksum,
       host: {family: shared ? `${provider}.inbound` : name, activity: shared ? name === 'watch' ? 'watch' : 'read' : 'exclusive',
