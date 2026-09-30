@@ -87,7 +87,7 @@ export class Executor {
         case 'renew':
           requireCondition(spec.renewable && active && row.status === 'running', 'INVALID_TASK_STATE');
           this.refresh(row, request, grant);
-          return this.response(request, this.ledger.get(row.id), 'ack');
+          return this.response(request, this.ledger.get(row.id));
         case 'resume':
           requireCondition(!this.closing && !active && ['waiting_confirmation', 'blocked'].includes(row.status) && !row.effect, 'INVALID_TASK_STATE');
           this.refresh(row, request, grant);

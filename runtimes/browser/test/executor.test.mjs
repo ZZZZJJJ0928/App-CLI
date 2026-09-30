@@ -124,7 +124,10 @@ test('watch expiry preserves access; renewal is idempotent; gap and cancel retai
   await until(() => f.executor.control(control(request, 'status', id)), x => x.task.status === 'running');
   const updated = {...issued.grant, revision: 2, execution_expires_ms: Date.now() + 700};
   const renewed = {...request, authorization_ref: f.authorization.issue(updated, issued.resource)};
-  await f.executor.control(control(renewed, 'renew', id));
+  const renewal = await f.executor.control(control(renewed, 'renew', id));
+  assert.equal(renewal.kind, 'task');
+  assert.deepEqual(renewal.task, {id, status: 'running'});
+  assert.equal('data' in renewal, false);
   await f.executor.control(control(renewed, 'renew', id));
   await assert.rejects(() => f.executor.control(control(request, 'renew', id)), {code: 'AUTHORIZATION_STALE'});
   await until(() => f.executor.control(control(request, 'status', id)), x => x.task.status === 'waiting_confirmation');
@@ -215,6 +218,33 @@ test('real resident service: flock exclusion, lost response, crash recovery, epo
   await until(() => exchange(f.config.socket, control(request, 'status', id)), x => x.task.status === 'completed');
   await stop('SIGTERM');
   const ledger = new Ledger(f.directory); assert.equal(ledger.epoch, 3); ledger.close();
+});
+test('public Python Registry accepts repeated resident watch renewals without changing the task', async t => {
+  const f = fixture(t), product = new ProductClient({configFile: f.configFile, python});
+  const admission = product.authorize({app: 'local-fixture', command: 'watch', arguments: {wait_ms: 100},
+    request_key: 'registry-watch-renewal', principal: 'fixture-principal', owner: 'fixture-owner',
+    resource: {binding_digest: digest(binding)}, side_effect: 'read_only', renewable: true});
+  const child = spawn(python, ['-m', 'app_cli.executor_service', f.configFile], {cwd: repository, stdio: 'ignore'});
+  t.after(async () => {
+    if (child.exitCode !== null || child.signalCode !== null) return;
+    const stopped = new Promise(resolve => child.once('exit', resolve)); child.kill('SIGTERM'); await stopped;
+  });
+  await until(async () => {try {return await exchange(f.config.socket, control(admission.request, 'lookup'));} catch {return null;}}, Boolean);
+  const first = await product.invoke(admission), id = first.task.id;
+  await until(() => product.control(admission, 'status', id), value => value.task.status === 'running');
+  let current = admission;
+  for (let revision = 2; revision <= 4; revision++) {
+    const renewal = product.renew(current, id);
+    const response = await renewal.acknowledged;
+    assert.equal(response.kind, 'task');
+    assert.deepEqual(response.task, {id, status: 'running'});
+    assert.equal('data' in response, false);
+    current = renewal.admission;
+    assert.equal(current.grant.revision, revision);
+    assert.equal((await product.control(current, 'events', id, {cursor: 0, limit: 100})).task.id, id);
+  }
+  assert.equal((await product.control(current, 'cancel', id)).kind, 'ack');
+  await until(() => product.control(current, 'status', id), value => value.task.status === 'cancelled');
 });
 test('cancel queued work immediately without releasing the running lane', async t => {
   const f = await local(t);
