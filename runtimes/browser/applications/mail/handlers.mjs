@@ -53,7 +53,10 @@ async function execute(entry, original, context, reconcile = false) {
     if (!reconcile && ["read", "capture", "collect_page"].includes(entry.operation)) context.beforeEffect();
     const result = await entry.handler(input, createProviderRuntime(page, entry));
     if (result?.status === 'unknown') return {status: 'uncertain', reason: 'SEND_OUTCOME_UNKNOWN'};
-    const retain = entry.operation === 'collect_page' && ['collected', 'empty'].includes(result?.status) && !result.failures?.length;
+    // Per-message capture/coverage failures describe the result, not ownership
+    // of the shared page. A successful guarded reset below proves reusability
+    // and keeps the independent watch alive even when the round is partial.
+    const retain = entry.operation === 'collect_page' && ['collected', 'empty', 'partial'].includes(result?.status);
     if (retain) {
       await page.parkMailRound(input.discovery.account_address);
     }

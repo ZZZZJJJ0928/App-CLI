@@ -9,6 +9,34 @@ import {mailHandlers} from '../../applications/mail/handlers.mjs';
 import {openSendJournal} from '../../applications/mail/lib/send-journal.mjs';
 import {validateManagedSend} from '../../applications/mail/lib/managed-send.mjs';
 import {MailPage} from '../../applications/mail/runtime/mail-page.mjs';
+import {ProviderScriptRegistry} from '../../applications/mail/runtime/provider-scripts.mjs';
+
+for (const resetValid of [true, false]) test(`partial capture preserves its result and requires a guarded idle reset (${resetValid})`, async t => {
+  const result = {status: 'partial', discovery: {status: 'listed'}, captures: [],
+    failures: [{error_code: 'email_network_original_unqualified', failure_scope: 'provider_operational', qualified: false}]};
+  t.mock.method(ProviderScriptRegistry.prototype, 'prepare', async function () {
+    this.entries = new Map([['fixture', {provider: 'outlook', operation: 'collect_page', loginURL: 'https://outlook.live.com/mail/',
+      validate() {}, async handler() {return result;}}]]);
+  });
+  let resets = 0;
+  const browser = {reused: true, async call(method) {
+    if (method === 'runReadCode') {
+      resets++;
+      return resets === 2 && !resetValid ? {error: 'email_account_identity_unavailable'} : {provider: 'outlook', account_address: 'owner@example.invalid'};
+    }
+  }};
+  const handlers = await mailHandlers();
+  const output = await handlers['outlook.collect_page'].run({discovery: {account_address: 'owner@example.invalid'}},
+    {browser, resource: {}, beforeEffect() {}});
+  assert.equal(resets, 2);
+  if (resetValid) {
+    assert.equal(output.data, result);
+    assert.equal(output.retain, true); assert.equal(output.invalidate, false);
+  } else {
+    assert.equal(output.status, 'waiting_confirmation');
+    assert.equal(output.reason, 'EMAIL_ACCOUNT_IDENTITY_UNAVAILABLE'); assert.equal(output.invalidate, true);
+  }
+});
 
 for (const resolved of [true, false]) test(`legacy watch index migration preserves original lookup (${resolved})`, async t => {
   const {MailboxClient} = await import('../../applications/mail/client.mjs');
