@@ -248,6 +248,15 @@ test('public Python Registry accepts repeated resident watch renewals without ch
 });
 test('cancel queued work immediately without releasing the running lane', async t => {
   const f = await local(t);
+  const spec = f.executor.commands.get('local-fixture\0increment'), run = spec.handler.run;
+  let release;
+  const occupied = new Promise(resolve => { release = resolve; });
+  spec.handler = {...spec.handler, async run(args, context) {
+    const result = await run({...args, wait_ms: 0}, context);
+    if (args.wait_ms === 250) await occupied;
+    return result;
+  }};
+  try {
   const first = invoke(f, {key: 'lane-first', args: {wait_ms: 250}}).request;
   const a = (await f.executor.control(first)).task.id;
   await until(() => f.ledger.get(a), row => row.effect === 1);
@@ -257,10 +266,13 @@ test('cancel queued work immediately without releasing the running lane', async 
   const third = invoke(f, {key: 'lane-third'}).request;
   const c = (await f.executor.control(third)).task.id;
   await delay(30);
+  assert.equal(f.ledger.get(a).status, 'running');
   assert.equal(f.ledger.get(c).effect, 0);
+  release();
   await until(() => f.ledger.get(c), row => row.status === 'completed');
   assert.equal(f.ledger.get(b).effect, 0);
   assert.equal(f.ledger.get(b).status, 'cancelled');
+  } finally { release(); }
 });
 test('clean service stop blocks read-only work and keeps the same task resumable', async t => {
   const f = await local(t), {request} = invoke(f, {command: 'watch'});
