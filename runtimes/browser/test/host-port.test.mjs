@@ -53,6 +53,41 @@ test('watch expiry removes only its activity and preserves an active shared read
   assert.deepEqual(await f.send('call', 'read', {lease_id: read.lease_id, method: 'read', arguments: ['ok']}), {result: ['ok']});
   await f.send('release', 'read', {lease_id: read.lease_id}); assert.equal(f.handles.size, 0);
 });
+for (const firstCommand of ['read', 'watch']) test(`concurrent ${firstCommand} and shared peer join one creation`, async t => {
+  const f = setup(t); await f.hello();
+  let finish, creations = 0;
+  const create = f.driver.create;
+  f.driver.create = async (...args) => {
+    creations++; const value = await create(...args);
+    await new Promise(resolve => {finish = resolve;}); return value;
+  };
+  const first = f.send('acquire', firstCommand);
+  await new Promise(resolve => setImmediate(resolve));
+  const peer = firstCommand === 'read' ? 'watch' : 'read';
+  const second = f.send('acquire', peer);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(creations, 1); finish();
+  const leases = await Promise.all([first, second]);
+  assert.equal(leases[1].reused, true); assert.equal(f.handles.size, 1);
+  await f.send('release', firstCommand, {lease_id: leases[0].lease_id});
+  assert.equal(f.handles.size, 1);
+  await f.send('release', peer, {lease_id: leases[1].lease_id});
+  assert.equal(f.handles.size, 0);
+});
+test('a peer whose grant expires during shared creation receives no lease', async t => {
+  const f = setup(t); await f.hello();
+  let finish; const create = f.driver.create;
+  f.driver.create = async (...args) => {
+    const value = await create(...args); await new Promise(resolve => {finish = resolve;}); return value;
+  };
+  const read = f.send('acquire'); await new Promise(resolve => setImmediate(resolve));
+  const watch = f.send('acquire', 'watch');
+  const rejected = assert.rejects(() => watch, {code: 'HOST_STALE'});
+  await new Promise(resolve => setImmediate(resolve)); f.setNow(1001001); finish();
+  const lease = await read; await rejected;
+  assert.equal(f.host.leases.size, 1);
+  await f.send('release', 'read', {lease_id: lease.lease_id});
+});
 test('epoch takeover aborts old calls, rejects queued actions and stale leases', async t => {
   const f = setup(t); await f.hello(); const lease = await f.send('acquire');
   const first = f.send('call', 'read', {lease_id: lease.lease_id, method: 'wait', arguments: []});

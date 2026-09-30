@@ -119,7 +119,13 @@ export class BrowserHostPort {
       app: grant.app, family: spec.host.family ?? grant.command});
     let slot = this.resources.get(key);
     const reused = Boolean(slot);
-    if (slot) requireCondition(!slot.fenced && !slot.creating && !slot.disposing && !slot.retiring, 'HOST_RESOURCE_BUSY');
+    if (slot) {
+      // A Reader and watcher may arrive together for the same signed pool.
+      // Join creation before checking activity conflicts; never create a
+      // second page or grant access to a retiring resource.
+      if (slot.creating) await slot.creation;
+      requireCondition(!slot.fenced && !slot.disposing && !slot.retiring, 'HOST_RESOURCE_BUSY');
+    }
     else {
       slot = {key, leases: new Set(), handle: null, creating: true, epoch: this.epoch,
         idleMS: Math.min(spec.host.reuse_idle_ms ?? 0, 1800000)};
@@ -132,6 +138,8 @@ export class BrowserHostPort {
         await this.dispose(slot); throw new RuntimeError('HOST_STALE');
       }
     }
+    requireCondition(!this.changing && request.epoch === this.epoch && !this.closed &&
+      this.resources.get(key) === slot && grant.execution_expires_ms > this.clock(), 'HOST_STALE');
     const kind = spec.host.activity ?? 'exclusive';
     slot.idleUntil = 0; slot.idleDeadline = 0;
     requireCondition([...slot.leases].every(id => {
