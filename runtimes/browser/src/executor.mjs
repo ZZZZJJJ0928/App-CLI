@@ -44,7 +44,13 @@ export class Executor {
         Number.isSafeInteger(grant.max_deadline_ms) && now < request.deadline_ms && request.deadline_ms <= grant.max_deadline_ms, 'AUTHORIZATION_DENIED');
     }
     if (spec.renewable) requireCondition(grant.execution_expires_ms <= now + 300_000, 'AUTHORIZATION_DENIED');
-    requireCondition(resource.binding_digest === spec.binding_digest, 'RELEASE_MISMATCH');
+    // Durable access survives a compatible application update. The ledger
+    // still checks the original signed owner, intent and resource below.
+    // Re-execution requires today's binding; only explicitly journal-only
+    // reconciliation may inspect an old resource without acquiring a Host.
+    if (EXECUTION.has(request.operation) && !(request.operation === 'reconcile' && spec.reconcile_requires_host === false)) {
+      requireCondition(resource.binding_digest === spec.binding_digest, 'RELEASE_MISMATCH');
+    }
     return {grant, resource};
   }
   async control(request) {

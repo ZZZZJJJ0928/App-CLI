@@ -3,12 +3,42 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import {compileSchema} from '../../src/protocol.mjs';
+import {compileSchema, digest} from '../../src/protocol.mjs';
 import {outputSchema} from '../../applications/mail/output-schema.mjs';
 import {mailHandlers} from '../../applications/mail/handlers.mjs';
 import {openSendJournal} from '../../applications/mail/lib/send-journal.mjs';
 import {validateManagedSend} from '../../applications/mail/lib/managed-send.mjs';
 import {MailPage} from '../../applications/mail/runtime/mail-page.mjs';
+
+for (const resolved of [true, false]) test(`legacy watch index migration preserves original lookup (${resolved})`, async t => {
+  const {MailboxClient} = await import('../../applications/mail/client.mjs');
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'mail-watch-migration-'));
+  t.after(() => fs.rm(root, {recursive:true, force:true}));
+  const filename = path.join(root, 'watch-' + digest({owner:'fixture-owner', provider:'gmail'}) + '.json');
+  const saved = {identity:'legacy-binding-identity', sessionKey:'old-session-key'};
+  await fs.writeFile(filename, JSON.stringify(saved), {mode:0o600});
+  const mailbox = Object.create(MailboxClient.prototype), calls = [];
+  mailbox.config = {owner_id:'fixture-owner'}; mailbox.watches = new Map();
+  mailbox.describe = () => ({binding:{manifest:{id:'mail-gmail'}}, command:'watch', spec:{source_checksum:'fixture'}});
+  mailbox.admission = (request, options) => {
+    assert.equal(options.previousTask, 'old-task'); assert.notEqual(options.sessionKey, saved.sessionKey);
+    return {grant:{execution_expires_ms:Date.now()+300000}};
+  };
+  mailbox.client = {index:root,
+    restore(identity) {assert.equal(identity.request_key, digest({taskID:saved.sessionKey,app:'mail-gmail',command:'watch'}));calls.push('restore');return {};},
+    async control(admission, operation) {assert.equal(operation,'lookup');calls.push('lookup');return resolved ? {task:{id:'old-task',status:'cancelled'}} : {kind:'lookup',outcome:'unresolved'};},
+    async invoke() {calls.push('invoke');return {task:{id:'new-watch',status:'pending'}};},
+  };
+  const action = () => mailbox.startWatch({provider:'gmail',token:'fixture-token',credentialGeneration:2,input:{account_address:'owner@example.invalid',owner_scope:'fixture-scope'}});
+  if (resolved) {
+    const result = await action();assert.equal(result.result.watch_epoch,'new-watch');
+    await action();assert.deepEqual(calls,['restore','lookup','invoke']);
+    assert.equal(JSON.parse(await fs.readFile(filename)).taskID,'new-watch');
+  } else {
+    await assert.rejects(action,{code:'ADMISSION_UNRESOLVED'});
+    assert.deepEqual(calls,['restore','lookup']);assert.deepEqual(JSON.parse(await fs.readFile(filename)),saved);
+  }
+});
 
 test('mark-read public schema accepts the product observation receipt without inventing a status field', () => {
   const validate = compileSchema(outputSchema('qq_mail', 'mark_read'));

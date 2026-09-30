@@ -92,14 +92,26 @@ export class MailboxClient {
   async startWatch(request) {
     const prior = this.watches.get(request.provider);
     const identity = crypto.createHash('sha256').update(JSON.stringify([request.token, request.credentialGeneration,
-      request.provider, request.input.account_address.toLowerCase(), request.input.owner_scope])).digest('hex');
+      request.provider, request.input.account_address.toLowerCase(), request.input.owner_scope,
+      digest(this.describe(request.provider, 'observe').binding)])).digest('hex');
     if (prior && prior.identity === identity && ['pending', 'running'].includes(prior.task.status)) return this.watchStatus(request.provider);
     if (prior) await this.stopWatch(request.provider);
     // A new watch after a terminal task is an explicit new session, with an
     // initial gap. It cannot be used to reissue a message-sending operation.
     const filename = path.join(this.client.index, 'watch-' + digest({owner: this.config.owner_id, provider: request.provider}) + '.json');
     let saved = fs.existsSync(filename) ? JSON.parse(fs.readFileSync(filename, 'utf8')) : null;
-    if (!saved || saved.identity !== identity) saved = {identity, sessionKey: crypto.randomUUID(), previousTask: prior?.task.id};
+    if (!saved || saved.identity !== identity) {
+      let previousTask = prior?.task.id ?? saved?.taskID;
+      if (!previousTask && saved?.sessionKey) {
+        const {binding, command} = this.describe(request.provider, 'observe');
+        const original = this.client.restore({principal: 'product-owner', owner: this.config.owner_id,
+          request_key: digest({taskID: saved.sessionKey, app: binding.manifest.id, command})});
+        const previous = await this.client.control(original, 'lookup');
+        requireCondition(previous.task, 'ADMISSION_UNRESOLVED');
+        previousTask = previous.task.id;
+      }
+      saved = {identity, sessionKey: crypto.randomUUID(), previousTask};
+    }
     const persist = () => {
       const temporary = filename + '.' + crypto.randomUUID();
       fs.writeFileSync(temporary, JSON.stringify(saved), {flag: 'wx', mode: 0o600});
@@ -115,6 +127,7 @@ export class MailboxClient {
       admission = this.admission(request, saved); response = await this.client.invoke(admission);
     }
     requireCondition(response.task, 'BACKEND_PROTOCOL_INVALID');
+    saved.taskID = response.task.id; persist();
     const watch = {identity, admission, task: response.task, cursor: 0, epoch: response.task.id, ready: false, state: 'starting',
       onEvent: request.onEvent ?? (() => {}), expires: admission.grant.execution_expires_ms};
     this.watches.set(request.provider, watch);

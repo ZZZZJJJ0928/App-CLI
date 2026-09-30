@@ -64,6 +64,45 @@ test('strict decoder and cross-language canonical vectors', () => {
   const vectors = JSON.parse(fs.readFileSync(path.join(repository, 'tests/fixtures/intent-vectors.json')));
   for (const vector of vectors) assert.equal(digest(vector.value), vector.sha256);
 });
+test('binding updates preserve original task access without authorizing re-execution', async t => {
+  const f = await local(t), {request} = invoke(f);
+  const original = await f.executor.control(request);
+  await until(() => f.executor.control(control(request, 'status', original.task.id)), x => x.task.status === 'completed');
+  await f.executor.close();
+  const updated = structuredClone(binding);
+  updated.commands.increment.resource = 'changed-resource';
+  const assembly = await assemble({config: f.config});
+  const next = new Executor({...assembly, bindings: [updated], ledger: f.ledger, authorization: f.authorization});
+  t.after(() => next.close());
+  for (const operation of ['lookup','status','events','cancel']) {
+    const result = await next.control(control(request, operation, original.task.id, operation === 'events' ? {cursor:0,limit:10} : {}));
+    assert.equal(result.task.id, original.task.id);
+  }
+  for (const operation of ['invoke','resume','renew','reconcile']) {
+    await assert.rejects(() => next.control(operation === 'invoke' ? request : control(request, operation, original.task.id)), {code:'RELEASE_MISMATCH'});
+  }
+  const foreign = invoke(f, {owner: 'foreign-owner'}).request;
+  await assert.rejects(() => next.control(control(foreign, 'status', original.task.id)), {code:'TASK_ACCESS_DENIED'});
+  assert.equal(fs.readdirSync(f.directory).filter(x => x.endsWith('.effect')).length, 1);
+});
+test('explicit journal-only reconciliation survives a binding update and never repeats the effect', async t => {
+  const f = await local(t), {request} = invoke(f, {args:{wait_ms:10000}});
+  const original = await f.executor.control(request);
+  await until(() => f.executor.control(control(request,'status',original.task.id)), x => x.task.status==='running');
+  await f.executor.close();
+  assert.equal(f.ledger.get(original.task.id).status,'uncertain');
+  const updated = structuredClone(binding);
+  updated.commands.increment.resource='new-resource';updated.commands.increment.reconcile_requires_host=false;
+  const assembly = await assemble({config:f.config});
+  const next = new Executor({...assembly,bindings:[updated],ledger:f.ledger,authorization:f.authorization,
+    host:{acquire(){assert.fail('journal reconciliation must not acquire a page');}}});
+  t.after(() => next.close());
+  await next.control(control(request,'reconcile',original.task.id));
+  const result = await until(() => next.control(control(request,'status',original.task.id)), x=>x.task.status==='completed');
+  assert.deepEqual(result.data,{value:1});
+  await assert.rejects(() => next.control(request),{code:'RELEASE_MISMATCH'});
+  assert.equal(fs.readdirSync(f.directory).filter(x=>x.endsWith('.effect')).length,1);
+});
 test('concurrent admission, immutable intent, foreign owner and completed replay', async t => {
   const f = await local(t); const {request} = invoke(f, {args: {wait_ms: 50}});
   const responses = await Promise.all(Array.from({length: 16}, () => f.executor.control(request)));
