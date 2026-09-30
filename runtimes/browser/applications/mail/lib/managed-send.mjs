@@ -141,12 +141,13 @@ export async function sendManagedMail(raw,provider,runtime){
  if(journal.saved?.stage==='sent')return journal.saved.receipt;
  if(request.mode==='reconcile'||journal.saved?.stage==='dispatching')return unknown;
  if(typeof runtime.withSendTab!=='function')throw fail('email_send_configuration_error');
- let attempted=false;
+ let attempted=false, phase='open';
  const outlookFolderProof=provider==='outlook'&&request.mode==='compose'&&request.message.to.length===1&&request.message.cc.length===0;
  try{return await runtime.withSendTab(async tab=>{
   await tab.runReadCode(`async page=>{await page.goto(${JSON.stringify(outlookFolderProof?'https://outlook.live.com/mail/0/sentitems':READ_PROVIDERS[provider].url)});return true}`);
   if(runtime.prepareSendPage)await runtime.prepareSendPage();
   let claimed, sentBaseline, prepared;
+  phase='sent_baseline';
   if(provider==='qq_mail'){
    await tab.click(QQMAIL_SENT_FOLDER_SELECTOR);
    sentBaseline=(await tab.inspect(QQMAIL_SENT_BASELINE_EXPRESSION)).result;
@@ -154,15 +155,17 @@ export async function sendManagedMail(raw,provider,runtime){
   if(provider==='qq_mail'||outlookFolderProof){
    if(!Array.isArray(sentBaseline?.ids)||sentBaseline.ids.length>1000||sentBaseline.ids.some(id=>typeof id!=='string'||!id||id.length>1024))throw fail('email_send_precondition_failed');
   }
+  phase='prepare_draft';
   try{prepared=await prepareManagedDraft(tab,provider,request);await tab.inspect(`()=>(${sentDOM.toString()})(${JSON.stringify(provider)},true)`);claimed=await journal.write('dispatching');}catch(error){try{await discardManagedDraft(tab,provider)}catch{}throw error}
   if(!claimed){try{await discardManagedDraft(tab,provider)}catch{}return unknown;}
   attempted=true;
   await tab.inspect('()=>{if(globalThis.__sparkclawManagedMail)globalThis.__sparkclawManagedMail.sendAttempted=true;return {marked:true}}');
-  await tab.click(MANAGED_SEND_SELECTOR);
+  phase='send_click';await tab.click(MANAGED_SEND_SELECTOR);
   let proof;
   if(provider==='qq_mail'){
-   await tab.waitFor('.mail-list-page');
-   await tab.click(QQMAIL_SENT_FOLDER_SELECTOR);
+   phase='sent_page';await tab.waitFor('.mail-list-page');
+   phase='sent_folder';await tab.click(QQMAIL_SENT_FOLDER_SELECTOR);
+   phase='sent_evidence';
    const evidence=(await tab.inspect(`(${QQMAIL_SENT_VERIFICATION_EXPRESSION})(${JSON.stringify({ids:sentBaseline.ids,subject:digest(request.message.subject),emptySubject:false})})`)).result;
    proof={confirmed:evidence?.sent_evidence===true};
   }else if(outlookFolderProof){
@@ -173,8 +176,11 @@ export async function sendManagedMail(raw,provider,runtime){
    proof=(await tab.inspect(`async()=>{await new Promise(r=>setTimeout(r,250));return (${sentDOM.toString()})(${JSON.stringify(provider)})}`)).result;
    if(proof?.confirmed)break;
   }
-  if(!proof?.confirmed)throw fail('send_outcome_unknown');
+  phase='confirm_result';if(!proof?.confirmed)throw fail('send_outcome_unknown');
   const result={schema_version:1,status:'sent',provider,recipient_digest:request.recipientDigest};
   await journal.write('sent',result);return result;
- });}catch(error){if(attempted)throw fail('send_outcome_unknown');throw error}
+ });}catch(error){
+  if(process.env.APP_CLI_MAIL_SEND_EVIDENCE==='1')process.stderr.write(JSON.stringify({event:'mail_send_phase_failed',provider,phase,attempted,code:/^[a-zA-Z0-9_]{1,64}$/.test(error.code??'')?error.code:'unavailable'})+'\n');
+  if(attempted)throw fail('send_outcome_unknown');throw error
+ }
 }
