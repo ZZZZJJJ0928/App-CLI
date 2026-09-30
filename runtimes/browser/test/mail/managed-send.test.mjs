@@ -90,6 +90,17 @@ test('native cleanup refuses preexisting or uncertain-send editors',()=>{
  assert.equal(evaluate({root,ownershipChecked:false}).discarded,false);
  assert.equal(evaluate({root,ownershipChecked:true,sendAttempted:true}).discarded,false);
 });
+test('Gmail restores only the newly opened minimized composer through its native control',()=>{
+ for(const preexisting of [false,true]){
+  const restore={isConnected:true,getBoundingClientRect:()=>({width:20,height:20}),setAttribute:()=>{}};
+  const dialog={isConnected:true,getBoundingClientRect:()=>({width:328,height:40}),querySelector:()=>({value:'new-draft'}),querySelectorAll:()=>[restore]};
+  const body={isConnected:true,getBoundingClientRect:()=>({width:0,height:0}),closest:()=>dialog};
+  const state={provider:'gmail',mode:'compose',priorComposeDialogs:new Set(preexisting?[dialog]:[]),priorDrafts:[]};
+  const value=vm.runInNewContext(`(${managedSendDOM.toString()})('gmail','editor',{})`,{document:{querySelectorAll:s=>s.includes('contenteditable')?[body]:[]},__sparkclawManagedMail:state,getComputedStyle:()=>({visibility:'visible'})});
+  if(preexisting)assert.equal(value.error,'email_existing_draft');
+  else assert.deepEqual(JSON.parse(JSON.stringify(value)),{retry:true,action_selector:'[data-sc-mail-action="prepare"]'});
+ }
+});
 
 test('native draft proof rejects resumed Gmail/QQ drafts and mismatched reply markers before editing',()=>{
  for(const scenario of ['gmail-saved','gmail-wrong-reply','qq-resumed']){

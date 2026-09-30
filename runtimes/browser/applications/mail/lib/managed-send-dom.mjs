@@ -31,7 +31,7 @@ export function managedSendDOM(provider,phase,expected={}){
   }
   if(buttons?.length!==1)return error('email_reply_control_unavailable');
   globalThis.__sparkclawManagedMail={provider,mode:expected.mode,target:expected.provider_message_id??'',selection:expected.provider_selection_id??'',individual:expected.individual_message_proven===true,single:expected.single_message_proven===true,evidenceKey:expected.evidence_key,sourceRoot:provider==='gmail'?all('.adn[data-legacy-message-id]').find(n=>n.getAttribute('data-legacy-message-id')===expected.provider_message_id):null};
-  const st=globalThis.__sparkclawManagedMail;st.priorDrafts=[...document.querySelectorAll('input[name="draft"]')].map(n=>n.value).filter(Boolean);st.sourceNativeId=st.sourceRoot?.getAttribute('data-message-id')?.replace(/^#/u,'');return action(buttons[0],{opened:true});
+  const st=globalThis.__sparkclawManagedMail;st.priorComposeDialogs=new Set(document.querySelectorAll('[role="dialog"]'));st.priorDrafts=[...document.querySelectorAll('input[name="draft"]')].map(n=>n.value).filter(Boolean);st.sourceNativeId=st.sourceRoot?.getAttribute('data-message-id')?.replace(/^#/u,'');return action(buttons[0],{opened:true});
  }
  if(phase==='reply_menu'){
   if(bodies.length)return error('email_existing_draft');
@@ -71,6 +71,19 @@ export function managedSendDOM(provider,phase,expected={}){
   return action(buttons[0],{opened:true});
  }
  if(phase==='editor'){
+  // Gmail can open a newly created composer minimized. Restore only that
+  // native dialog; hidden or preexisting drafts never become editable here.
+  if(provider==='gmail'&&state?.provider===provider&&state.mode==='compose'&&bodies.length===0){
+   const hidden=[...document.querySelectorAll(bodySelector)].filter(n=>!visible(n));
+   const dialog=hidden.length===1?hidden[0].closest('[role="dialog"]'):null;
+   if(dialog&&visible(dialog)){
+    if(!state.priorComposeDialogs||state.priorComposeDialogs.has(dialog))return error('email_existing_draft');
+    const id=dialog.querySelector('input[name="draft"]')?.value;
+    if(id&&state.priorDrafts?.includes(id))return error('email_existing_draft');
+    const restore=all('button[aria-label="Maximise"],button[aria-label="Maximize"],button[aria-label="最大化"]',dialog);
+    if(restore.length===1)return action(restore[0],{retry:true});
+   }
+  }
   if(!state||state.provider!==provider||bodies.length!==1)return error('email_reply_editor_unverified');
   const body=bodies[0];let root=provider==='qq_mail'?body.closest('.mail-compose-page'):provider==='gmail'?body.closest('form')||body.closest('.M9')||body.closest('.gA'):body.closest('[data-app-section="MailCompose"]');
   // Find the smallest actual ancestor with one body and a native Send control.
