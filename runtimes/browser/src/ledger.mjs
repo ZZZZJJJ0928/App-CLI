@@ -7,10 +7,10 @@ import {encode, requireCondition} from './protocol.mjs';
 
 // Caller must hold the owner's OS process lock for this database's lifetime.
 export class Ledger {
-  constructor(directory, {eventRetention = 1000, maxTasks = 10000, maxBytes = 512 * 1024 * 1024} = {}) {
+  constructor(directory, {eventRetention = 1000, maxTasks = 0, maxBytes = 512 * 1024 * 1024} = {}) {
     privateDirectory(directory);
     this.retention = eventRetention; this.maxTasks = maxTasks; this.maxBytes = maxBytes;
-    requireCondition(Number.isSafeInteger(maxTasks) && maxTasks > 0 && Number.isSafeInteger(maxBytes) && maxBytes > 0, 'CONFIGURATION_INVALID');
+    requireCondition(Number.isSafeInteger(maxTasks) && maxTasks >= 0 && Number.isSafeInteger(maxBytes) && maxBytes > 0, 'CONFIGURATION_INVALID');
     requireCondition(Number.isSafeInteger(eventRetention) && eventRetention >= 1 && eventRetention <= 10000);
     const file = path.join(directory, 'ledger.sqlite');
     const marker = path.join(directory, 'authority.json');
@@ -84,11 +84,15 @@ export class Ledger {
         requireCondition(previous.intent === intent && previous.resource_digest === resourceDigest, 'REQUEST_KEY_CONFLICT');
         return {row: previous, fresh: false};
       }
-      // Refuse new work at capacity without ever evicting idempotency records.
-      const count = this.db.prepare('SELECT COUNT(*) AS n FROM tasks').get().n;
+      // History is unlimited by default; never evict idempotency records.
+      // Only count history when an operator explicitly configures a task cap.
+      if (this.maxTasks > 0) {
+        const count = this.db.prepare('SELECT COUNT(*) AS n FROM tasks').get().n;
+        requireCondition(count < this.maxTasks, 'LEDGER_CAPACITY_EXCEEDED');
+      }
       const pages = this.db.prepare('PRAGMA page_count').get().page_count;
       const pageSize = this.db.prepare('PRAGMA page_size').get().page_size;
-      requireCondition(count < this.maxTasks && pages * pageSize + Buffer.byteLength(JSON.stringify(request)) < this.maxBytes, 'LEDGER_CAPACITY_EXCEEDED');
+      requireCondition(pages * pageSize + Buffer.byteLength(JSON.stringify(request)) < this.maxBytes, 'LEDGER_CAPACITY_EXCEEDED');
       const id = randomUUID();
       this.db.prepare(`INSERT INTO tasks(id,principal,owner,request_key,intent,app,command,request,grant_ref,
         resource_digest,grant_revision,expires,side_effect,status,epoch) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,'pending',?)`)

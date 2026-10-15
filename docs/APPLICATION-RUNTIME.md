@@ -73,8 +73,11 @@ These guarantees do not claim exactly-once remote delivery.
 | Idle read page | At most 30 minutes; no action authority while parked |
 | Host large result | Owner-private hash-verified reference, at most 16 MiB |
 | Event retention | Last 1,000 events per task, cursor gap reported |
-| Ledger admission | At most 10,000 tasks or 512 MiB allocated data plus new request |
+| Ledger admission | No cumulative task count limit by default (`maxTasks=0`); 512 MiB allocated data plus new request |
 | Product task-access grant | 30 days, separate from execution authority |
+
+A positive integer `maxTasks` opts into a task-count cap; zero disables counting.
+Existing databases need no migration and retain their complete request history.
 
 At capacity, new admission fails with `LEDGER_CAPACITY_EXCEEDED`; existing
 lookups/replay remain available and deduplication records are never evicted.

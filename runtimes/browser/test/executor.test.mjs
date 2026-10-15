@@ -302,6 +302,45 @@ test('ledger capacity refuses new tasks while preserving completed replay and ke
   assert.equal(ledger.admit(first.request, first.grant, intentDigest(first.request), digest(first.resource)).row.id, admitted.row.id);
   assert.throws(() => ledger.admit(first.request, first.grant, 'changed', digest(first.resource)), {code: 'REQUEST_KEY_CONFLICT'});
 });
+test('default ledger admits beyond 10000 retained tasks and preserves history across restart', t => {
+  const f = fixture(t), first = invoke(f);
+  let ledger = new Ledger(f.directory);
+  t.after(() => ledger.close());
+  const admitted = ledger.admit(first.request, first.grant, intentDigest(first.request), digest(first.resource));
+  ledger.transaction(() => {
+    ledger.update(admitted.row.id, {status: 'completed', data: '{"value":1}', effect: 1});
+    // Synthetic historical rows reproduce the old full database without
+    // executing thousands of operations or weakening production durability.
+    ledger.db.prepare(`WITH RECURSIVE history(n) AS (VALUES(1) UNION ALL SELECT n+1 FROM history WHERE n<9999)
+      INSERT INTO tasks SELECT 'history-'||n,principal,owner,'history-'||n,intent,app,command,request,grant_ref,
+        resource_digest,grant_revision,expires,side_effect,status,reason,data,effect,sequence,epoch
+      FROM tasks,history WHERE id=?`).run(admitted.row.id);
+  });
+  const original = ledger.get(admitted.row.id), originalEvents = ledger.events(original, 0);
+  const epoch = ledger.epoch;
+  ledger.close();
+  ledger = new Ledger(f.directory);
+  assert.ok(ledger.epoch > epoch);
+  assert.equal(ledger.db.prepare('SELECT COUNT(*) AS n FROM tasks').get().n, 10000);
+  const second = invoke(f, {key: 'after-full-history'});
+  assert.equal(ledger.admit(second.request, second.grant, intentDigest(second.request), digest(second.resource)).fresh, true);
+  assert.equal(ledger.db.prepare('SELECT COUNT(*) AS n FROM tasks').get().n, 10001);
+  const replay = ledger.admit(first.request, first.grant, intentDigest(first.request), digest(first.resource));
+  assert.equal(replay.fresh, false);
+  assert.deepEqual(replay.row, original);
+  assert.deepEqual(ledger.events(replay.row, 0), originalEvents);
+  assert.throws(() => ledger.admit(first.request, first.grant, 'changed', digest(first.resource)), {code: 'REQUEST_KEY_CONFLICT'});
+});
+test('unlimited task history retains byte admission and validates optional task caps', t => {
+  const f = fixture(t), ledger = new Ledger(f.directory, {maxTasks: 0, maxBytes: 1});
+  t.after(() => ledger.close());
+  const first = invoke(f);
+  assert.throws(() => ledger.admit(first.request, first.grant, intentDigest(first.request), digest(first.resource)), {code: 'LEDGER_CAPACITY_EXCEEDED'});
+  assert.equal(ledger.db.prepare('SELECT COUNT(*) AS n FROM tasks').get().n, 0);
+  for (const maxTasks of [-1, 0.5, NaN, Infinity, '0', null]) {
+    assert.throws(() => new Ledger(f.directory, {maxTasks}), {code: 'CONFIGURATION_INVALID'});
+  }
+});
 test('authority marker prevents recreating a missing ledger or rolling back its epoch', t => {
   for (const damage of ['missing', 'rollback']) {
     const f = fixture(t), ledger = new Ledger(f.directory);
