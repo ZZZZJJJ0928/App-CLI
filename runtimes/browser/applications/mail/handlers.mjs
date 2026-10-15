@@ -76,6 +76,7 @@ async function watch(entry, input, context) {
   await page.prepareMailRound(input.account_address, context.browser.reused);
   await context.browser.call('hookActivate');
   if (context.resource.previous_task_id) context.emit('gap', {reason: 'watch_replaced', previous_task_id: context.resource.previous_task_id});
+  if (context.resource.previous_request_key) context.emit('gap', {reason: 'watch_admission_unresolved', previous_request_key: context.resource.previous_request_key});
   context.emit('watch_ready', {provider: entry.provider, resync_required: true});
   let cursor = 0, document = null, sequence = 0, lastEvent = Date.now();
   const retiredDocuments = new Set();

@@ -23,13 +23,13 @@ export class MailboxClient {
     requireCondition(Boolean(spec), 'COMMAND_NOT_FOUND');
     return {binding, command, spec, manifest: binding.manifest.commands.find(value => value.name === command)};
   }
-  admission({provider, operation, input, taskID, credentialGeneration, token, scriptID, revision}, {sessionKey, previousTask} = {}) {
+  admission({provider, operation, input, taskID, credentialGeneration, token, scriptID, revision}, {sessionKey, previousTask, previousRequestKey} = {}) {
     const {binding, command, spec, manifest} = this.describe(provider, operation);
     requireCondition(scriptID === spec.script_id && revision === spec.revision, 'RELEASE_MISMATCH');
     const owner = this.config.owner_id;
     const account = (input.account_address ?? input.discovery?.account_address ?? input.target?.account_address ?? '').toLowerCase();
     const pool_key = digest({owner, provider, account, scope: input.owner_scope ?? '', credentialGeneration, binding: digest(binding)});
-    const resource = {...(previousTask ? {previous_task_id: previousTask} : {}), binding_digest: digest(binding), profile_id: this.config.profile_id, credential_generation: credentialGeneration,
+    const resource = {...(previousRequestKey ? {previous_request_key: previousRequestKey} : {}), ...(previousTask ? {previous_task_id: previousTask} : {}), binding_digest: digest(binding), profile_id: this.config.profile_id, credential_generation: credentialGeneration,
       token, account_address: account, workspace_root: this.config.workspace_root, host_runtime_root: this.config.host_runtime_root,
       pool_key: ['collect_page', 'watch'].includes(command) && account ? (this.sharedPages ? pool_key : digest({pool_key, command})) : digest({taskID, command}), document_nonce: pool_key};
     const args = command === 'watch' ? {schema_version: 1, owner_scope: input.owner_scope, account_address: input.account_address} : input;
@@ -100,17 +100,29 @@ export class MailboxClient {
     // initial gap. It cannot be used to reissue a message-sending operation.
     const filename = path.join(this.client.index, 'watch-' + digest({owner: this.config.owner_id, provider: request.provider}) + '.json');
     let saved = fs.existsSync(filename) ? JSON.parse(fs.readFileSync(filename, 'utf8')) : null;
-    if (!saved || saved.identity !== identity) {
-      let previousTask = prior?.task.id ?? saved?.taskID;
-      if (!previousTask && saved?.sessionKey) {
-        const {binding, command} = this.describe(request.provider, 'observe');
-        const original = this.client.restore({principal: 'product-owner', owner: this.config.owner_id,
-          request_key: digest({taskID: saved.sessionKey, app: binding.manifest.id, command})});
-        const previous = await this.client.control(original, 'lookup');
-        requireCondition(previous.task, 'ADMISSION_UNRESOLVED');
-        previousTask = previous.task.id;
+    if (saved?.sessionKey && !saved.taskID) {
+      const {binding, command, spec, manifest} = this.describe(request.provider, 'observe');
+      const original = this.client.restore({principal: 'product-owner', owner: this.config.owner_id,
+        request_key: digest({taskID: saved.sessionKey, app: binding.manifest.id, command})});
+      const previous = await this.client.control(original, 'lookup');
+      if (previous.task) saved.taskID = previous.task.id;
+      else {
+        // An unknown outcome is not proof that admission never happened. Only
+        // replace an expired, unbound, read-only watch; Host expiry/cleanup still
+        // fences its resources. Never relax ProductClient's write retry rules.
+        const grant = original.grant;
+        requireCondition(previous.kind === 'lookup' && previous.outcome === 'unresolved' &&
+          command === 'watch' && spec.renewable === true && manifest.side_effect === 'read_only' &&
+          original.request.command === command && original.request.app === binding.manifest.id &&
+          grant?.command === command && grant.app === binding.manifest.id && grant.side_effect === 'read_only' &&
+          grant.max_deadline_ms === null && grant.task_id === null &&
+          Number.isSafeInteger(grant.execution_expires_ms) && grant.execution_expires_ms <= Date.now(), 'ADMISSION_UNRESOLVED');
+        saved = {identity, sessionKey: crypto.randomUUID(), previousTask: saved.previousTask,
+          previousRequestKey: original.request.request_key};
       }
-      saved = {identity, sessionKey: crypto.randomUUID(), previousTask};
+    }
+    if (!saved || saved.identity !== identity) {
+      saved = {identity, sessionKey: crypto.randomUUID(), previousTask: prior?.task.id ?? saved?.taskID};
     }
     const persist = () => {
       const temporary = filename + '.' + crypto.randomUUID();
