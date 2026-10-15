@@ -59,8 +59,19 @@ export function installReader(config) {
     }
     return btoa(binary);
   };
-  function checkedAccount(expected) {
+  function observedAccount() {
     const current = config.account();
+    // A collapsed Outlook folder pane has no mailbox-address DOM. The
+    // document-start bridge already observes the same-origin startup response
+    // needed for inbox scope; its mailbox identity is independent of UI layout.
+    const startup = config.provider === 'outlook' && idPattern.test(inbox?.id || '') &&
+      typeof inbox?.account === 'string' && inbox.account.length <= 320 &&
+      /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(inbox.account) ? inbox.account : '';
+    if (current && startup && current.toLowerCase() !== startup.toLowerCase()) failure('email_account_identity_mismatch');
+    return current || startup;
+  }
+  function checkedAccount(expected) {
+    const current = observedAccount();
     if (!current) failure('email_account_identity_unavailable');
     if (account && account !== current.toLowerCase()) {
       records.clear(); pageTokens.clear(); binding = null; listRequest = null; networkQuery = null; nativeQueryReply = null; inbox = null; transport?.dispose();
@@ -220,7 +231,12 @@ export function installReader(config) {
     const row = retainedRow || records.get(provider_message_id);
     if (!row || row.draft || row.grouped) failure('email_network_target_unobserved');
     let url = await config.download?.({id:provider_message_id, row, binding, request:listRequest});
-    if (!url && config.provider==='outlook' && transport?.prepareOriginal) url = await transport.prepareOriginal({account_address:account,provider_message_id});
+    let headers;
+    if (!url && config.provider==='outlook' && transport?.prepareOriginalRequest) {
+      const request=await transport.prepareOriginalRequest({account_address:account,provider_message_id});
+      url=request.url;headers=request.headers;
+    }
+    checkedAccount(account_address);
     if (!url) failure('email_network_original_unqualified');
     try {
       url = new URL(url, location.href);
@@ -250,7 +266,7 @@ export function installReader(config) {
         originalSignal.throwIfAborted();
         if(!active)failure('email_network_original_unqualified');
         originalState='fetching';requested=true;
-        const response=await originalFetch.call(window,url.href,{credentials:url.origin===location.origin?'same-origin':'omit',redirect:config.provider==='gmail'?'follow':'error',cache:'no-store',signal:originalSignal});
+        const response=await originalFetch.call(window,url.href,{...(headers?{headers}:{}),credentials:url.origin===location.origin?'same-origin':'omit',redirect:config.provider==='gmail'?'follow':'error',cache:'no-store',signal:originalSignal});
         originalState='http_'+response.status;responseOrigin=response.url?new URL(response.url).origin:'';
         const mediaType=(response.headers.get('content-type')||'').split(';')[0].trim().toLowerCase();
         originalResponse={status:response.status,type:['message/rfc822','text/plain','text/html','application/json','application/octet-stream'].includes(mediaType)?mediaType:'other',bytes:0};
@@ -479,9 +495,8 @@ export function installReader(config) {
   Object.defineProperty(window, 'SparkClawMailReader', {configurable:true, value:Object.freeze({
     armRangeSearch(request){checkedAccount(request.account_address);if(!transport?.armRangeSearch)failure('email_network_list_unqualified');return transport.armRangeSearch(request);},
     version:'0.2.0', provider:config.provider, checkAccount({account_address}) {
-      const current=config.account()?.toLowerCase();
-      if(!current)failure('email_account_identity_unavailable');
-      if(account && account!==current || account_address?.toLowerCase()!==current)failure('email_account_identity_mismatch');
+      if(typeof account_address !== 'string' || !account_address)failure('email_account_identity_mismatch');
+      checkedAccount(account_address);
       return true;
     }, diagnostics:()=>({original:{state:originalState,responseOrigin,response:originalResponse?{...originalResponse}:null},list:{stage:listStage,template:Boolean(listRequest),body:Array.isArray(listRequest?.body),paging:Array.isArray(listRequest?.body?.[0]?.[15])},inbox:Boolean(inbox),records:records.size,transport:transport?.diagnostics?.()}), snapshot, resetRound,
     listPage:request=>inRound(listPage,request), prepareOriginal:request=>inRound(prepareOriginal,request), prepareRetainedOriginal:request=>inRound(prepareRetainedOriginal,request), markRead, dispose,

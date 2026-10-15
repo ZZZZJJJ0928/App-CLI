@@ -83,5 +83,5 @@ export function installOutlookTransport({account, getInbox, receiveRows, receive
   }
   function dispose(){active=false;range.dispose();originalResolver.dispose();bridge.detach(consumer);if(!existing)bridge.dispose();for(const waiter of pending.values())waiter.reject(Object.assign(new Error('email_network_read_failed'),{code:'email_network_read_failed'}));pending.clear();templates.clear();}
 
-  return {listPage,armRangeSearch:range.arm,resetRound:range.resetRound,prepareOriginal,dispose,diagnostics(){return {itemTemplate:templates.has('ItemRows'),inboxTemplate:Boolean(getInbox()&&templates.has('ConversationRows:'+getInbox().id)),templateCount:templates.size,original:originalResolver.diagnostics()};}};
+  return {listPage,armRangeSearch:range.arm,resetRound:range.resetRound,prepareOriginal,prepareOriginalRequest:target=>originalResolver.prepareRequest(target),dispose,diagnostics(){return {itemTemplate:templates.has('ItemRows'),inboxTemplate:Boolean(getInbox()&&templates.has('ConversationRows:'+getInbox().id)),templateCount:templates.size,original:originalResolver.diagnostics()};}};
 }

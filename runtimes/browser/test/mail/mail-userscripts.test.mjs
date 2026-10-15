@@ -28,6 +28,26 @@ function fixture() {
 const interval={account_address:'owner@example.test',interval_start:'2026-09-10T00:00:00Z',interval_end:'2026-09-11T00:00:00Z'};
 const row=(id,extra={})=>({provider_message_id:id,received_at:'2026-09-10T00:00:00Z',draft:false,sent:false,...extra});
 
+test('Outlook Reader keeps native authorization inside the bounded original fetch',async()=>{
+  const f=fixture();f.reader.dispose();
+  f.context.location={origin:'https://outlook.live.com',href:'https://outlook.live.com/mail/0/'};
+  f.context.fetch=async(url,options)=>{
+    f.context.requests.push({url,options});
+    return new Response('From: sender@example.test\r\nSubject: live-fixture\r\n\r\nSynthetic original.');
+  };
+  vm.runInContext(`(${installReader.toString()})({provider:'outlook',origins:['https://outlook.live.com'],account:()=>account,listURL:u=>u.pathname==='/list',parse:value=>value.rows,
+    installTransport:()=>({dispose(){},prepareOriginalRequest:async target=>({url:new URL('https://attachment.outlook.live.net/owa/native/service.svc/s/DownloadMessage?id='+target.provider_message_id+'&outputFormat=0'),headers:{Authorization:'Bearer page-private-native-fixture'}})})});`,f.context);
+  new f.XHR().deliver('https://outlook.live.com/list',{rows:[row('a')]});
+  const result=await f.context.SparkClawMailReader.prepareOriginal({account_address:interval.account_address,provider_message_id:'a'});
+  const request=f.context.requests.at(-1);
+  assert.equal(request.options.headers.Authorization,'Bearer page-private-native-fixture');
+  assert.equal(request.options.credentials,'omit');assert.equal(request.options.redirect,'error');
+  assert.equal(request.options.cache,'no-store');assert.ok(request.options.signal instanceof AbortSignal);
+  assert.ok(result.bytes>0);assert.ok(!JSON.stringify(result).includes('page-private'));
+  assert.ok(!JSON.stringify(f.context.SparkClawMailReader.diagnostics()).includes('page-private'));
+  f.context.SparkClawMailReader.dispose();
+});
+
 test('round reset discards originals and source rows without network and cannot change owner',async()=>{
   const f=fixture();f.deliver([row('a')]);
   await f.reader.prepareOriginal({account_address:interval.account_address,provider_message_id:'a'});
@@ -42,14 +62,14 @@ test('round reset discards originals and source rows without network and cannot 
   f.reader.dispose();assert.throws(()=>f.reader.resetRound(interval),{code:'email_network_list_unqualified'});
 });
 
-test('observer account check does not mutate an active Reader round',()=>{
+test('observer account check preserves a matching round and invalidates changed identity',()=>{
   const f=fixture();f.deliver([row('a')]);
   const before=f.reader.diagnostics().records;
   assert.equal(f.reader.checkAccount({account_address:interval.account_address}),true);
   assert.equal(f.reader.diagnostics().records,before);
   f.context.account='other@example.test';
   assert.throws(()=>f.reader.checkAccount({account_address:interval.account_address}),{code:'email_account_identity_mismatch'});
-  assert.equal(f.reader.diagnostics().records,before);
+  assert.equal(f.reader.diagnostics().records,0);
 });
 
 test('round reset rejects in-flight original preparation and becomes available after completion',async()=>{

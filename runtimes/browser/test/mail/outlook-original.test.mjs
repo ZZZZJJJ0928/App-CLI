@@ -12,11 +12,16 @@ const nativeURL=(id,token='synthetic-private-token')=>`https://attachment.outloo
 function fixture(t) {
   const f={currentAccount:owner,inbox:{qualified:true,account:owner},info:{type:'UserMailbox',userIdentity:'observed-logon-alias@example.test',mailboxSmtpAddress:owner},configuration:{SessionSettings:{UserEmailAddress:owner}},configurationCalls:[],chunks:[],modules:[],builds:[],fetches:0,registrations:0};
   f.url=id=>nativeURL(id);
+  f.expired=false;f.refreshes=0;f.authorizations=[];
+  f.authorize=async(url,info)=>{f.authorizations.push({url,info});const value=new URL(url);value.searchParams.delete('token');return {url:value.href,tokenHeader:{name:'Authorization',value:'Bearer page-private-native-fixture'}};};
   const require=id=>{
     f.modules.push(id);
     if(id===643446)return f.invalidBuilder?{}:{V(...args){f.builds.push(args);return f.url(...args);}};
     if(id===129387)return f.invalidMailbox?{}:{A:()=>f.info};
     if(id===859741)return f.invalidConfiguration?{}:{C(info){f.configurationCalls.push(info);return f.configuration;}};
+    if(id===56150)return {NX:(...args)=>f.authorize(...args)};
+    if(id===148443)return {y:()=>f.expired};
+    if(id===178447)return {e:async()=>{f.refreshes++;if(!f.refreshFails)f.expired=false;}};
     throw new Error('unexpected native module');
   };
   require.e=async id=>{f.chunks.push(id);if(f.loadError)throw f.loadError;await f.loadGate;};
@@ -41,6 +46,44 @@ test('Outlook original resolver invokes native EML builder with actual native ma
   assert.equal(f.registrations,1);assert.equal(f.builds.length,1);assert.equal(f.builds[0][0],target.provider_message_id);assert.equal(f.builds[0][1],'EML');assert.equal(f.builds[0][2],f.info);
   assert.deepEqual(f.configurationCalls,[f.info]);
   assert.equal(f.fetches,0);
+});
+
+test('Outlook native header authorization replaces obsolete query token within the same target URL',async t=>{
+  const f=fixture(t),request=await f.resolver.prepareRequest(target);
+  assert.equal(request.url.searchParams.has('token'),false);
+  assert.equal(request.url.searchParams.get('id'),target.provider_message_id);
+  assert.equal(request.headers.Authorization,'Bearer page-private-native-fixture');
+  assert.equal(f.authorizations[0].info,f.info);assert.equal(f.refreshes,0);assert.equal(f.fetches,0);
+  assert.equal(f.resolver.diagnostics().stage,'authorized');
+  assert.ok(!JSON.stringify(f.resolver.diagnostics()).includes('page-private'));
+});
+
+test('Outlook legacy expired token refreshes natively and failed refresh cannot issue a download',async t=>{
+  const f=fixture(t);f.expired=true;
+  const request=await f.resolver.prepareRequest(target);
+  assert.equal(f.refreshes,1);assert.ok(request.headers.Authorization);
+  f.expired=true;f.refreshFails=true;
+  await assert.rejects(f.resolver.prepareRequest(target),{code});
+  assert.equal(f.authorizations.length,1);assert.equal(f.fetches,0);
+});
+
+test('Outlook native authorization cannot change origin, route, message, format or inject headers',async t=>{
+  const changes={host:x=>{x.url=x.url.replace('attachment.outlook.live.net','foreign.example.test');},
+    id:x=>{x.url=x.url.replace('id=','id=other');},extra:x=>{x.url+='&extra=1';},
+    query_token:x=>{x.url+='&token=forbidden';},name:x=>{x.tokenHeader.name='Cookie';},
+    empty:x=>{x.tokenHeader.value='';},newline:x=>{x.tokenHeader.value='a\r\nb';},oversize:x=>{x.tokenHeader.value='a'.repeat(32769);}};
+  for(const [name,change]of Object.entries(changes))await t.test(name,async t=>{
+    const f=fixture(t),authorize=f.authorize;f.authorize=async(...args)=>{const v=await authorize(...args);change(v);return v;};
+    await assert.rejects(f.resolver.prepareRequest(target),{code});assert.equal(f.fetches,0);
+  });
+});
+
+test('Outlook native authorization completion rechecks account, mailbox and disposal',async t=>{
+  for(const change of [f=>{f.currentAccount='other@example.test';},f=>{f.configuration.SessionSettings.UserEmailAddress='other@example.test';},f=>{f.info={...f.info};},f=>f.resolver.dispose()]){
+    const f=fixture(t),authorize=f.authorize;
+    f.authorize=async(...args)=>{const v=await authorize(...args);change(f);return v;};
+    await assert.rejects(f.resolver.prepareRequest(target),{code});assert.equal(f.fetches,0);
+  }
 });
 
 test('Outlook lazy modules load only once for concurrent and subsequent originals; URLs are rebuilt each time',async t=>{

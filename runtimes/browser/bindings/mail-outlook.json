@@ -2055,7 +2055,7 @@
       "timeout_ms": 120000,
       "script_id": "outlook.observe",
       "revision": 1,
-      "source_checksum": "sha256:dde417dee4d94c258552739e876eae97ea6a8d6485d4a8d5e9ef2024fb9d4287",
+      "source_checksum": "sha256:09b25c3bd0c9c5e10aa72da4e23e79c1f6390dbe315e9406dcb20f00b18bfc8e",
       "host": {
         "family": "outlook.inbound",
         "activity": "watch",
