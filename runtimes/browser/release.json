@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "id": "0.3.0-sparkclaw.25",
+  "id": "0.3.0-sparkclaw.26",
   "runtime_protocol": "3.0",
   "host_protocol": "1.0",
   "ledger_version": 2,
@@ -8,7 +8,7 @@
     "applications/mail/LICENSE": "3688798bfdeaf5c004ddea93cdf36ff22ba0dd4787cce693d97e0fa85964fdf2",
     "applications/mail/NOTICE": "e809a6a11a6c5a58ee5a0c23c6cf1e22f12cd17d1b0d21f4a3e81e2b60d7fd74",
     "applications/mail/build-bindings.mjs": "88559f9353453fced2a01a4acae6ac433a4cae5fef5fe1ace61d0d9a8c49b6ac",
-    "applications/mail/client.mjs": "8d021e190d83a3e368b73be3ceed544e5cfb7e8a83dabfc86ae1dd097fd02fb4",
+    "applications/mail/client.mjs": "565a261bb5b90662ac10557a1fcfdd1b5c224c8188dbc70a06b82b325af7ee02",
     "applications/mail/gmail-browser.mjs": "0128d588a59b774f9cdc99a083a2dfdda8c53d856251f6474c2d8194101628e2",
     "applications/mail/gmail-login-probe.mjs": "a15b4445f5cc1e805698823a1a7ca093dbf0d73e58ecccfcefe2e0c3b9463f55",
     "applications/mail/gmail-send.mjs": "644e3845f4059f6017ea25193049f89ae642e909d6a5c33afd5ac2c3eb8dcc71",
@@ -80,8 +80,8 @@
     "src/protocol.mjs": "d756ea8af257b1ff7c06f9dde8a410ff4388b8feb3ce55feb127334e8b23619f",
     "src/release.mjs": "2179af4f63f251a3037bd6d8380b5edcd48a397d0baf12f8d18519a9bc68877d",
     "src/socket.mjs": "fd584c49170f7a3418641facffdc6edec0dca06a801038e59ec8adec401f1787",
-    "package.json": "08fa5a6877c849adcec62ccc61b3d32ba87072dc819a4a99f7de6164f28d4025",
-    "npm-shrinkwrap.json": "100db7ed06f55ab37f4b2294f59efd35591ad684dd39afcc90c3c2ed1e502e5e",
+    "package.json": "ac63ab516e86b5c7a1b4644ef2b1c52749ce2a96c0f6ad87a12741f5be469727",
+    "npm-shrinkwrap.json": "1cd4d44cd66ac0f2583c5529e3f902ebde2ad297a8acae6e0ab701963088b229",
     "LICENSE": "ab7cd02c6615f01a6dd5f7d54cf58a86e12757c57c3c75660adbc6e43859c2af",
     "NOTICE": "b99aa80477e9d49d7ecb459c231a7ce07c82c6b97dcb1880203ccfa3ffc17e71"
   }
