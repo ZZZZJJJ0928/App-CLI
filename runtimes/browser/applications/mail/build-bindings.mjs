@@ -43,7 +43,7 @@ for (const provider of ['gmail', 'outlook', 'qq_mail']) {
           timeoutMS: name === 'watch' ? 300000 : entry.timeoutMS, backgroundBeforeNavigation: read,
           codeEnabled: name !== 'probe', readOnlyCode: ['read', 'discover', 'capture', 'collect_page', 'watch'].includes(name),
           downloadEnabled: ['read', 'capture', 'collect_page'].includes(name),
-          awaitedRead: ['gmail', 'qq_mail'].includes(provider) && ['read', 'discover', 'capture', 'collect_page', 'watch'].includes(name),
+          awaitedRead: name === 'send' || ['gmail', 'qq_mail'].includes(provider) && ['read', 'discover', 'capture', 'collect_page', 'watch'].includes(name),
           effectSelectors: [entry.effectSelector, ...entry.effectSelectors ?? []].filter(Boolean),
           deniedURLs: provider === 'outlook' ? [{origin: 'https://www.microsoft.com',
             path: '^/[a-z]{2}-[a-z]{2}/microsoft-365/outlook/email-and-calendar-software-microsoft-outlook/?$', query: {deeplink: '/mail/'}}] : [],

@@ -1,3 +1,4 @@
+import {receiptTimeNanos} from './receipt-time.mjs';
 // Calls the actually installed userscript; it never injects replacement source.
 // Provider adapters own URLs, request templates, parsing and account checks.
 const NETWORK_READER_VERSION = '0.2.0';
@@ -132,7 +133,10 @@ export async function networkListPage(tab, provider, options, observedListed) {
   const fingerprint=value=>hash([value.rows.map(row=>[row.provider_message_id,row.provider_thread_id,row.received_at]),value.unsupported_rows,value.has_next,value.next_page,value.folder_scope_id]);
   const digest=fingerprint(page);
   if(position.d && position.d!==digest)position={...position,o:0,d:''};
-  const candidate=member=>({account_address:page.account_address,provider_message_id:member.provider_message_id,provider_selection_id:member.provider_thread_id,provider_thread_id:member.provider_thread_id,...(member.native_message_id?{provider_native_id:member.native_message_id}:{}),...(provider==='outlook'?{received_at:member.received_at}:{}),folder:member.folder??(member.inbox?'inbox':'all')});
+  const candidate=member=>{
+    if(provider==='qq_mail' && receiptTimeNanos(member.received_at)===null)throw networkError('email_network_list_unqualified');
+    return {account_address:page.account_address,provider_message_id:member.provider_message_id,provider_selection_id:member.provider_thread_id,provider_thread_id:member.provider_thread_id,...(member.native_message_id?{provider_native_id:member.native_message_id}:{}),...(['outlook','qq_mail'].includes(provider)?{received_at:member.received_at}:{}),folder:member.folder??(member.inbox?'inbox':'all')};
+  };
   const selected=[];let candidateBytes=0;
   for(const member of page.rows.slice(position.o,position.o+options.limit)){
     const bytes=Buffer.byteLength(JSON.stringify(candidate(member)));

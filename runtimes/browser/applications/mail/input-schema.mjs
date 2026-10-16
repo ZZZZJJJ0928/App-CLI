@@ -27,7 +27,9 @@ export function inputSchema(provider, operation) {
   if (operation === 'send') {
     const legacy = object({...common, message: object({recipient: address, subject: text(998), body}, ['recipient', 'body'])});
     const message = object({to: {type: 'array', minItems: 1, maxItems: 100, items: address},
-      cc: {type: 'array', maxItems: 100, items: address}, subject: text(998), body}, ['to', 'body']);
+      cc: {type: 'array', maxItems: 100, items: address}, subject: text(998), body,
+      attachments: {type:'array', maxItems:5, items:object({path:text(512), name:{type:'string',minLength:1,maxLength:255},
+        size_bytes:{type:'integer',minimum:0,maximum:10485760}, sha256:hash})}}, ['to', 'body']);
     const reply = object({account_address: address, provider_message_id: providerID, provider_selection_id: providerID,
       provider_thread_id: providerID, folder: text(1032), subject: text(4000)},
     ['account_address', 'provider_message_id', 'provider_selection_id', 'folder', 'subject']);

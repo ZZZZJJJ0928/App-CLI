@@ -3,6 +3,14 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import {ProductClient} from '../../src/product-client.mjs';
 import {digest, requireCondition, RuntimeError} from '../../src/protocol.mjs';
+import {attachmentMessageFingerprint, validateAttachments} from './lib/workspace-attachments.mjs';
+
+function reconciliationIntent(input) {
+  // Receipt lookup compares approved bytes, not the expired upload location.
+  // Validate first so projecting metadata cannot hide extra attachment fields.
+  validateAttachments(input.message.attachments, 'reconcile');
+  return {...input, message: attachmentMessageFingerprint(input.message)};
+}
 
 // Product-facing mail convenience calls. Execution always passes through the
 // Python catalog and lifecycle admission; provider handlers are never imported.
@@ -55,7 +63,7 @@ export class MailboxClient {
       const original = admission.request;
       const args = {...request.input, mode: original.arguments.mode};
       if (original.arguments.mode === undefined) delete args.mode;
-      requireCondition(digest(args) === digest(original.arguments), 'REQUEST_KEY_CONFLICT');
+      requireCondition(digest(reconciliationIntent(args)) === digest(reconciliationIntent(original.arguments)), 'REQUEST_KEY_CONFLICT');
       // Journal-only reconciliation retains the original resource binding even
       // when the current Bridge credential has changed. It cannot acquire a page.
       response = await this.client.control(admission, 'lookup');

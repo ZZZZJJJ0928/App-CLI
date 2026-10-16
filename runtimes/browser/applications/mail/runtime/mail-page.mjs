@@ -129,6 +129,7 @@ export function createProviderRuntime(client, registration) {
       await client.prepareBackgroundPage();
     },
     signal: client.signal,
+    beforeEffect: client.beforeEffect,
     withTaskTab: async (operation, callback) => {
       if (operation !== registration.operation) throw clientContractError();
       return await callback(
@@ -139,6 +140,9 @@ export function createProviderRuntime(client, registration) {
     withSendTab: async callback => {
       if(registration.operation!=="send")throw clientContractError();
       return callback({
+        attachmentSecretSlots: 104 - Object.keys(client.sendSecrets ?? {}).length,
+        setAttachmentSecrets: chunks => client.browser.call('setSecrets', {...client.sendSecrets,
+          ...Object.fromEntries(chunks.map((value,index)=>[`EMAIL_ATTACHMENT_CHUNK_${index}`,value]))}),
         inspect:expression=>client.gmailTab().inspect(expression),
         click:selector=>client.click(selector),
         fill:(selector,value)=>{

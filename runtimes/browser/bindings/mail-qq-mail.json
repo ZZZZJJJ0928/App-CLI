@@ -213,6 +213,40 @@
                         "content"
                       ],
                       "additionalProperties": false
+                    },
+                    "attachments": {
+                      "type": "array",
+                      "maxItems": 5,
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "path": {
+                            "type": "string",
+                            "maxLength": 512
+                          },
+                          "name": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 255
+                          },
+                          "size_bytes": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 10485760
+                          },
+                          "sha256": {
+                            "type": "string",
+                            "pattern": "^sha256:[a-f0-9]{64}$"
+                          }
+                        },
+                        "required": [
+                          "path",
+                          "name",
+                          "size_bytes",
+                          "sha256"
+                        ],
+                        "additionalProperties": false
+                      }
                     }
                   },
                   "required": [
@@ -304,7 +338,10 @@
               "const": "qq_mail"
             },
             "status": {
-              "const": "sent"
+              "enum": [
+                "sent",
+                "not_sent"
+              ]
             },
             "recipient_digest": {
               "type": "string",
@@ -317,6 +354,87 @@
             "provider_thread_id": {
               "type": "string",
               "maxLength": 4096
+            },
+            "not_sent": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "schema_version": {
+                  "const": 1
+                },
+                "kind": {
+                  "enum": [
+                    "pre_dispatch_failure",
+                    "legacy_15_pre_dispatch_failure"
+                  ]
+                },
+                "invocation_id": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+                },
+                "task_id": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+                },
+                "intent_digest": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "resource_digest": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "binding_digest": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "ledger_epoch": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "reason": {
+                  "enum": [
+                    "EMAIL_ATTACHMENT_UPLOAD_UNVERIFIED",
+                    "EMAIL_ATTACHMENT_UPLOAD_FAILED",
+                    "EMAIL_ATTACHMENT_UNVERIFIED",
+                    "BROWSER_EXTENSION_UNAVAILABLE",
+                    "EMAIL_ATTACHMENT_CONTROL_UNAVAILABLE",
+                    "EMAIL_DRAFT_FIELDS_UNVERIFIED"
+                  ]
+                }
+              },
+              "required": [
+                "schema_version",
+                "kind",
+                "invocation_id",
+                "task_id",
+                "intent_digest",
+                "resource_digest",
+                "binding_digest",
+                "ledger_epoch",
+                "reason"
+              ],
+              "allOf": [
+                {
+                  "if": {
+                    "properties": {
+                      "kind": {
+                        "const": "legacy_15_pre_dispatch_failure"
+                      }
+                    }
+                  },
+                  "then": {
+                    "properties": {
+                      "binding_digest": {
+                        "const": "e4375abe5b06a033a818ed6a3659d88067c26c7727bbf45848f231274ab5ae97"
+                      },
+                      "reason": {
+                        "const": "EMAIL_ATTACHMENT_UPLOAD_UNVERIFIED"
+                      }
+                    }
+                  }
+                }
+              ]
             }
           },
           "required": [
@@ -325,7 +443,44 @@
             "status",
             "recipient_digest"
           ],
-          "additionalProperties": false
+          "additionalProperties": false,
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "status": {
+                    "const": "not_sent"
+                  }
+                }
+              },
+              "then": {
+                "required": [
+                  "not_sent"
+                ],
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "provider_message_id"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "provider_thread_id"
+                      ]
+                    }
+                  ]
+                }
+              },
+              "else": {
+                "not": {
+                  "required": [
+                    "not_sent"
+                  ]
+                }
+              }
+            }
+          ]
         }
       },
       {
@@ -1391,7 +1546,7 @@
       }
     ]
   },
-  "manifest_digest": "6d4623554938a40a452eaf27924c17b7feb8b27fd4d136a73511e4e24389e72d",
+  "manifest_digest": "bd9c11c723a6eeb1adde4da8f0892ed61fdf862af26d34202aa7c774021ec74a",
   "commands": {
     "probe": {
       "handler": "qq_mail.probe",
@@ -1461,9 +1616,9 @@
       "resource": "qq_mail",
       "timeout_ms": 180000,
       "script_id": "qqmail.send",
-      "revision": 1,
+      "revision": 2,
       "reconcile_requires_host": false,
-      "source_checksum": "sha256:703d6995a4c994e3c03bbe88f4dc2245359246bf400dc5cafde1e1bb7a4ac674",
+      "source_checksum": "sha256:db384f35f726c4a84f0c42b815f81fd04d0cbe4a604ba97b76c5897a8e020299",
       "host": {
         "family": "send",
         "activity": "exclusive",
@@ -1513,7 +1668,7 @@
           "codeEnabled": true,
           "readOnlyCode": false,
           "downloadEnabled": false,
-          "awaitedRead": false,
+          "awaitedRead": true,
           "effectSelectors": [
             ".mail-compose-header .xmail-ui-btn[data-a11y=\"button\"]",
             "[data-sc-managed-send=\"true\"]"
@@ -1529,7 +1684,7 @@
       "timeout_ms": 180000,
       "script_id": "qqmail.read",
       "revision": 1,
-      "source_checksum": "sha256:3435326307837c3456d9692949be0526431c0b0c27f5919cdd00aa377eb5133d",
+      "source_checksum": "sha256:33fe77c0f832127bfa247d0328a71965eb80a6b851a3971fd3852d204578b320",
       "host": {
         "family": "read",
         "activity": "exclusive",
@@ -1595,7 +1750,7 @@
       "timeout_ms": 180000,
       "script_id": "qqmail.discover",
       "revision": 1,
-      "source_checksum": "sha256:3435326307837c3456d9692949be0526431c0b0c27f5919cdd00aa377eb5133d",
+      "source_checksum": "sha256:33fe77c0f832127bfa247d0328a71965eb80a6b851a3971fd3852d204578b320",
       "host": {
         "family": "discover",
         "activity": "exclusive",
@@ -1661,7 +1816,7 @@
       "timeout_ms": 180000,
       "script_id": "qqmail.capture",
       "revision": 1,
-      "source_checksum": "sha256:3435326307837c3456d9692949be0526431c0b0c27f5919cdd00aa377eb5133d",
+      "source_checksum": "sha256:33fe77c0f832127bfa247d0328a71965eb80a6b851a3971fd3852d204578b320",
       "host": {
         "family": "capture",
         "activity": "exclusive",
@@ -1727,7 +1882,7 @@
       "timeout_ms": 180000,
       "script_id": "qqmail.enumerate_thread",
       "revision": 1,
-      "source_checksum": "sha256:3435326307837c3456d9692949be0526431c0b0c27f5919cdd00aa377eb5133d",
+      "source_checksum": "sha256:33fe77c0f832127bfa247d0328a71965eb80a6b851a3971fd3852d204578b320",
       "host": {
         "family": "enumerate_thread",
         "activity": "exclusive",
@@ -1793,7 +1948,7 @@
       "timeout_ms": 180000,
       "script_id": "qqmail.mark_read",
       "revision": 1,
-      "source_checksum": "sha256:3435326307837c3456d9692949be0526431c0b0c27f5919cdd00aa377eb5133d",
+      "source_checksum": "sha256:33fe77c0f832127bfa247d0328a71965eb80a6b851a3971fd3852d204578b320",
       "host": {
         "family": "mark_read",
         "activity": "exclusive",
@@ -1859,7 +2014,7 @@
       "timeout_ms": 1800000,
       "script_id": "qqmail.collect_page",
       "revision": 1,
-      "source_checksum": "sha256:3435326307837c3456d9692949be0526431c0b0c27f5919cdd00aa377eb5133d",
+      "source_checksum": "sha256:33fe77c0f832127bfa247d0328a71965eb80a6b851a3971fd3852d204578b320",
       "host": {
         "family": "qq_mail.inbound",
         "activity": "read",
@@ -1934,7 +2089,7 @@
       "timeout_ms": 120000,
       "script_id": "qq_mail.observe",
       "revision": 1,
-      "source_checksum": "sha256:09b25c3bd0c9c5e10aa72da4e23e79c1f6390dbe315e9406dcb20f00b18bfc8e",
+      "source_checksum": "sha256:469cad2f317cd5b1a8fe8df5c984355d1400221314d415607efac81b4c8409b7",
       "host": {
         "family": "qq_mail.inbound",
         "activity": "watch",

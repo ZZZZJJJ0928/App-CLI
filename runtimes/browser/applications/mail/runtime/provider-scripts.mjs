@@ -66,7 +66,7 @@ const registrations = [
     operation: "send",
     effectSelectors:[MANAGED_SEND_SELECTOR],
     scriptID: "qqmail.send",
-    revision: 1,
+    revision: 2,
     loginURL: "https://wx.mail.qq.com/",
     origins: ["https://mail.qq.com", "https://wx.mail.qq.com"],
     timeoutMS: 180_000,
@@ -105,7 +105,7 @@ const registrations = [
     operation: "send",
     effectSelectors:[MANAGED_SEND_SELECTOR],
     scriptID: "outlook.send",
-    revision: 1,
+    revision: 2,
     loginURL: "https://outlook.live.com/mail/0/sentitems",
     origins: [
       "https://outlook.live.com",
@@ -143,7 +143,7 @@ const registrations = [
     operation: "send",
     effectSelectors:[MANAGED_SEND_SELECTOR],
     scriptID: "gmail.send",
-    revision: 1,
+    revision: 2,
     loginURL: GMAIL_REGISTRATION_URL,
     origins: ["https://mail.google.com", "https://accounts.google.com"],
     timeoutMS: 180_000,
@@ -250,7 +250,7 @@ function registration(value) {
     ...value,
     validate: value.validate ?? ((input) => validateScriptInput(value.provider, value.operation, input)),
     origins: Object.freeze([...value.origins]),
-    sourceFiles: Object.freeze([...new Set([...value.sourceFiles,...(value.operation==="send"?["lib/managed-send.mjs","lib/managed-send-dom.mjs","lib/send-journal.mjs","read.mjs","lib/read-capture.mjs","lib/receipt-time.mjs","lib/gmail-list.mjs","lib/outlook-list.mjs","lib/qqmail-list.mjs","lib/provider-account.mjs","lib/network-reader.mjs","userscripts/lib/outlook-early-bridge.mjs","userscripts/lib/qqmail-mark-read.mjs"]:[])])]),
+    sourceFiles: Object.freeze([...new Set([...value.sourceFiles,...(value.operation==="send"?["lib/managed-send.mjs","lib/managed-send-dom.mjs","lib/send-journal.mjs","lib/workspace-attachments.mjs","input-schema.mjs","read.mjs","lib/read-capture.mjs","lib/receipt-time.mjs","lib/gmail-list.mjs","lib/outlook-list.mjs","lib/qqmail-list.mjs","lib/provider-account.mjs","lib/network-reader.mjs","userscripts/lib/outlook-early-bridge.mjs","userscripts/lib/qqmail-mark-read.mjs"]:[])])]),
   });
 }
 

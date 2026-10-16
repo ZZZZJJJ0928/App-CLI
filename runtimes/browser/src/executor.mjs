@@ -79,7 +79,7 @@ export class Executor {
             this.ledger.event(row.id, 'cancel_requested', {});
             if (active) {
               active.stopReason = 'CANCEL_REQUESTED'; active.abort.abort();
-              if (row.status === 'pending') this.transition(row.id, 'cancelled', 'CANCEL_REQUESTED');
+              if (row.status === 'pending') this.transition(row.id, row.effect ? 'uncertain' : 'cancelled', 'CANCEL_REQUESTED');
             }
             else this.transition(row.id, row.effect ? 'uncertain' : 'cancelled', 'CANCEL_REQUESTED');
           }
@@ -96,7 +96,12 @@ export class Executor {
         case 'reconcile':
           requireCondition(!this.closing && !active && row.status === 'uncertain' && typeof spec.handler.reconcile === 'function', 'INVALID_TASK_STATE');
           this.refresh(row, request, grant);
-          this.start(this.ledger.get(row.id), spec, resource, true);
+          // A queued recovery must acknowledge its new admission, not the
+          // original uncertain outcome that clients treat as terminal. Keep
+          // the original row for the handler's trusted reconciliation facts.
+          row = this.ledger.get(row.id);
+          this.transition(row.id, 'pending');
+          this.start(row, spec, resource, true);
           break;
         case 'events': return envelope(request, {kind: 'events', task: {id: row.id, status: row.status}, ...this.ledger.events(row, request.cursor, request.limit)});
       }
@@ -139,6 +144,7 @@ export class Executor {
     let session, timer;
     const original = JSON.parse(row.request);
     try {
+      requireCondition(intentDigest(original) === row.intent && digest(resource) === row.resource_digest, 'TASK_ACCESS_DENIED');
       const check = () => {
         const current = this.ledger.get(row.id);
         if (this.clock() >= current.expires) { active.stopReason = 'AUTHORIZATION_EXPIRED'; active.abort.abort(); }
@@ -150,6 +156,11 @@ export class Executor {
       timer = setInterval(() => { try { check(); } catch { /* Handler receives the abort signal. */ } }, 100);
       timer.unref();
       const context = {task_id: row.id, epoch: this.ledger.epoch, signal: active.abort.signal, resource,
+        executionEvidence: Object.freeze({task_id: row.id, intent_digest: row.intent,
+          resource_digest: row.resource_digest, binding_digest: resource.binding_digest, ledger_epoch: this.ledger.epoch}),
+        // Captured before the running transition, after authenticated lookup and
+        // the !active admission check. Applications cannot supply these facts.
+        reconciliation: reconcile ? Object.freeze({status: row.status, reason: row.reason, effect: row.effect}) : null,
         check, emit: (type, payload) => {check(); this.ledger.transaction(() => this.ledger.event(row.id, type, payload));},
         beforeEffect: () => {
           check(); requireCondition(!reconcile && spec.side_effect !== 'read_only', 'EFFECT_DENIED');

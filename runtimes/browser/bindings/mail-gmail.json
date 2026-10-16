@@ -213,6 +213,40 @@
                         "content"
                       ],
                       "additionalProperties": false
+                    },
+                    "attachments": {
+                      "type": "array",
+                      "maxItems": 5,
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "path": {
+                            "type": "string",
+                            "maxLength": 512
+                          },
+                          "name": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 255
+                          },
+                          "size_bytes": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 10485760
+                          },
+                          "sha256": {
+                            "type": "string",
+                            "pattern": "^sha256:[a-f0-9]{64}$"
+                          }
+                        },
+                        "required": [
+                          "path",
+                          "name",
+                          "size_bytes",
+                          "sha256"
+                        ],
+                        "additionalProperties": false
+                      }
                     }
                   },
                   "required": [
@@ -304,7 +338,10 @@
               "const": "gmail"
             },
             "status": {
-              "const": "sent"
+              "enum": [
+                "sent",
+                "not_sent"
+              ]
             },
             "recipient_digest": {
               "type": "string",
@@ -317,6 +354,86 @@
             "provider_thread_id": {
               "type": "string",
               "maxLength": 4096
+            },
+            "not_sent": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "schema_version": {
+                  "const": 1
+                },
+                "kind": {
+                  "enum": [
+                    "pre_dispatch_failure"
+                  ]
+                },
+                "invocation_id": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+                },
+                "task_id": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+                },
+                "intent_digest": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "resource_digest": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "binding_digest": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "ledger_epoch": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "reason": {
+                  "enum": [
+                    "EMAIL_ATTACHMENT_UPLOAD_UNVERIFIED",
+                    "EMAIL_ATTACHMENT_UPLOAD_FAILED",
+                    "EMAIL_ATTACHMENT_UNVERIFIED",
+                    "BROWSER_EXTENSION_UNAVAILABLE",
+                    "EMAIL_ATTACHMENT_CONTROL_UNAVAILABLE",
+                    "EMAIL_DRAFT_FIELDS_UNVERIFIED"
+                  ]
+                }
+              },
+              "required": [
+                "schema_version",
+                "kind",
+                "invocation_id",
+                "task_id",
+                "intent_digest",
+                "resource_digest",
+                "binding_digest",
+                "ledger_epoch",
+                "reason"
+              ],
+              "allOf": [
+                {
+                  "if": {
+                    "properties": {
+                      "kind": {
+                        "const": "legacy_15_pre_dispatch_failure"
+                      }
+                    }
+                  },
+                  "then": {
+                    "properties": {
+                      "binding_digest": {
+                        "const": "e4375abe5b06a033a818ed6a3659d88067c26c7727bbf45848f231274ab5ae97"
+                      },
+                      "reason": {
+                        "const": "EMAIL_ATTACHMENT_UPLOAD_UNVERIFIED"
+                      }
+                    }
+                  }
+                }
+              ]
             }
           },
           "required": [
@@ -325,7 +442,44 @@
             "status",
             "recipient_digest"
           ],
-          "additionalProperties": false
+          "additionalProperties": false,
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "status": {
+                    "const": "not_sent"
+                  }
+                }
+              },
+              "then": {
+                "required": [
+                  "not_sent"
+                ],
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "provider_message_id"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "provider_thread_id"
+                      ]
+                    }
+                  ]
+                }
+              },
+              "else": {
+                "not": {
+                  "required": [
+                    "not_sent"
+                  ]
+                }
+              }
+            }
+          ]
         }
       },
       {
@@ -1391,7 +1545,7 @@
       }
     ]
   },
-  "manifest_digest": "b9e421b03f82855389e65cc6b791372ecf13c4e51ab9c9e6e45b8df6df1aec92",
+  "manifest_digest": "22983c57602006384204e083379a39423661c615b92fed152a4467ad5dc812c4",
   "commands": {
     "probe": {
       "handler": "gmail.probe",
@@ -1461,9 +1615,9 @@
       "resource": "gmail",
       "timeout_ms": 180000,
       "script_id": "gmail.send",
-      "revision": 1,
+      "revision": 2,
       "reconcile_requires_host": false,
-      "source_checksum": "sha256:c97f010ac72699d3256403d6ef17b265737ccede1c7c9f72c811f26ea2b117ec",
+      "source_checksum": "sha256:9520a5d2ef8e1a538adedb0d0b135b4235ced8e87883bfa7228745fa08b1eaa5",
       "host": {
         "family": "send",
         "activity": "exclusive",
@@ -1513,7 +1667,7 @@
           "codeEnabled": true,
           "readOnlyCode": false,
           "downloadEnabled": false,
-          "awaitedRead": false,
+          "awaitedRead": true,
           "effectSelectors": [
             "[role=\"dialog\"] [role=\"button\"][data-tooltip^=\"Send\"], [role=\"dialog\"] [role=\"button\"][aria-label^=\"Send\"], [role=\"dialog\"] [role=\"button\"][data-tooltip^=\"发送\"], [role=\"dialog\"] [role=\"button\"][aria-label^=\"发送\"]",
             "[data-sc-managed-send=\"true\"]"
@@ -1529,7 +1683,7 @@
       "timeout_ms": 180000,
       "script_id": "gmail.read",
       "revision": 1,
-      "source_checksum": "sha256:3435326307837c3456d9692949be0526431c0b0c27f5919cdd00aa377eb5133d",
+      "source_checksum": "sha256:33fe77c0f832127bfa247d0328a71965eb80a6b851a3971fd3852d204578b320",
       "host": {
         "family": "read",
         "activity": "exclusive",
@@ -1595,7 +1749,7 @@
       "timeout_ms": 180000,
       "script_id": "gmail.discover",
       "revision": 1,
-      "source_checksum": "sha256:3435326307837c3456d9692949be0526431c0b0c27f5919cdd00aa377eb5133d",
+      "source_checksum": "sha256:33fe77c0f832127bfa247d0328a71965eb80a6b851a3971fd3852d204578b320",
       "host": {
         "family": "discover",
         "activity": "exclusive",
@@ -1661,7 +1815,7 @@
       "timeout_ms": 180000,
       "script_id": "gmail.capture",
       "revision": 1,
-      "source_checksum": "sha256:3435326307837c3456d9692949be0526431c0b0c27f5919cdd00aa377eb5133d",
+      "source_checksum": "sha256:33fe77c0f832127bfa247d0328a71965eb80a6b851a3971fd3852d204578b320",
       "host": {
         "family": "capture",
         "activity": "exclusive",
@@ -1727,7 +1881,7 @@
       "timeout_ms": 180000,
       "script_id": "gmail.enumerate_thread",
       "revision": 1,
-      "source_checksum": "sha256:3435326307837c3456d9692949be0526431c0b0c27f5919cdd00aa377eb5133d",
+      "source_checksum": "sha256:33fe77c0f832127bfa247d0328a71965eb80a6b851a3971fd3852d204578b320",
       "host": {
         "family": "enumerate_thread",
         "activity": "exclusive",
@@ -1793,7 +1947,7 @@
       "timeout_ms": 180000,
       "script_id": "gmail.mark_read",
       "revision": 1,
-      "source_checksum": "sha256:3435326307837c3456d9692949be0526431c0b0c27f5919cdd00aa377eb5133d",
+      "source_checksum": "sha256:33fe77c0f832127bfa247d0328a71965eb80a6b851a3971fd3852d204578b320",
       "host": {
         "family": "mark_read",
         "activity": "exclusive",
@@ -1859,7 +2013,7 @@
       "timeout_ms": 1800000,
       "script_id": "gmail.collect_page",
       "revision": 1,
-      "source_checksum": "sha256:3435326307837c3456d9692949be0526431c0b0c27f5919cdd00aa377eb5133d",
+      "source_checksum": "sha256:33fe77c0f832127bfa247d0328a71965eb80a6b851a3971fd3852d204578b320",
       "host": {
         "family": "gmail.inbound",
         "activity": "read",
@@ -1933,7 +2087,7 @@
       "timeout_ms": 120000,
       "script_id": "gmail.observe",
       "revision": 1,
-      "source_checksum": "sha256:09b25c3bd0c9c5e10aa72da4e23e79c1f6390dbe315e9406dcb20f00b18bfc8e",
+      "source_checksum": "sha256:469cad2f317cd5b1a8fe8df5c984355d1400221314d415607efac81b4c8409b7",
       "host": {
         "family": "gmail.inbound",
         "activity": "watch",

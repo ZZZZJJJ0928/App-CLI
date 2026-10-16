@@ -2,6 +2,7 @@ import {setTimeout as delay} from 'node:timers/promises';
 import {MailPage, createProviderRuntime} from './runtime/mail-page.mjs';
 import {ProviderScriptRegistry} from './runtime/provider-scripts.mjs';
 import {isManagedSend} from './lib/managed-send.mjs';
+import {createNotSentReceipt, legacyNotSentReceipt, validateNotSentBinding} from './lib/send-recovery.mjs';
 
 export async function mailHandlers() {
   const registry = new ProviderScriptRegistry(); await registry.prepare();
@@ -25,7 +26,10 @@ function secrets(input) {
 
 async function prepare(entry, input, context) {
   const page = new MailPage(context.browser, entry, context);
-  if (entry.operation === 'send') await context.browser.call('setSecrets', secrets(input));
+  if (entry.operation === 'send') {
+    page.sendSecrets = secrets(input);
+    await context.browser.call('setSecrets', page.sendSecrets);
+  }
   if (!context.browser.reused) await page.navigate(entry.loginURL);
   if (entry.operation !== 'probe') await page.prepareBackgroundPage();
   if (entry.operation === 'collect_page') await page.prepareMailRound(input.discovery.account_address, context.browser.reused);
@@ -40,7 +44,9 @@ async function execute(entry, original, context, reconcile = false) {
     // marked uncertain. Legacy sends lack sufficient evidence for reconciliation.
     if (!isManagedSend(input)) return {status: 'uncertain', reason: 'SEND_OUTCOME_UNKNOWN'};
     input.mode = 'reconcile';
-    const result = await entry.handler(input, {emailWorkspaceRoot: context.resource.workspace_root});
+    const result = await entry.handler(input, {emailWorkspaceRoot: context.resource.workspace_root, originalMode: original.mode,
+      reconcileNotSentReceipt: request => legacyNotSentReceipt(request, context)});
+    validateNotSentBinding(result, input, context);
     return result.status === 'unknown' ? {status: 'uncertain', reason: 'SEND_OUTCOME_UNKNOWN'} : {data: result};
   }
   try {
@@ -51,7 +57,9 @@ async function execute(entry, original, context, reconcile = false) {
     // Mark-read can use a provider native request rather than a button selector.
     if (entry.operation === 'mark_read') context.beforeEffect();
     if (!reconcile && ["read", "capture", "collect_page"].includes(entry.operation)) context.beforeEffect();
-    const result = await entry.handler(input, createProviderRuntime(page, entry));
+    const runtime = createProviderRuntime(page, entry);
+    if (entry.operation === 'send') runtime.notSentReceipt = (request, reason) => createNotSentReceipt(request, context, reason, 'pre_dispatch_failure');
+    const result = await entry.handler(input, runtime);
     if (result?.status === 'unknown') return {status: 'uncertain', reason: 'SEND_OUTCOME_UNKNOWN'};
     // Per-message capture/coverage failures describe the result, not ownership
     // of the shared page. A successful guarded reset below proves reusability

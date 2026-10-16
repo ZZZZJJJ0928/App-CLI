@@ -50,7 +50,7 @@ test("all email registrations preserve background execution", async () => {
   for (const providerCase of CASES) {
     for (const operation of ["probe", "send"]) {
       const registration = registry.resolve({ provider: providerCase.provider, operation,
-        scriptID: providerCase[operation], revision: 1 });
+        scriptID: providerCase[operation], revision: operation === "send" ? 2 : 1 });
       assert.notEqual(registration.visibleWindow, true);
     }
   }
@@ -94,7 +94,7 @@ test("all provider sends use the registered effect selector exactly once", async
       provider: providerCase.provider,
       operation: "send",
       scriptID: providerCase.send,
-      revision: 1,
+      revision: 2,
     });
     const input = sendInput(providerCase.provider);
     const client = new ProviderRuntimeFixture(registration, input);
@@ -135,7 +135,7 @@ test("send runtime exposes separate mailbox navigation for reply target lookup",
 test("QQ draft rejects extra recipients and changed body before Send", async () => {
   const registry = new ProviderScriptRegistry();
   await registry.prepare();
-  const registration = registry.resolve({ provider: "qq_mail", operation: "send", scriptID: "qqmail.send", revision: 1 });
+  const registration = registry.resolve({ provider: "qq_mail", operation: "send", scriptID: "qqmail.send", revision: 2 });
   for (const failure of ["extra_recipient", "changed_body", "uncommitted_recipient"]) {
     const input = sendInput("qq_mail");
     const client = new ProviderRuntimeFixture(registration, input);
@@ -155,7 +155,7 @@ test("QQ draft rejects extra recipients and changed body before Send", async () 
 test("Gmail rejects extra, changed and uncommitted recipients before Send", async () => {
   const registry = new ProviderScriptRegistry();
   await registry.prepare();
-  const registration = registry.resolve({ provider: "gmail", operation: "send", scriptID: "gmail.send", revision: 1 });
+  const registration = registry.resolve({ provider: "gmail", operation: "send", scriptID: "gmail.send", revision: 2 });
   for (const failure of ["extra", "changed", "uncommitted"]) {
     const input = sendInput("gmail");
     const client = new ProviderRuntimeFixture(registration, input);
@@ -232,7 +232,7 @@ test("Outlook recipient state rejects pending text and extra chips", () => {
 test("Outlook batch rejects modified fields and a disabled or ambiguous Send control", async () => {
   const registry = new ProviderScriptRegistry();
   await registry.prepare();
-  const registration = registry.resolve({ provider: "outlook", operation: "send", scriptID: "outlook.send", revision: 1 });
+  const registration = registry.resolve({ provider: "outlook", operation: "send", scriptID: "outlook.send", revision: 2 });
   for (const failure of ["recipient", "subject", "body", "send_count", "disabled"]) {
     const input = sendInput("outlook");
     const client = new ProviderRuntimeFixture(registration, input);

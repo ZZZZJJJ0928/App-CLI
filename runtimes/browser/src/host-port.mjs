@@ -59,7 +59,7 @@ export class BrowserHostPort {
       if (!this.released.has(lease.id)) await this.drop(lease, {park: request.park === true && spec.host.reuse_idle_ms > 0, invalidate: request.invalidate === true && spec.host.invalidate_on_failure === true});
       return {released: true};
     }
-    requireCondition(!lease.retired && this.live(lease) && grant.execution_expires_ms > this.clock(), 'HOST_LEASE_EXPIRED');
+    requireCondition(!lease.pending && !lease.retired && this.live(lease) && grant.execution_expires_ms > this.clock(), 'HOST_LEASE_EXPIRED');
     if (request.operation === 'heartbeat') {
       requireCondition(grant.revision >= lease.revision && (grant.revision > lease.revision || request.authorization_ref === lease.reference), 'AUTHORIZATION_STALE');
       lease.reference = request.authorization_ref; lease.revision = grant.revision;
@@ -109,7 +109,7 @@ export class BrowserHostPort {
   }
   stamp(slot) {
     return {generation: this.generation, epoch: this.epoch, activities: [...slot.leases]
-      .map(id => this.leases.get(id)).filter(lease => lease && !lease.retired)
+      .map(id => this.leases.get(id)).filter(lease => lease && !lease.retired && !lease.pending)
       .map(lease => ({id: lease.id, kind: lease.kind, expires_ms: lease.expires})), idle_until_ms: slot.idleUntil ?? 0};
   }
   async acquire(request, {grant, resource}, spec) {
@@ -147,22 +147,28 @@ export class BrowserHostPort {
     requireCondition(!this.changing && request.epoch === this.epoch && !this.closed &&
       this.resources.get(key) === slot && grant.execution_expires_ms > this.clock(), 'HOST_STALE');
     const kind = spec.host.activity ?? 'exclusive';
-    slot.idleUntil = 0; slot.idleDeadline = 0;
     requireCondition([...slot.leases].every(id => {
       const other = this.leases.get(id);
       return !other || other.retired || (kind !== 'exclusive' && other.kind !== 'exclusive' && other.kind !== kind);
     }), 'HOST_RESOURCE_BUSY');
-    const lease = {id: randomUUID(), task: request.task_id, epoch: this.epoch, slot, kind, owner: grant.owner,
+    const lease = {id: randomUUID(), pending: true, task: request.task_id, epoch: this.epoch, slot, kind, owner: grant.owner,
       principal: grant.principal, intent: grant.intent_digest, resourceDigest: digest(resource), reference: request.authorization_ref,
       revision: grant.revision, expires: Math.min(this.clock() + LEASE_MS, grant.execution_expires_ms), abort: new AbortController()};
     lease.monotonicDeadline = this.monotonic() + Math.max(0, lease.expires - this.clock());
     this.leases.set(lease.id, lease); slot.leases.add(lease.id);
     try {
-      await this.driver.beginActivity?.(slot.handle, {id: lease.id, kind, spec, grant, resource, task: request.task_id, signal: lease.abort.signal});
+      // Admission may wait behind another Reader or foreground task. It owns
+      // no page authority until the driver has granted its reservation.
+      lease.admission = Promise.resolve().then(() => this.driver.beginActivity?.(slot.handle,
+        {id: lease.id, kind, spec, grant, resource, task: request.task_id, signal: lease.abort.signal}));
+      await lease.admission;
       // The driver may wait for a shared-resource reservation. A live lease
       // starts its heartbeat window when admission returns; an expired or
       // retired lease must be dropped, never revived or handed to a caller.
-      requireCondition(!lease.retired && this.live(lease) && grant.execution_expires_ms > this.clock(), 'HOST_LEASE_EXPIRED');
+      requireCondition(!lease.retired && this.live(lease) && grant.execution_expires_ms > this.clock() &&
+        !this.closed && !this.changing && request.epoch === this.epoch &&
+        this.resources.get(key) === slot && !slot.fenced && !slot.disposing, 'HOST_LEASE_EXPIRED');
+      lease.pending = false; slot.idleUntil = 0; slot.idleDeadline = 0;
       lease.expires = Math.min(this.clock() + LEASE_MS, grant.execution_expires_ms);
       lease.monotonicDeadline = this.monotonic() + Math.max(0, lease.expires - this.clock());
       await this.driver.updateLease(slot.handle, this.stamp(slot));
@@ -173,33 +179,51 @@ export class BrowserHostPort {
   async drop(lease, {park = false, invalidate = false} = {}) {
     if (lease.dropping) return lease.dropping;
     lease.retired = true; lease.abort.abort();
-    lease.slot.retiring = (lease.slot.retiring ?? 0) + 1;
-    lease.dropping = (async () => {
+    const slot = lease.slot;
+    slot.retiring = (slot.retiring ?? 0) + 1;
+    // Retirement revokes access immediately, but cleanup decisions for a shared
+    // page must be serialized. Set membership can still include another lease
+    // whose retirement was requested while the page action was draining.
+    lease.dropping = (slot.retirementQueue ?? Promise.resolve()).catch(() => {}).then(async () => {
       try {
         // Finish an aborted action before releasing its scheduler reservation.
-        // Keep the last stamp until close: publishing an empty lease first
-        // would race the daemon watchdog against explicit page cleanup.
-        await lease.slot.queue?.catch(() => {});
-        if (invalidate) {
-          await this.dispose(lease.slot);
-        } else {
-          lease.slot.leases.delete(lease.id);
-          if (park && !lease.slot.leases.size && lease.slot.idleMS) {
-            lease.slot.idleUntil = this.clock() + lease.slot.idleMS;
-            lease.slot.idleDeadline = this.monotonic() + lease.slot.idleMS;
-          }
-          if (!lease.slot.leases.size && !lease.slot.idleUntil) await this.dispose(lease.slot);
-          else {
-            await this.driver.updateLease(lease.slot.handle, this.stamp(lease.slot));
-            await this.driver.revokeActivity?.(lease.slot.handle, lease.id, lease.kind);
+        if (lease.pending) await lease.admission?.catch(() => {});
+        else await slot.queue?.catch(() => {});
+        // An earlier retirement or epoch change may already have closed this
+        // resource. A later release only acknowledges its lease, never revives
+        // the page or publishes a new stamp for the disposed handle.
+        if (this.resources.get(slot.key) === slot) {
+          if ((!lease.pending && invalidate) || slot.fenced || slot.disposing) {
+            await this.dispose(slot);
+          } else {
+            slot.leases.delete(lease.id);
+            const active = [...slot.leases].some(id => {
+              const other = this.leases.get(id);
+              return other && !other.retired && !other.pending;
+            });
+            if (park && !lease.pending && !active && slot.idleMS) {
+              slot.idleUntil = this.clock() + slot.idleMS;
+              slot.idleDeadline = this.monotonic() + slot.idleMS;
+            }
+            const idle = slot.idleUntil > this.clock() && slot.idleDeadline > this.monotonic();
+            // Keep the last stamp until close: publishing no active lease and
+            // no bounded idle lease races the watchdog against explicit cleanup.
+            if (!active && !idle) await this.dispose(slot);
+            else {
+              // A failed pending admission must not republish or extend the
+              // existing Reader/watch/idle authority.
+              if (!lease.pending) await this.driver.updateLease(slot.handle, this.stamp(slot));
+              await this.driver.revokeActivity?.(slot.handle, lease.id, lease.kind);
+            }
           }
         }
         this.leases.delete(lease.id);
         this.released.set(lease.id, lease);
         while (this.released.size > 1024) this.released.delete(this.released.keys().next().value);
-      } catch (error) {lease.slot.fenced = true; lease.dropping = null; throw error;}
-      finally {lease.slot.retiring--;}
-    })();
+      } catch (error) {slot.fenced = true; lease.dropping = null; throw error;}
+      finally {slot.retiring--;}
+    });
+    slot.retirementQueue = lease.dropping;
     return lease.dropping;
   }
   async dispose(slot) {
@@ -209,6 +233,9 @@ export class BrowserHostPort {
     slot.disposing = (async () => {
       try {
         if (slot.creation) {try {slot.handle = await slot.creation;} catch { /* Driver retained a partial cleanup handle above. */ }}
+        // An aborted reservation may still be unwinding. Do not let it attach
+        // to a handle after close has released the driver's owned activities.
+        await Promise.allSettled([...slot.leases].map(id => this.leases.get(id)?.admission));
         await slot.queue?.catch(() => {});
         await this.driver.close(slot.handle);
         for (const id of slot.leases) this.leases.delete(id);
@@ -227,7 +254,10 @@ export class BrowserHostPort {
       // A live watcher owns a bounded lease even when no Reader reservation
       // is held. Foreground work must not treat that page as idle and retire
       // its subscription. Only parked resources without activities are idle.
-      if (!slot.creating && !slot.leases.size) await this.dispose(slot);
+      if (!slot.creating && ![...slot.leases].some(id => {
+        const lease = this.leases.get(id);
+        return lease && !lease.retired && !lease.pending;
+      })) await this.dispose(slot);
     }
   }
   async close() {

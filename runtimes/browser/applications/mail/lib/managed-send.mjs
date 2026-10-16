@@ -1,3 +1,4 @@
+import {validateAttachments,uploadManagedAttachments,verifyManagedAttachments} from './workspace-attachments.mjs';
 import {OUTLOOK_SENT_BASELINE_EXPRESSION,OUTLOOK_SEND_VERIFICATION_EXPRESSION} from './outlook-send-proof.mjs';
 import crypto from 'node:crypto';
 import {QQMAIL_SENT_FOLDER_SELECTOR,QQMAIL_SENT_BASELINE_EXPRESSION,QQMAIL_SENT_VERIFICATION_EXPRESSION} from './qqmail-send-proof.mjs';
@@ -14,7 +15,7 @@ export function validateManagedSend(input,provider){
  if(!exact(input,['schema_version','operation','invocation_id','provider','account','message','account_address'],['mode','reply_target'])||input.schema_version!==1||input.operation!=='send'||input.provider!==provider||input.account!=='default'||!/^[A-Za-z0-9._:-]{1,128}$/u.test(input.invocation_id||''))throw fail('email_send_invalid_input');
  const address=v=>typeof v==='string'&&v.length<=320&&/^[^\s<>@\x00-\x1f]+@[^\s<>@\x00-\x1f]+\.[^\s<>@\x00-\x1f]+$/u.test(v);
  const mode=input.mode??'compose',m=input.message;
- if(!address(input.account_address)||!['compose','reply','reply_all','reconcile'].includes(mode)||!exact(m,['to','body'],['cc','subject'])||!Array.isArray(m.to)||!m.to.length||m.to.length>100||!Array.isArray(m.cc??[])||(m.cc??[]).length>100||m.to.length+(m.cc??[]).length>100||[...m.to,...m.cc??[]].some(v=>!address(v)))throw fail('email_send_invalid_input');
+ if(!address(input.account_address)||!['compose','reply','reply_all','reconcile'].includes(mode)||!exact(m,['to','body'],['cc','subject','attachments'])||!Array.isArray(m.to)||!m.to.length||m.to.length>100||!Array.isArray(m.cc??[])||(m.cc??[]).length>100||m.to.length+(m.cc??[]).length>100||[...m.to,...m.cc??[]].some(v=>!address(v)))throw fail('email_send_invalid_input');
  const normalize=v=>{const i=v.lastIndexOf('@');return v.slice(0,i)+'@'+v.slice(i+1).toLowerCase()};
  const recipients=[...m.to,...m.cc??[]].map(normalize);if(new Set(recipients).size!==recipients.length)throw fail('email_send_invalid_input');
  if(!exact(m.body,['format','content'])||m.body.format!=='text'||typeof m.body.content!=='string'||!m.body.content.trim()||m.body.content.includes('\0')||Buffer.byteLength(m.body.content)>204800||typeof(m.subject??'')!=='string'||/[\r\n\0]/u.test(m.subject??'')||[...m.subject??''].length>998)throw fail('email_send_invalid_input');
@@ -23,7 +24,8 @@ export function validateManagedSend(input,provider){
  const t=input.reply_target;
  if(!exact(t,['account_address','provider_message_id','provider_selection_id','folder','subject'],['provider_thread_id'])||normalize(t.account_address)!==normalize(input.account_address)||['provider_message_id','provider_selection_id'].some(k=>typeof t[k]!=='string'||!/^[A-Za-z0-9_+=:.\/~\-]{1,1024}$/u.test(t[k]))||!['inbox','sent','all'].includes(t.folder)&&!/^qq:[1-9][0-9]{3,9}$/u.test(t.folder)||typeof t.subject!=='string'||t.subject.length>4000)throw fail('email_send_invalid_input');
  }
- return {...input,account_address:normalize(input.account_address),mode,message:{to:[...m.to],cc:[...m.cc??[]],subject:m.subject??'',body:{format:'text',content:m.body.content}},recipientDigest:`sha256:${crypto.createHash('sha256').update(JSON.stringify({to:m.to,cc:m.cc??[]})).digest('hex')}`};
+ const attachments=validateAttachments(m.attachments,mode);
+ return {...input,account_address:normalize(input.account_address),mode,message:{to:[...m.to],cc:[...m.cc??[]],subject:m.subject??'',body:{format:'text',content:m.body.content},...(attachments.length?{attachments}:{})},recipientDigest:`sha256:${crypto.createHash('sha256').update(JSON.stringify({to:m.to,cc:m.cc??[]})).digest('hex')}`};
 }
 
 async function sendAccountHash(tab,provider){
@@ -109,10 +111,15 @@ export async function prepareManagedDraft(tab,provider,request){
  if(!editor.ready)throw fail('email_draft_fields_unverified');
  if(editor.has_subject)await tab.fill(CONTROL('subject'),request.message.subject);
  await tab.fill(CONTROL('body'),request.message.body.content);
+ const readback=await verifyManagedDraft(tab,provider,request);
+ return {target,recipientDisplayHash:readback.recipient_display_hash};
+}
+
+export async function verifyManagedDraft(tab,provider,request){
  const readback=await native(tab,provider,'readback');
  if(readback.to_hash!==addressDigest(request.message.to)||readback.cc_hash!==addressDigest(request.message.cc)||readback.subject_hash!==digest(request.message.subject)||readback.body_hash!==digest(request.message.body.content.replace(/\r\n?/gu,'\n'))||!readback.send_ready||!readback.linked)throw fail('email_draft_fields_unverified');
  await verifySendAccount(tab,provider,request.account_address);
- return {target,recipientDisplayHash:readback.recipient_display_hash};
+ return readback;
 }
 
 export async function discardManagedDraft(tab,provider){
@@ -136,10 +143,15 @@ function sentDOM(provider,arm=false){
 export async function sendManagedMail(raw,provider,runtime){
  const request=validateManagedSend(raw,provider);
  if(!request.message.subject.trim())throw fail('email_send_invalid_input');
- const journal=await openSendJournal(runtime.emailWorkspaceRoot,request);
+ const journal=await openSendJournal(runtime.emailWorkspaceRoot,request,runtime.originalMode);
  const unknown={schema_version:1,status:'unknown',provider,recipient_digest:request.recipientDigest};
  if(journal.saved?.stage==='sent')return journal.saved.receipt;
- if(request.mode==='reconcile'||journal.saved?.stage==='dispatching')return unknown;
+ if(request.mode==='reconcile'&&journal.saved?.stage==='not_sent')return journal.saved.receipt;
+ if(request.mode==='reconcile'&&!journal.saved&&runtime.reconcileNotSentReceipt){
+  const receipt=runtime.reconcileNotSentReceipt(request);
+  if(receipt&&await journal.write('not_sent',receipt))return receipt;
+ }
+ if(request.mode==='reconcile'||journal.saved)return unknown;
  if(typeof runtime.withSendTab!=='function')throw fail('email_send_configuration_error');
  let attempted=false, phase='open';
  const outlookFolderProof=provider==='outlook'&&request.mode==='compose'&&request.message.to.length===1&&request.message.cc.length===0;
@@ -156,7 +168,7 @@ export async function sendManagedMail(raw,provider,runtime){
    if(!Array.isArray(sentBaseline?.ids)||sentBaseline.ids.length>1000||sentBaseline.ids.some(id=>typeof id!=='string'||!id||id.length>1024))throw fail('email_send_precondition_failed');
   }
   phase='prepare_draft';
-  try{prepared=await prepareManagedDraft(tab,provider,request);await tab.inspect(`()=>(${sentDOM.toString()})(${JSON.stringify(provider)},true)`);claimed=await journal.write('dispatching');}catch(error){try{await discardManagedDraft(tab,provider)}catch{}throw error}
+  try{prepared=await prepareManagedDraft(tab,provider,request);await uploadManagedAttachments(tab,provider,runtime.emailWorkspaceRoot,request.message.attachments,runtime.beforeEffect);await verifyManagedDraft(tab,provider,request);await verifyManagedAttachments(tab,provider,request.message.attachments);await tab.inspect(`()=>(${sentDOM.toString()})(${JSON.stringify(provider)},true)`);claimed=await journal.write('dispatching');}catch(error){try{await discardManagedDraft(tab,provider)}catch{}throw error}
   if(!claimed){try{await discardManagedDraft(tab,provider)}catch{}return unknown;}
   attempted=true;
   await tab.inspect('()=>{if(globalThis.__sparkclawManagedMail)globalThis.__sparkclawManagedMail.sendAttempted=true;return {marked:true}}');
@@ -181,6 +193,13 @@ export async function sendManagedMail(raw,provider,runtime){
   await journal.write('sent',result);return result;
  });}catch(error){
   if(process.env.APP_CLI_MAIL_SEND_EVIDENCE==='1')process.stderr.write(JSON.stringify({event:'mail_send_phase_failed',provider,phase,attempted,code:/^[a-zA-Z0-9_]{1,64}$/.test(error.code??'')?error.code:'unavailable'})+'\n');
-  if(attempted)throw fail('send_outcome_unknown');throw error
+  if(attempted)throw fail('send_outcome_unknown');
+  // A positive, create-only failure receipt races the same dispatch claim.
+  // Retain the original failure/effect; recovery remains an explicit lookup.
+  if(!journal.saved&&runtime.notSentReceipt){
+   const receipt=runtime.notSentReceipt(request,error.code);
+   if(receipt)try{await journal.write('not_sent',receipt)}catch{}
+  }
+  throw error
  }
 }
