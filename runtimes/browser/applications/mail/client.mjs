@@ -102,6 +102,26 @@ export class MailboxClient {
     return this.client.restore({principal: 'product-owner', owner: this.config.owner_id,
       request_key: await this.requestKey(binding.manifest.id, command, taskID, {allocate: false})});
   }
+  // Product outbox drain check: was this original operation ever admitted?
+  async lookupTask(provider, operation, taskID) {
+    let admission;
+    try {admission = await this.restoreTask(provider, operation, taskID);}
+    catch (error) {
+      if (error.code === 'OPERATION_RETIRED') return {outcome: 'retired', reason: error.reason ?? 'reclaimed'};
+      if (error.code !== 'ADMISSION_UNRESOLVED') throw error;
+      // No authorization was ever recorded here, so it was never submitted.
+      let identity;
+      try {identity = parseIdentity(taskID);} catch {return {outcome: 'unresolved'};}
+      const state = this.client.epochState;
+      if (identity.kind === 'operation' && state && (identity.generation < state.generation || identity.epoch <= state.sealed_through)) {
+        return {outcome: 'retired', reason: 'recovery'};
+      }
+      return {outcome: 'not_admitted'};
+    }
+    const known = await this.client.lookup(admission);
+    if (known.kind === 'task') return {outcome: 'known', task: known.task};
+    return {outcome: known.outcome, ...(known.reason ? {reason: known.reason} : {})};
+  }
   // Durable product receipt of a terminal result (Gateway commits first).
   async acknowledge({provider, operation, taskID, terminal_revision, result_digest, receipt_id}) {
     const admission = await this.restoreTask(provider, operation, taskID);
