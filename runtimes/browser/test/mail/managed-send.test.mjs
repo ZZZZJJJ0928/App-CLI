@@ -22,7 +22,7 @@ test('managed contract normalizes optional cc and enforces combined limits, body
 });
 test('durable journal survives lost response and reconciliation never opens a tab or sends',async t=>{
  const dir=await root(t);const r=request();const j=await openSendJournal(dir,r);assert.equal(await j.write('dispatching'),true);
- let tabs=0;const runtime={emailWorkspaceRoot:dir,withSendTab:()=>{tabs++;throw Error('must not open');}};
+ let tabs=0;const runtime={emailWorkspaceRoot:dir,reserveDispatch:()=>1,releaseDispatch:async()=>1,withSendTab:()=>{tabs++;throw Error('must not open');}};
  assert.equal((await sendManagedMail(raw(),'gmail',runtime)).status,'unknown');
  assert.equal((await sendManagedMail({...raw(),mode:'reconcile'},'gmail',runtime)).status,'unknown');assert.equal(tabs,0);
  const receipt={schema_version:1,status:'sent',provider:'gmail',recipient_digest:r.recipientDigest};await j.write('sent',receipt);
@@ -42,7 +42,7 @@ test('parallel processes get exactly one durable dispatch claim',async t=>{
  const outcomes=await Promise.all(Array.from({length:8},run));assert.equal(outcomes.filter(v=>v==='true').length,1);assert.equal(outcomes.filter(v=>v==='false').length,7);
 });
 test('account mismatch fails before creating draft or invoking Send',async t=>{
- const dir=await root(t);let clicks=0;const runtime={emailWorkspaceRoot:dir,withSendTab:fn=>fn({runReadCode:async()=>{},inspect:async()=>({origin:'https://mail.google.com/mail/u/0/',result:{url:'https://mail.google.com/mail/u/0/',account_address:'other@example.invalid'}}),click:async()=>{clicks++;}})};
+ const dir=await root(t);let clicks=0;const runtime={emailWorkspaceRoot:dir,reserveDispatch:()=>1,releaseDispatch:async()=>1,withSendTab:fn=>fn({runReadCode:async()=>{},inspect:async()=>({origin:'https://mail.google.com/mail/u/0/',result:{url:'https://mail.google.com/mail/u/0/',account_address:'other@example.invalid'}}),click:async()=>{clicks++;}})};
  await assert.rejects(sendManagedMail(raw(),'gmail',runtime),{code:'email_account_identity_mismatch'});assert.equal(clicks,0);
 });
 
@@ -68,7 +68,7 @@ async function sendingFixture(t,{lost=false,wrongReadback=false,provider='gmail'
   if(phase==='readback'){const hash=v=>crypto.createHash('sha256').update(v).digest('hex');const to=wrongReadback&&actual.to.length?['wrong@example.invalid']:actual.to;return {result:{to_count:to.length,cc_count:actual.cc.length,to_hash:hash(JSON.stringify([...to].sort())),cc_hash:hash(JSON.stringify([...actual.cc].sort())),subject_hash:hash(actual.subject),body_hash:hash(actual.body),send_ready:true,linked:true}};}
   throw Error(`unexpected fixture phase ${phase}`);
  }};
- const runtime={emailWorkspaceRoot:dir,withSendTab:fn=>{tabs++;return fn(tab)}};
+ const runtime={emailWorkspaceRoot:dir,reserveDispatch:()=>1,releaseDispatch:async()=>1,withSendTab:fn=>{tabs++;return fn(tab)}};
  return {run:()=>sendManagedMail(r,provider,runtime),counts:()=>({sends,tabs}),discards:()=>discards};
 }
 test('lost Send response persists dispatch and restart never invokes a second Send',async t=>{

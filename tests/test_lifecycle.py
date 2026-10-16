@@ -33,7 +33,7 @@ class LifecycleCase(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.path = Path(self.temp.name)
         self.now = time.time()
-        self.request = {"protocol_version": "2.0", "operation": "invoke", "app": "fixture-counter", "command": "increment",
+        self.request = {"protocol_version": "3.0", "operation": "prepare", "app": "fixture-counter", "command": "increment",
                         "arguments": {"amount": 2}, "request_key": "example-intent", "authorization_ref": "example-grant",
                         "deadline_ms": int(self.now * 1000) + 60000}
         self.grant = AuthorizationGrant("example-principal", "example-owner", "fixture-counter", "increment",
@@ -61,6 +61,14 @@ class LifecycleCase(unittest.TestCase):
             request['task_id'] = task_id
         return request
 
+    def admit(self, registry=None):
+        """Lifecycle 3.0 admission: prepare durably, then start the original task."""
+        registry = registry or self.registry
+        prepared = registry.control(self.request)
+        if prepared['task']['status'] != 'prepared':
+            return prepared
+        return registry.control(self.control('invoke', prepared['task']['id']))
+
     def fails(self, code, call, *args):
         with self.assertRaises(AppCLIError) as caught:
             call(*args)
@@ -71,9 +79,11 @@ class LifecycleCase(unittest.TestCase):
 
 class LifecycleTests(LifecycleCase):
     def test_native_mutation_is_durable_and_duplicate_does_not_repeat(self):
-        first = self.registry.control(self.request)
+        first = self.admit()
         restarted = self.registry_for(CounterAdapter(self.path/'counter.sqlite', self.provider))
-        self.assertEqual(restarted.control(self.request), first)
+        replay = restarted.control(self.request)
+        self.assertEqual((replay['task'], replay['data']), (first['task'], first['data']))
+        self.assertEqual(self.admit(restarted)['data'], {'value': 2})
         for operation in ['lookup','status','reconcile']:
             result = restarted.control(self.control(operation, first['task']['id']))
             self.assertEqual(result['task'], first['task'])
@@ -85,7 +95,7 @@ class LifecycleTests(LifecycleCase):
 
     def test_concurrent_original_intent_changes_counter_once(self):
         with ThreadPoolExecutor(max_workers=8) as pool:
-            results = list(pool.map(lambda _: self.registry.control(self.request), range(16)))
+            results = list(pool.map(lambda _: self.admit(), range(16)))
         self.assertEqual({result['task']['id'] for result in results}, {results[0]['task']['id']})
         self.assertEqual({result['data']['value'] for result in results}, {2})
 
@@ -119,7 +129,7 @@ class LifecycleTests(LifecycleCase):
         self.assertFalse((self.path/'counter.sqlite').exists())
 
     def test_expired_execution_grant_still_allows_task_access(self):
-        first = self.registry.control(self.request)
+        first = self.admit()
         self.provider.grants['example-grant'] = replace(self.grant,execution_expires_ms=int(self.now*1000))
         for operation in ['lookup','status','cancel']:
             self.registry.control(self.control(operation,first['task']['id']))
@@ -129,14 +139,14 @@ class LifecycleTests(LifecycleCase):
         self.fails('AUTHORIZATION_DENIED',self.registry.control,self.control('status',first['task']['id']))
 
     def test_parameter_drift_needs_new_authority_and_conflicts_with_old_key(self):
-        self.registry.control(self.request)
+        self.admit()
         changed = {**self.request,'arguments':{'amount':3}}
         self.fails('AUTHORIZATION_DENIED',self.registry.control,changed)
         self.provider.grants['example-grant'] = replace(self.grant,intent_digest=wire.intent_digest(changed))
         self.fails('REQUEST_KEY_CONFLICT',self.registry.control,changed)
 
     def test_task_access_is_scoped_to_owner_and_original_intent(self):
-        first=self.registry.control(self.request)
+        first=self.admit()
         for changes in [dict(owner='other-owner'),dict(principal='other-principal'),dict(request_key='other-intent')]:
             self.provider.grants['example-grant'] = replace(self.grant,**changes)
             self.fails('TASK_NOT_FOUND',self.registry.control,self.control('status',first['task']['id']))
@@ -167,6 +177,7 @@ class LifecycleTests(LifecycleCase):
         code,first=run(self.request)
         self.assertEqual(code,0)
         self.assertEqual(first['kind'],'task')
+        self.assertEqual(first['task']['status'],'prepared')
         code,result=run(self.control('cancel',first['task']['id']))
         self.assertEqual(code,0)
         self.assertEqual(result['kind'],'ack')
@@ -179,11 +190,12 @@ class LifecycleTests(LifecycleCase):
         original=self.adapter.invoke_lifecycle
         def invalid(request,context):
             result=original(request,context)
-            result['data']={'value':'PRIVATE_VALUE'}
+            if 'data' in result:
+                result['data']={'value':'PRIVATE_VALUE'}
             return result
         self.adapter.invoke_lifecycle=invalid
         registry=self.registry_for(self.adapter)
-        error=self.fails('OUTPUT_VALIDATION_FAILED',registry.control,self.request)
+        error=self.fails('OUTPUT_VALIDATION_FAILED',self.admit,registry)
         self.assertEqual(error.task['status'],'completed')
         def exploding(request,context): raise RuntimeError('PRIVATE_VALUE')
         self.adapter.invoke_lifecycle=exploding
@@ -192,11 +204,11 @@ class LifecycleTests(LifecycleCase):
     def test_protocol_identity_and_noncompleted_data_are_rejected(self):
         response=self.registry.control(self.request)
         for changes in [{'app':'other'},{'operation':'status'},{'kind':'ack'},{'request_key':'other-key'},
-                        {'task':{'id':response['task']['id'],'status':'running'}}, {'extra':True}]:
+                        {'task':{'id':response['task']['id'],'status':'running'},'data':{'value':1}}, {'extra':True}]:
             self.fails('BACKEND_PROTOCOL_INVALID',wire.validate_response,self.request,{**response,**changes})
 
     def test_machine_preserves_incomplete_outcomes_as_successful_rpc(self):
-        for status in ['pending','running','waiting_confirmation','uncertain','failed','cancelled','blocked']:
+        for status in ['prepared','pending','running','waiting_confirmation','uncertain','failed','cancelled','blocked','resolved']:
             def invoke(request,context):
                 result={key:request[key] for key in ('protocol_version','operation','app','command','request_key')}
                 return {**result,'kind':'task','task':{'id':'task-example','status':status}}
@@ -231,10 +243,11 @@ class WireTests(unittest.TestCase):
         self.assertEqual(json.loads(result.stdout),[wire.digest(v['value']) for v in vectors])
 
     def test_schema_copies_are_identical(self):
-        self.assertEqual((ROOT/'schemas/lifecycle-v2.schema.json').read_bytes(),(ROOT/'src/app_cli/manifests/lifecycle-v2.schema.json').read_bytes())
-        schema=json.loads((ROOT/'schemas/lifecycle-v2.schema.json').read_text())
+        self.assertEqual((ROOT/'schemas/lifecycle-v3.schema.json').read_bytes(),(ROOT/'src/app_cli/manifests/lifecycle-v3.schema.json').read_bytes())
+        schema=json.loads((ROOT/'schemas/lifecycle-v3.schema.json').read_text())
         task=schema['$defs']['response']['oneOf'][0]['properties']['task']
-        self.assertEqual(frozenset(task['properties']['status']['enum']),TASK_STATUSES)
+        # Lifecycle 3.0 adds durable admission and user resolution states.
+        self.assertEqual(frozenset(task['properties']['status']['enum']),TASK_STATUSES|{'prepared','resolved'})
 
     def test_strict_json_cross_language_profile(self):
         for raw in [b'{"x":1,"x":2}',b'{"x":NaN}',b'{"x":1e1000}',b'{"x":9007199254740992}',
@@ -251,7 +264,7 @@ class WireTests(unittest.TestCase):
         with self.assertRaises(AppCLIError): wire.encode({'content':'x'*wire.MAX_ARGUMENT_BYTES},wire.MAX_ARGUMENT_BYTES)
 
     def test_events_require_order_and_requested_page_bounds(self):
-        request={'protocol_version':'2.0','operation':'events','app':'example','command':'watch','authorization_ref':'example-grant','task_id':'task-example','cursor':2,'limit':1}
+        request={'protocol_version':'3.0','operation':'events','app':'example','command':'watch','authorization_ref':'example-grant','task_id':'task-example','cursor':2,'limit':1}
         response={k:request[k] for k in ['protocol_version','operation','app','command']}
         response.update(kind='events',task={'id':'task-example','status':'running'},cursor=3,gap=False,events=[{'sequence':3,'type':'hint','payload':{}}])
         wire.validate_response(request,response)
@@ -268,24 +281,26 @@ class RuntimeV2Tests(LifecycleCase):
         self.argv=[sys.executable,'-I',str(ROOT/'tests/fixtures/runtime_v2.py'),str(self.path/'runtime.sqlite'),str(self.grants_path)]
 
     def runtime(self,*options):
-        return RuntimeAdapter(manifest('runtime'),[*self.argv,*options],protocol_version='2.0',timeout_seconds=5)
+        return RuntimeAdapter(manifest('runtime'),[*self.argv,*options],protocol_version='3.0',timeout_seconds=5)
 
     def test_actual_runtime_and_native_share_contract_without_importing_sparkclaw(self):
         adapter=self.runtime()
         registry=self.registry_for(adapter)
-        first=registry.control(self.request)
+        first=self.admit(registry)
         self.assertEqual(first['data'],{'value':2})
-        self.assertEqual(registry.control(self.request),first)
+        self.assertEqual(registry.control(self.request)['task'],first['task'])
         result=registry.control(self.control('lookup'))
         self.assertEqual(result['task'],first['task'])
         self.fails('CAPABILITY_NOT_SUPPORTED',adapter.invoke,'increment',{'amount':2})
 
     def test_lost_response_is_recovered_by_lookup_without_another_effect(self):
-        self.fails('BACKEND_EXECUTION_FAILED',self.registry_for(self.runtime('lose-response')).control,self.request)
+        prepared=self.registry_for(self.runtime()).control(self.request)
+        self.fails('BACKEND_EXECUTION_FAILED',self.registry_for(self.runtime('lose-response')).control,
+                   self.control('invoke',prepared['task']['id']))
         registry=self.registry_for(self.runtime())
         result=registry.control(self.control('lookup'))
         self.assertEqual(result['data'],{'value':2})
-        self.assertEqual(registry.control(self.request)['data'],{'value':2})
+        self.assertEqual(self.admit(registry)['data'],{'value':2})
 
     def test_bounded_stdout_and_timeout_leave_no_client(self):
         for program,code in [("import sys;sys.stdout.write('x'*1048578)",'BACKEND_PROTOCOL_INVALID'),

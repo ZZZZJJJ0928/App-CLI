@@ -10,6 +10,7 @@ export class MailPage {
   constructor(browser, registration, context) {
     this.browser=browser; this.registration=registration; this.signal=context.signal;
     this.beforeEffect=context.beforeEffect;
+    this.reserveDispatch=context.reserveDispatch; this.releaseDispatch=context.releaseDispatch;
     this.mailDocumentNonce=context.resource.document_nonce;
     this.emailWorkspaceRoot=context.resource.workspace_root;
     for (const method of METHODS) this[method]=async (...args)=>{
@@ -35,7 +36,7 @@ export class MailPage {
     }};
   }
   async act(command) {
-    if(command?.[0]==='click' && (command[1]===this.registration.effectSelector || this.registration.effectSelectors?.includes(command[1]))) this.beforeEffect();
+    if(command?.[0]==='click' && (command[1]===this.registration.effectSelector || this.registration.effectSelectors?.includes(command[1]))) await this.beforeEffect();
     return this.browser.call('act',command);
   }
   outlookTab() { return {inspect:expression=>this.browser.call('inspect',expression),readMany:commands=>this.readMany(commands),act:command=>this.act(command)}; }
@@ -130,6 +131,8 @@ export function createProviderRuntime(client, registration) {
     },
     signal: client.signal,
     beforeEffect: client.beforeEffect,
+    reserveDispatch: client.reserveDispatch,
+    releaseDispatch: client.releaseDispatch,
     withTaskTab: async (operation, callback) => {
       if (operation !== registration.operation) throw clientContractError();
       return await callback(

@@ -6,6 +6,7 @@ import {SignedFileAuthorization, privateRead, privateDirectory} from './authoriz
 import {decode, requireCondition} from './protocol.mjs';
 import {Ledger} from './ledger.mjs';
 import {Executor} from './executor.mjs';
+import {createAnchor} from './anchor.mjs';
 import {serve} from './socket.mjs';
 
 process.umask(0o077);
@@ -23,7 +24,10 @@ try {
   const assembly = await import(pathToFileURL(config.assembly_module));
   const {bindings, handlers, host} = await assembly.assemble({config, authorization, epoch: ledger.epoch});
   await host?.connect?.(ledger.epoch);
-  const executor = new Executor({ledger, authorization, bindings, handlers, host});
+  const executor = new Executor({ledger, authorization, bindings, handlers, host, anchor: createAnchor(config)});
+  // Resolve any pending release against the independent anchor (and detect
+  // whole-set rollback) before the socket accepts a single request.
+  await executor.start();
   requireCondition(path.dirname(config.socket) === config.state_directory, 'CONFIGURATION_INVALID');
   if (fs.existsSync(config.socket)) {
     requireCondition(fs.lstatSync(config.socket).isSocket(), 'CONFIGURATION_INVALID'); fs.unlinkSync(config.socket);

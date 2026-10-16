@@ -12,7 +12,7 @@ export function verifyRelease(config) {
   requireCondition(sha(bytes) === config.release_digest, 'RELEASE_MISMATCH');
   const release = decode(bytes);
   requireCondition(release.schema_version === 1 && release.id === config.release_id &&
-    release.runtime_protocol === '2.0' && release.host_protocol === '1.0', 'RELEASE_MISMATCH');
+    release.runtime_protocol === '3.0' && release.host_protocol === '1.0', 'RELEASE_MISMATCH');
   for (const [relative, hash] of Object.entries(release.files)) {
     const file = path.resolve(root, relative);
     requireCondition(file.startsWith(root + path.sep) && fs.realpathSync(file) === file &&

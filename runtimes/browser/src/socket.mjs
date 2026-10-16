@@ -1,6 +1,6 @@
 import net from 'node:net';
 import fs from 'node:fs';
-import {decode, encode, envelope, REQUEST_LIMIT, RESPONSE_LIMIT, RuntimeError, validateResponse} from './protocol.mjs';
+import {decode, encode, envelope, PROTOCOL_VERSION, REQUEST_LIMIT, RESPONSE_LIMIT, RuntimeError, validateResponse} from './protocol.mjs';
 
 // EOF-delimited, one message per connection. No transport-level retry.
 export function exchange(socketPath, request, {timeout = 15000, requestLimit = REQUEST_LIMIT, responseLimit = RESPONSE_LIMIT} = {}) {
@@ -42,7 +42,8 @@ export async function serve(socketPath, control, {timeout = 15000} = {}) {
         socket.end(encode(response));
       } catch (error) {
         const code = /^[A-Z][A-Z0-9_]{0,63}$/u.test(error.code) ? error.code : 'BACKEND_EXECUTION_FAILED';
-        response = {protocol_version: '2.0', kind: 'error', error: {code}};
+        const reason = /^[a-z][a-z0-9_]{0,63}$/u.test(error.reason ?? '') ? error.reason : undefined;
+        response = {protocol_version: PROTOCOL_VERSION, kind: 'error', error: {code, ...(reason ? {reason} : {})}};
         if (request && typeof request === 'object') response = envelope(request, response);
         try {socket.end(encode(response));} catch {socket.destroy();}
       }

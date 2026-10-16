@@ -63,7 +63,7 @@ class CounterAdapter:
         response = {key: request[key] for key in ("protocol_version", "operation", "app", "command", "request_key") if key in request}
         identity = (grant.principal, grant.owner, grant.app, grant.command, grant.request_key)
         with closing(sqlite3.connect(self.path, timeout=5)) as connection, connection:
-            connection.execute('CREATE TABLE IF NOT EXISTS tasks (principal TEXT, owner TEXT, app TEXT, command TEXT, request_key TEXT, digest TEXT, task_id TEXT UNIQUE, result INTEGER, PRIMARY KEY(principal, owner, app, command, request_key))')
+            connection.execute('CREATE TABLE IF NOT EXISTS tasks (principal TEXT, owner TEXT, app TEXT, command TEXT, request_key TEXT, digest TEXT, task_id TEXT UNIQUE, amount INTEGER, status TEXT, result INTEGER, PRIMARY KEY(principal, owner, app, command, request_key))')
             connection.execute('CREATE TABLE IF NOT EXISTS counters (owner TEXT PRIMARY KEY, value INTEGER)')
             connection.execute('BEGIN IMMEDIATE')
             now = self.clock() * 1000
@@ -71,29 +71,37 @@ class CounterAdapter:
             if (operation not in grant.operations or now >= grant.access_expires_ms
                     or (operation in wire.EXECUTION_OPERATIONS and now >= grant.execution_expires_ms)):
                 raise AppCLIError("AUTHORIZATION_DENIED", "Fixture authority expired.")
-            row = connection.execute('SELECT digest, task_id, result FROM tasks WHERE principal=? AND owner=? AND app=? AND command=? AND request_key=?', identity).fetchone()
+            select = 'SELECT digest, task_id, status, result, amount FROM tasks WHERE principal=? AND owner=? AND app=? AND command=? AND request_key=?'
+            row = connection.execute(select, identity).fetchone()
             if row and row[0] != grant.intent_digest:
                 raise AppCLIError("REQUEST_KEY_CONFLICT", "Original intent differs.")
-            if operation == "invoke":
+            if operation == "prepare":
+                # Durable admission only: no counter change until invoke.
                 if (wire.intent_digest(request) != grant.intent_digest or grant.side_effect != "local_mutation"
                         or request["request_key"] != grant.request_key or now >= request["deadline_ms"]):
                     raise AppCLIError("AUTHORIZATION_DENIED", "Fixture intent mismatch.")
                 if row is None:
-                    old = connection.execute('SELECT value FROM counters WHERE owner=?', (grant.owner,)).fetchone()
-                    value = (old[0] if old else 0) + request["arguments"]["amount"]
                     task_id = "task-" + uuid.uuid4().hex
-                    connection.execute('INSERT INTO counters(owner,value) VALUES(?,?) ON CONFLICT(owner) DO UPDATE SET value=excluded.value', (grant.owner, value))
-                    connection.execute('INSERT INTO tasks VALUES(?,?,?,?,?,?,?,?)', (*identity, grant.intent_digest, task_id, value))
-                    row = (grant.intent_digest, task_id, value)
+                    connection.execute('INSERT INTO tasks VALUES(?,?,?,?,?,?,?,?,?,?)',
+                                       (*identity, grant.intent_digest, task_id, request["arguments"]["amount"], "prepared", None))
+                    row = connection.execute(select, identity).fetchone()
             elif row is None:
                 if operation == "lookup":
-                    return {**response, "kind": "lookup", "outcome": "not_found"}
+                    return {**response, "kind": "lookup", "outcome": "not_admitted"}
                 raise AppCLIError("TASK_NOT_FOUND", "Original task is unavailable.")
             if "task_id" in request and row[1] != request["task_id"]:
                 raise AppCLIError("TASK_NOT_FOUND", "Original task is unavailable.")
-            task = {"id": row[1], "status": "completed"}
+            if operation == "invoke" and row[2] == "prepared":
+                old = connection.execute('SELECT value FROM counters WHERE owner=?', (grant.owner,)).fetchone()
+                value = (old[0] if old else 0) + row[4]
+                connection.execute('INSERT INTO counters(owner,value) VALUES(?,?) ON CONFLICT(owner) DO UPDATE SET value=excluded.value', (grant.owner, value))
+                connection.execute("UPDATE tasks SET status='completed', result=? WHERE task_id=?", (value, row[1]))
+                row = connection.execute(select, identity).fetchone()
+            task = {"id": row[1], "status": row[2]}
             if operation == "cancel":
                 return {**response, "kind": "ack", "accepted": True, "task": task}
             if operation in {"resume", "renew"}:
                 raise AppCLIError("TASK_TERMINAL", "A completed fixture task cannot resume.")
-            return {**response, "kind": "task", "task": task, "data": {"value": row[2]}}
+            if row[2] != "completed":
+                return {**response, "kind": "task", "task": task}
+            return {**response, "kind": "task", "task": task, "data": {"value": row[3]}}

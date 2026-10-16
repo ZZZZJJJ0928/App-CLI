@@ -41,6 +41,7 @@ class AuthorizationGrant:
     max_deadline_ms: int | None
     task_id: str | None = None
     revision: int = 1
+    authorization_generation: int = 1
 
     def __post_init__(self):
         ids = (self.principal, self.owner, self.request_key)
@@ -50,7 +51,8 @@ class AuthorizationGrant:
                 or self.side_effect not in {"read_only", "local_mutation", "remote_mutation"}
                 or type(self.operations) is not frozenset or not self.operations <= wire.OPERATIONS
                 or any(type(value) is not int or not 0 < value <= wire.MAX_SAFE_INTEGER
-                       for value in (self.access_expires_ms, self.execution_expires_ms, self.revision))
+                       for value in (self.access_expires_ms, self.execution_expires_ms, self.revision,
+                                     self.authorization_generation))
                 or self.access_expires_ms < self.execution_expires_ms
                 or (self.max_deadline_ms is not None and (type(self.max_deadline_ms) is not int
                     or not 0 < self.max_deadline_ms <= wire.MAX_SAFE_INTEGER))
@@ -118,7 +120,7 @@ class LifecycleDispatcher:
             allowed = allowed and grant.task_id == request["task_id"]
         if operation in wire.EXECUTION_OPERATIONS:
             allowed = allowed and now < grant.execution_expires_ms and grant.side_effect == side_effect
-        if operation == "invoke":
+        if operation == "prepare":
             allowed = allowed and grant.intent_digest == wire.intent_digest(request)
             deadline = request.get("deadline_ms")
             if deadline is None:
@@ -141,7 +143,7 @@ class LifecycleDispatcher:
             raise AppCLIError("CAPABILITY_NOT_SUPPORTED", "This adapter has no registered lifecycle capability.")
         registration, invoke = entry
         spec, input_validator, output_validator = commands[request["command"]]
-        if request["operation"] == "invoke":
+        if request["operation"] == "prepare":
             self.registry._validate(request["arguments"], input_validator, "INPUT_VALIDATION_FAILED",
                                     "Arguments do not match the command schema.")
         if request["operation"] == "renew" and request["command"] not in registration.renewable_commands:

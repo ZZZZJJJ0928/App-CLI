@@ -14,7 +14,7 @@ def verify_release(config):
     packaged = json.loads(Path(__file__).with_name("release.json").read_bytes())
     if (release["schema_version"] != 1 or release["id"] != config["release_id"]
             or packaged != {"id": release["id"], "runtime_digest": config["release_digest"]}
-            or release["runtime_protocol"] != "2.0" or release["host_protocol"] != "1.0"):
+            or release["runtime_protocol"] != "3.0" or release["host_protocol"] != "1.0"):
         raise ValueError("Python/runtime release mismatch")
     for relative, expected in release["files"].items():
         file = root / relative

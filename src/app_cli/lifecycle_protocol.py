@@ -9,7 +9,7 @@ import struct
 
 from .core import AppCLIError, _schema_validator
 
-VERSION = "2.0"
+VERSION = "3.0"
 MAX_REQUEST_BYTES = 2 * 1024 * 1024
 MAX_ARGUMENT_BYTES = 1536 * 1024
 MAX_RESPONSE_BYTES = 1024 * 1024
@@ -18,12 +18,12 @@ MAX_SAFE_INTEGER = 9007199254740991
 
 @lru_cache(maxsize=1)
 def _schema():
-    return json.loads(files("app_cli").joinpath("manifests/lifecycle-v2.schema.json").read_text(encoding="utf-8"))
+    return json.loads(files("app_cli").joinpath("manifests/lifecycle-v3.schema.json").read_text(encoding="utf-8"))
 
 
 OPERATIONS = frozenset(variant["properties"]["operation"]["const"]
                        for variant in _schema()["$defs"]["request"]["oneOf"])
-EXECUTION_OPERATIONS = frozenset({"invoke", "resume", "renew", "reconcile"})
+EXECUTION_OPERATIONS = frozenset({"prepare", "invoke", "resume", "renew", "reconcile"})
 BASE_OPERATIONS = OPERATIONS - {"renew", "events"}
 
 
@@ -110,8 +110,8 @@ def validator(kind):
 def validate_request(value):
     value = decode(encode(value))
     if not validator("request").is_valid(value):
-        raise AppCLIError("INPUT_VALIDATION_FAILED", "The request does not match lifecycle protocol 2.0.", 2)
-    if value["operation"] == "invoke":
+        raise AppCLIError("INPUT_VALIDATION_FAILED", "The request does not match lifecycle protocol 3.0.", 2)
+    if value["operation"] == "prepare":
         encode(value["arguments"], MAX_ARGUMENT_BYTES)
     return value
 
@@ -123,7 +123,7 @@ def validate_response(request, value):
     valid = valid and all(value.get(key) == request[key] for key in ("protocol_version", "operation", "app", "command"))
     if "request_key" in request:
         valid = valid and value.get("request_key") == request["request_key"]
-    kinds = {"lookup": {"lookup", "task"}, "cancel": {"ack"}, "events": {"events"}}
+    kinds = {"lookup": {"lookup", "task"}, "cancel": {"ack"}, "ack_result": {"ack"}, "events": {"events"}, "epoch": {"epoch"}}
     valid = valid and value.get("kind") in (kinds.get(request["operation"], {"task"}) | {"error"})
     if "task_id" in request and (value.get("kind") != "error" or "task" in value):
         valid = valid and value.get("task", {}).get("id") == request["task_id"]

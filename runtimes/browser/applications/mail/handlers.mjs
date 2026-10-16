@@ -53,10 +53,10 @@ async function execute(entry, original, context, reconcile = false) {
     const page = await prepare(entry, input, context);
     const remoteSelector = selector => selector === entry.effectSelector || entry.effectSelectors?.includes(selector);
     const originalClick = page.click;
-    page.click = async (...args) => {if (remoteSelector(args[0])) context.beforeEffect(); return originalClick(...args);};
+    page.click = async (...args) => {if (remoteSelector(args[0])) await context.beforeEffect(); return originalClick(...args);};
     // Mark-read can use a provider native request rather than a button selector.
-    if (entry.operation === 'mark_read') context.beforeEffect();
-    if (!reconcile && ["read", "capture", "collect_page"].includes(entry.operation)) context.beforeEffect();
+    if (entry.operation === 'mark_read') await context.beforeEffect();
+    if (!reconcile && ["read", "capture", "collect_page"].includes(entry.operation)) await context.beforeEffect();
     const runtime = createProviderRuntime(page, entry);
     if (entry.operation === 'send') runtime.notSentReceipt = (request, reason) => createNotSentReceipt(request, context, reason, 'pre_dispatch_failure');
     const result = await entry.handler(input, runtime);

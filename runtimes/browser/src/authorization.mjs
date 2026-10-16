@@ -33,6 +33,10 @@ export class SignedFileAuthorization {
     requireCondition(timingSafeEqual(Buffer.from(record.mac), Buffer.from(this.mac({grant: record.grant, resource: record.resource}))), 'AUTHORIZATION_INVALID');
     return record;
   }
+  remove(reference) {
+    requireCondition(typeof reference === 'string' && /^[0-9a-f-]{36}$/u.test(reference), 'AUTHORIZATION_INVALID');
+    try {fs.unlinkSync(path.join(this.directory, reference + '.json'));} catch (error) {if (error.code !== 'ENOENT') throw error;}
+  }
   issue(grant, resource) {
     const payload = {grant, resource}, reference = randomUUID();
     const file = path.join(this.directory, reference + '.json'), temporary = file + '.tmp';

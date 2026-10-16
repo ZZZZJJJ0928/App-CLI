@@ -29,8 +29,8 @@ class RuntimeAdapter:
         if (type(timeout_seconds) not in (int, float) or not 0 < timeout_seconds <= 300
                 or not math.isfinite(timeout_seconds)):
             raise AppCLIError("MANIFEST_INVALID", "Runtime timeout must be greater than zero and at most 300 seconds.", 2)
-        if type(protocol_version) is not str or protocol_version not in {"1.0", "2.0"} or (protocol_version == "2.0" and timeout_seconds > 30):
-            raise AppCLIError("MANIFEST_INVALID", "Select runtime 1.0 or bounded runtime 2.0 explicitly.", 2)
+        if type(protocol_version) is not str or protocol_version not in {"1.0", "3.0"} or (protocol_version == "3.0" and timeout_seconds > 30):
+            raise AppCLIError("MANIFEST_INVALID", "Select runtime 1.0 or bounded runtime 3.0 explicitly.", 2)
         self._protocol_version = protocol_version
         # Keep virtualenv interpreter symlinks intact; never resolve them to the
         # base interpreter. argv is supplied during trusted registration only.
@@ -43,7 +43,7 @@ class RuntimeAdapter:
 
     def invoke(self, command, arguments):
         if self._protocol_version != "1.0":
-            raise AppCLIError("CAPABILITY_NOT_SUPPORTED", "Runtime 2.0 requires Registry lifecycle admission.")
+            raise AppCLIError("CAPABILITY_NOT_SUPPORTED", "Runtime 3.0 requires Registry lifecycle admission.")
         if type(command) is not str or command not in self._commands:
             raise AppCLIError("COMMAND_NOT_FOUND", "The runtime command is not registered.", 2)
         effect, inputs = self._commands[command]

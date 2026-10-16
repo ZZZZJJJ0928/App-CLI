@@ -4,9 +4,12 @@ import Ajv2020 from 'ajv/dist/2020.js';
 
 export const REQUEST_LIMIT = 2 * 1024 * 1024;
 export const RESPONSE_LIMIT = 1024 * 1024;
-export const TERMINAL = new Set(['completed', 'failed', 'cancelled']);
+export const PROTOCOL_VERSION = '3.0';
+export const OPERATIONS = Object.freeze(['prepare', 'invoke', 'lookup', 'status', 'cancel', 'resume', 'renew', 'events',
+  'reconcile', 'ack_result', 'resolve', 'epoch']);
+export const TERMINAL = new Set(['completed', 'failed', 'cancelled', 'resolved']);
 export class RuntimeError extends Error {
-  constructor(code) { super(code); this.code = code; }
+  constructor(code, reason) { super(code); this.code = code; if (reason) this.reason = reason; }
 }
 export function requireCondition(condition, code = 'INPUT_VALIDATION_FAILED') {
   if (!condition) throw new RuntimeError(code);
@@ -80,13 +83,13 @@ export function encode(value, maximum = RESPONSE_LIMIT) {
   const raw = Buffer.from(JSON.stringify(value));
   requireCondition(raw.length <= maximum, 'OUTPUT_VALIDATION_FAILED'); return raw;
 }
-const schema = JSON.parse(readFileSync(new URL('../schemas/lifecycle-v2.schema.json', import.meta.url)));
+const schema = JSON.parse(readFileSync(new URL('../schemas/lifecycle-v3.schema.json', import.meta.url)));
 const ajv = new Ajv2020({strict: false, allErrors: false});
 ajv.addSchema(schema);
 export const validateRequest = ajv.compile({$ref: `${schema.$id}#/$defs/request`});
 export const validateResponse = ajv.compile({$ref: `${schema.$id}#/$defs/response`});
 export const compileSchema = schema => ajv.compile(schema);
 export function envelope(request, value) {
-  return {protocol_version: '2.0', operation: request.operation, app: request.app, command: request.command,
+  return {protocol_version: PROTOCOL_VERSION, operation: request.operation, app: request.app, command: request.command,
     ...(request.request_key ? {request_key: request.request_key} : {}), ...value};
 }

@@ -168,7 +168,7 @@ export async function sendManagedMail(raw,provider,runtime){
    if(!Array.isArray(sentBaseline?.ids)||sentBaseline.ids.length>1000||sentBaseline.ids.some(id=>typeof id!=='string'||!id||id.length>1024))throw fail('email_send_precondition_failed');
   }
   phase='prepare_draft';
-  try{prepared=await prepareManagedDraft(tab,provider,request);await uploadManagedAttachments(tab,provider,runtime.emailWorkspaceRoot,request.message.attachments,runtime.beforeEffect);await verifyManagedDraft(tab,provider,request);await verifyManagedAttachments(tab,provider,request.message.attachments);await tab.inspect(`()=>(${sentDOM.toString()})(${JSON.stringify(provider)},true)`);claimed=await journal.write('dispatching');}catch(error){try{await discardManagedDraft(tab,provider)}catch{}throw error}
+  try{prepared=await prepareManagedDraft(tab,provider,request);await uploadManagedAttachments(tab,provider,runtime.emailWorkspaceRoot,request.message.attachments,()=>{});await verifyManagedDraft(tab,provider,request);await verifyManagedAttachments(tab,provider,request.message.attachments);await tab.inspect(`()=>(${sentDOM.toString()})(${JSON.stringify(provider)},true)`);if(typeof runtime.releaseDispatch!=='function')throw fail('email_send_configuration_error');runtime.reserveDispatch();await runtime.releaseDispatch();claimed=await journal.write('dispatching');}catch(error){try{await discardManagedDraft(tab,provider)}catch{}throw error}
   if(!claimed){try{await discardManagedDraft(tab,provider)}catch{}return unknown;}
   attempted=true;
   await tab.inspect('()=>{if(globalThis.__sparkclawManagedMail)globalThis.__sparkclawManagedMail.sendAttempted=true;return {marked:true}}');

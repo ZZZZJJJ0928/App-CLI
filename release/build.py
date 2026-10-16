@@ -35,8 +35,8 @@ files = sorted(p for name in ["src", "applications", "bindings", "schemas", "ass
 files += [RUNTIME / n for n in ["package.json", "npm-shrinkwrap.json", "LICENSE", "NOTICE"]]
 hashes = {p.relative_to(RUNTIME).as_posix(): sha(p) for p in files}
 package = json.loads((RUNTIME / "package.json").read_text())
-release = {"schema_version": 1, "id": package["version"], "runtime_protocol": "2.0", "host_protocol": "1.0",
-           "ledger_version": 1, "files": hashes}
+release = {"schema_version": 1, "id": package["version"], "runtime_protocol": "3.0", "host_protocol": "1.0",
+           "ledger_version": 2, "files": hashes}
 write(RUNTIME / "release.json", release)
 runtime_digest = sha(RUNTIME / "release.json")
 write(ROOT / "src/app_cli/release.json", {"id": release["id"], "runtime_digest": runtime_digest})
@@ -52,7 +52,7 @@ shutil.copyfile(ROOT / "release/python-requirements.txt", dependencies)
 manifest = {"schema_version": 1, "id": release["id"], "runtime_digest": runtime_digest,
             "source_repository": "https://github.com/ZZZZJJJ0928/App-CLI",
             "source_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
-            "python_source_digest": source_digest, "runtime_protocol": "2.0", "host_protocol": "1.0", "ledger_version": 1,
+            "python_source_digest": source_digest, "runtime_protocol": "3.0", "host_protocol": "1.0", "ledger_version": 2,
             "artifacts": {"python_dependencies": {"file": dependencies.name, "sha256": sha(dependencies)}, "wheel": {"file": wheel.name, "sha256": sha(wheel)},
                           "runtime": {"file": npm_file.name, "sha256": sha(npm_file)}}}
 write(OUT / "release.json", manifest)

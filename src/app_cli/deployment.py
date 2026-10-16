@@ -33,9 +33,9 @@ def configured_registry():
                 raise ValueError("Release binding mismatch")
             manifest = binding["manifest"]
             adapters.append(RuntimeAdapter(manifest, [str(node), str(runtime / "src/client.mjs"), config["socket"]],
-                                           protocol_version="2.0", timeout_seconds=20))
+                                           protocol_version="3.0", timeout_seconds=20))
             registrations.append(LifecycleRegistration(manifest["id"], binding["manifest_digest"],
-                "owner-local-executor-v2", "owner-local-lifecycle-v2", operations=wire.OPERATIONS,
+                "owner-local-executor-v3", "owner-local-lifecycle-v3", operations=wire.OPERATIONS,
                 renewable_commands=frozenset(name for name, spec in binding["commands"].items() if spec.get("renewable"))))
         return Registry(adapters, lifecycle=registrations,
                         authorization=SignedFileAuthorization(config["grants_directory"], config["issuer_key_file"]))

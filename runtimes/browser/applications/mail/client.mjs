@@ -3,6 +3,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import {ProductClient} from '../../src/product-client.mjs';
 import {digest, requireCondition, RuntimeError} from '../../src/protocol.mjs';
+import {parseIdentity} from '../../src/identity.mjs';
 import {attachmentMessageFingerprint, validateAttachments} from './lib/workspace-attachments.mjs';
 
 function reconciliationIntent(input) {
@@ -31,7 +32,46 @@ export class MailboxClient {
     requireCondition(Boolean(spec), 'COMMAND_NOT_FOUND');
     return {binding, command, spec, manifest: binding.manifest.commands.find(value => value.name === command)};
   }
-  admission({provider, operation, input, taskID, credentialGeneration, token, scriptID, revision}, {sessionKey, previousTask, previousRequestKey} = {}) {
+  control(provider) {
+    const {binding, manifest} = this.describe(provider, 'probe');
+    return {app: binding.manifest.id, command: 'probe', principal: 'product-owner', owner: this.config.owner_id,
+      resource: {binding_digest: digest(binding)}, side_effect: manifest.side_effect};
+  }
+  async epochState(provider, action = 'status', extra = {}) {
+    const response = await this.client.epoch(this.control(provider), action, extra);
+    return response.epoch_state;
+  }
+  aliasFile(app, command, taskID) {
+    return path.join(this.client.index, 'alias-' + digest({owner: this.config.owner_id, taskID, app, command}) + '.json');
+  }
+  // Product identities: a Gateway-issued `op3` identity is used directly; an
+  // existing lifecycle 2.0 key keeps controlling its original task; any other
+  // caller key is mapped once to a persisted `op3` alias in the open epoch.
+  async requestKey(app, command, taskID, {allocate = true} = {}) {
+    if (parseIdentity(taskID).kind === 'operation') return taskID;
+    const legacy = digest({taskID, app, command});
+    // Test doubles without head() model the lifecycle 2.0 index directly.
+    if (typeof this.client.head !== 'function' ||
+        this.client.head({principal: 'product-owner', owner: this.config.owner_id, request_key: legacy})) return legacy;
+    const file = this.aliasFile(app, command, taskID);
+    if (fs.existsSync(file)) return JSON.parse(fs.readFileSync(file, 'utf8')).request_key;
+    if (!allocate) return legacy;
+    if (!this.client.epochState) await this.client.epoch({...this.control([...this.bindings.keys()][0]), app, command});
+    const key = this.client.allocate();
+    const temporary = `${file}.${crypto.randomUUID()}`;
+    fs.writeFileSync(temporary, JSON.stringify({request_key: key}), {flag: 'wx', mode: 0o600});
+    const fd = fs.openSync(temporary, 'r'); try {fs.fsyncSync(fd);} finally {fs.closeSync(fd);}
+    try {fs.linkSync(temporary, file);} catch (error) {if (error.code !== 'EEXIST') throw error;} finally {fs.unlinkSync(temporary);}
+    const directory = fs.openSync(this.client.index, 'r'); try {fs.fsyncSync(directory);} finally {fs.closeSync(directory);}
+    return JSON.parse(fs.readFileSync(file, 'utf8')).request_key;
+  }
+  // Read-only and replay-safe work may continue under a fresh identity after
+  // its epoch was retired; an external write never does.
+  rekey(app, command, taskID) {
+    const file = this.aliasFile(app, command, taskID);
+    if (fs.existsSync(file)) fs.unlinkSync(file);
+  }
+  async admission({provider, operation, input, taskID, credentialGeneration, token, scriptID, revision}, {sessionKey, previousTask, previousRequestKey} = {}) {
     const {binding, command, spec, manifest} = this.describe(provider, operation);
     requireCondition(scriptID === spec.script_id && revision === spec.revision, 'RELEASE_MISMATCH');
     const owner = this.config.owner_id;
@@ -42,8 +82,43 @@ export class MailboxClient {
       pool_key: ['collect_page', 'watch'].includes(command) && account ? (this.sharedPages ? pool_key : digest({pool_key, command})) : digest({taskID, command}), document_nonce: pool_key};
     const args = command === 'watch' ? {schema_version: 1, owner_scope: input.owner_scope, account_address: input.account_address} : input;
     return this.client.authorize({app: binding.manifest.id, command, arguments: args,
-      request_key: digest({taskID: sessionKey ?? taskID, app: binding.manifest.id, command}), principal: 'product-owner', owner, resource,
+      request_key: await this.requestKey(binding.manifest.id, command, sessionKey ?? taskID), principal: 'product-owner', owner, resource,
       side_effect: manifest.side_effect, timeout_ms: spec.timeout_ms, renewable: spec.renewable});
+  }
+  async invoke(request, options) {
+    let admission = await this.admission(request, options);
+    try {return {admission, response: await this.client.invoke(admission)};}
+    catch (error) {
+      const {binding, command, manifest} = this.describe(request.provider, request.operation);
+      if (error.code !== 'OPERATION_RETIRED' || manifest.side_effect === 'remote_mutation' ||
+          parseIdentity(options?.sessionKey ?? request.taskID).kind === 'operation') throw error;
+      this.rekey(binding.manifest.id, command, options?.sessionKey ?? request.taskID);
+      admission = await this.admission(request, options);
+      return {admission, response: await this.client.invoke(admission)};
+    }
+  }
+  async restoreTask(provider, operation, taskID) {
+    const {binding, command} = this.describe(provider, operation);
+    return this.client.restore({principal: 'product-owner', owner: this.config.owner_id,
+      request_key: await this.requestKey(binding.manifest.id, command, taskID, {allocate: false})});
+  }
+  // Durable product receipt of a terminal result (Gateway commits first).
+  async acknowledge({provider, operation, taskID, terminal_revision, result_digest, receipt_id}) {
+    const admission = await this.restoreTask(provider, operation, taskID);
+    const known = await this.client.control(admission, 'lookup');
+    requireCondition(known.kind === 'task', 'ADMISSION_UNRESOLVED');
+    const response = await this.client.ack(admission, {...known, terminal_revision, result_digest},
+      {receiver_id: 'product-owner', receipt_id});
+    return {task: response.task};
+  }
+  // Explicit user conclusion for an unknown send; never a resend.
+  async resolve({provider, operation = 'send', taskID, resolution, evidence_digest}) {
+    let admission = await this.restoreTask(provider, operation, taskID);
+    const known = await this.client.control(admission, 'lookup');
+    requireCondition(known.kind === 'task', 'ADMISSION_UNRESOLVED');
+    if (!admission.grant.operations.includes('resolve')) admission = this.client.reissue(admission, known.task.id);
+    const response = await this.client.resolve(admission, known.task.id, resolution, evidence_digest);
+    return this.legacyResult(provider, operation, response, admission);
   }
   async execute(request) {
     if (request.operation === 'observe') {
@@ -59,7 +134,7 @@ export class MailboxClient {
       const {binding, command, spec} = this.describe(request.provider, request.operation);
       requireCondition(request.scriptID === spec.script_id && request.revision === spec.revision, 'RELEASE_MISMATCH');
       admission = this.client.restore({principal: 'product-owner', owner: this.config.owner_id,
-        request_key: digest({taskID: request.taskID, app: binding.manifest.id, command})});
+        request_key: await this.requestKey(binding.manifest.id, command, request.taskID, {allocate: false})});
       const original = admission.request;
       const args = {...request.input, mode: original.arguments.mode};
       if (original.arguments.mode === undefined) delete args.mode;
@@ -73,8 +148,13 @@ export class MailboxClient {
         admission = recovery.admission; response = await recovery.acknowledged;
       }
     } else {
-      admission = this.admission(request);
-      response = await this.client.invoke(admission);
+      try {({admission, response} = await this.invoke(request));}
+      catch (error) {
+        if (error.code !== 'OPERATION_RETIRED') throw error;
+        const {spec} = this.describe(request.provider, request.operation);
+        return {state: 'failed', result: {schema_version: 1, status: 'error', provider: request.provider, code: 'operation_retired',
+          retired_reason: error.reason ?? 'recovery'}, sourceChecksum: spec.source_checksum};
+      }
     }
     if (admission.existing && request.input.mode !== 'reconcile' && response.task &&
         response.task.status === 'blocked' && admission.grant.max_deadline_ms > Date.now()) {
@@ -88,14 +168,19 @@ export class MailboxClient {
       admission = recovery.admission; response = await recovery.acknowledged;
     }
     response = await this.client.wait(admission, response, {signal: request.signal});
-    return this.legacyResult(request.provider, request.operation, response);
+    return this.legacyResult(request.provider, request.operation, response, admission);
   }
-  legacyResult(provider, operation, response) {
+  legacyResult(provider, operation, response, admission) {
     const {spec} = this.describe(provider, operation);
-    if (response.kind === 'task' && response.task.status === 'completed') return {state: 'completed', result: response.data, sourceChecksum: spec.source_checksum};
-    const code = response.task?.status === 'uncertain' ? (operation === 'send' ? 'send_outcome_unknown' : 'email_source_recovery_pending') : (response.reason ?? 'provider_script_failed').toLowerCase();
+    // Identity and terminal revision the product echoes back in ack_result.
+    const lifecycle = response.task ? {operation_id: admission?.request?.request_key, task_id: response.task.id, status: response.task.status,
+      ...(response.terminal_revision ? {terminal_revision: response.terminal_revision, result_digest: response.result_digest} : {}),
+      ...(response.attempt ? {attempt: response.attempt} : {}), ...(response.resolution ? {resolution: response.resolution} : {})} : undefined;
+    if (response.kind === 'task' && response.task.status === 'completed') return {state: 'completed', result: response.data, sourceChecksum: spec.source_checksum, lifecycle};
+    const code = response.task?.status === 'uncertain' ? (operation === 'send' ? 'send_outcome_unknown' : 'email_source_recovery_pending') :
+      response.task?.status === 'resolved' ? 'send_resolved_by_user' : (response.reason ?? 'provider_script_failed').toLowerCase();
     return {state: 'failed', result: {schema_version: 1, status: 'error', provider, code}, sourceChecksum: spec.source_checksum,
-      task: response.task};
+      task: response.task, lifecycle};
   }
   async startWatch(request) {
     const prior = this.watches.get(request.provider);
@@ -111,7 +196,7 @@ export class MailboxClient {
     if (saved?.sessionKey && !saved.taskID) {
       const {binding, command, spec, manifest} = this.describe(request.provider, 'observe');
       const original = this.client.restore({principal: 'product-owner', owner: this.config.owner_id,
-        request_key: digest({taskID: saved.sessionKey, app: binding.manifest.id, command})});
+        request_key: await this.requestKey(binding.manifest.id, command, saved.sessionKey, {allocate: false})});
       const previous = await this.client.control(original, 'lookup');
       if (previous.task) saved.taskID = previous.task.id;
       else {
@@ -119,7 +204,7 @@ export class MailboxClient {
         // replace an expired, unbound, read-only watch; Host expiry/cleanup still
         // fences its resources. Never relax ProductClient's write retry rules.
         const grant = original.grant;
-        requireCondition(previous.kind === 'lookup' && previous.outcome === 'unresolved' &&
+        requireCondition(previous.kind === 'lookup' && ['unresolved', 'not_admitted', 'retired'].includes(previous.outcome) &&
           command === 'watch' && spec.renewable === true && manifest.side_effect === 'read_only' &&
           original.request.command === command && original.request.app === binding.manifest.id &&
           grant?.command === command && grant.app === binding.manifest.id && grant.side_effect === 'read_only' &&
@@ -140,11 +225,10 @@ export class MailboxClient {
       const directory = fs.openSync(this.client.index, 'r'); try {fs.fsyncSync(directory);} finally {fs.closeSync(directory);}
     };
     persist();
-    let admission = this.admission(request, saved);
-    let response = await this.client.invoke(admission);
-    if (response.task && !['pending', 'running'].includes(response.task.status)) {
+    let {admission, response} = await this.invoke(request, saved);
+    if (response.task && !['prepared', 'pending', 'running'].includes(response.task.status)) {
       saved = {identity, sessionKey: crypto.randomUUID(), previousTask: response.task.id}; persist();
-      admission = this.admission(request, saved); response = await this.client.invoke(admission);
+      ({admission, response} = await this.invoke(request, saved));
     }
     requireCondition(response.task, 'BACKEND_PROTOCOL_INVALID');
     saved.taskID = response.task.id; persist();
