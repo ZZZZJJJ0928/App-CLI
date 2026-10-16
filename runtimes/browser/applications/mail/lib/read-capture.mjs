@@ -457,6 +457,10 @@ export async function markCapturedRead(input, runtime, provider, adapter) {
   const finalDir = path.dirname(manifestPath);
   const prior = await readJSON(path.join(finalDir,'read-state.json'));
   let readState = 'read';
+  // The remote mark is an external write: its dispatch is released through
+  // the lifecycle anchor only after the exact target is reselected, so any
+  // preparation failure stays provably undispatched.
+  if (typeof runtime.releaseDispatch !== 'function') throw error('email_send_configuration_error');
   if (prior?.state !== 'confirmed' || prior.observed !== 'read') {
     readState = await runtime.withReadTab(async tab => {
       const message = await adapter.collectUnread(tab,provider,{account_address:input.target.account_address,
@@ -464,13 +468,13 @@ export async function markCapturedRead(input, runtime, provider, adapter) {
         folder:input.target.folder,capture_required:false,onSelected:async selected => {
           if (accountIdentity(provider,selected).mail_id !== identity.mail_id) throw error('email_capture_invalid');
         }});
-      return recordReadState(finalDir,true,message,()=>adapter.markRead(tab,provider,message));
+      return recordReadState(finalDir,true,message,()=>adapter.markRead(tab,provider,message),()=>runtime.releaseDispatch());
     });
   }
   return {schema_version:1,provider,target:input.target,read_state:readState,observed_at:new Date().toISOString()};
 }
 
-async function recordReadState(finalDir, complete, message, markRead) {
+async function recordReadState(finalDir, complete, message, markRead, release) {
   let readState = "unknown";
   const statePath = path.join(finalDir, "read-state.json");
   const previous = await readJSON(statePath);
@@ -482,6 +486,8 @@ async function recordReadState(finalDir, complete, message, markRead) {
     // The remote mutation is deliberately independent from source capture.
     // A missing or changed provider request records unknown and never rolls
     // back the durable MIME source or its synchronization boundary.
+    // A failed release never reaches the provider and is not an unknown read.
+    if (release) await release();
     try { readState = await markRead(); } catch { readState = "unknown"; }
   } else if (["read", "unread"].includes(message.read_state)) readState = message.read_state;
   if (!["read", "unread", "unknown"].includes(readState)) readState = "unknown";

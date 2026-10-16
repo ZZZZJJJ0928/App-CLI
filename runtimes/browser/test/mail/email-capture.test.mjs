@@ -35,9 +35,28 @@ test('background capture defers explicit read until a separately verified commit
  const result=await markCapturedRead(request,f.runtime,'gmail',f.adapter);
  assert.equal(result.read_state,'read');
  assert.equal(f.events.filter(event=>event==='mark').length,1);
+ // The dispatch is released after the target is reselected, immediately before the mark.
+ assert.deepEqual(f.events.slice(-4),['select','open','release','mark']);
  await markCapturedRead(request,{...f.runtime,withReadTab:()=>assert.fail('confirmed read reopened browser')},'gmail',f.adapter);
  const changed={...request,committed_capture:{...captured.capture,manifest_sha256:`sha256:${'0'.repeat(64)}`}};
  await assert.rejects(markCapturedRead(changed,{...f.runtime,withReadTab:()=>assert.fail('corrupt source reached browser')},'gmail',f.adapter),{code:'email_capture_invalid'});
+});
+
+test('mark_read releases only before the native request and never marks after a failed release or reselection',async t=>{
+ const f=await fixture(t,{message:{original:{selector:'original'}}});
+ const target={account_address:f.message.account_address,provider_message_id:f.message.provider_message_id,provider_selection_id:f.message.provider_message_id};
+ const captured=await captureUnread({...input(),operation:'capture',target},f.runtime,'gmail',{...f.adapter,markAfterCapture:false});
+ const request={...input(),operation:'mark_read',invocation_id:'release-order',target,committed_capture:captured.capture};
+ const failedSelect={...f.adapter,collectUnread:async()=>{throw Object.assign(new Error('email_capture_invalid'),{code:'email_capture_invalid'});}};
+ const before=f.events.length;
+ await assert.rejects(markCapturedRead(request,f.runtime,'gmail',failedSelect),{code:'email_capture_invalid'});
+ assert.equal(f.events.slice(before).includes('release'),false,'a preparation failure must stay undispatched');
+ const down={...f.runtime,releaseDispatch:async()=>{throw Object.assign(new Error('ANCHOR_UNAVAILABLE'),{code:'ANCHOR_UNAVAILABLE'});}};
+ await assert.rejects(markCapturedRead(request,down,'gmail',f.adapter),{code:'ANCHOR_UNAVAILABLE'});
+ assert.equal(f.events.includes('mark'),false,'a failed release never reaches the provider');
+ await assert.rejects(markCapturedRead(request,{...f.runtime,releaseDispatch:undefined},'gmail',f.adapter),{code:'email_send_configuration_error'});
+ const result=await markCapturedRead(request,f.runtime,'gmail',f.adapter);
+ assert.equal(result.read_state,'read'); assert.equal(f.events.filter(event=>event==='mark').length,1);
 });
 
 test('capture does not perform a second full MIME/body parse before publication',async t=>{
@@ -117,7 +136,8 @@ async function fixture(t, options = {}) {
       return "read";
     },
   };
-  const runtime = { emailWorkspaceRoot: root, withReadTab: callback => { events.push("tab"); return callback(tab); } };
+  const runtime = { emailWorkspaceRoot: root, withReadTab: callback => { events.push("tab"); return callback(tab); },
+    releaseDispatch: async () => { events.push("release"); return 1; } };
   return { root, message, events, downloads, adapter, runtime, run: () => captureUnread(input(), runtime, "gmail", adapter) };
 }
 

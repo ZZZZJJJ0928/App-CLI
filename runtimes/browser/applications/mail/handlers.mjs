@@ -58,8 +58,8 @@ async function execute(entry, original, context, reconcile = false) {
     const remoteSelector = selector => selector === entry.effectSelector || entry.effectSelectors?.includes(selector);
     const originalClick = page.click;
     page.click = async (...args) => {if (remoteSelector(args[0])) await context.beforeEffect(); return originalClick(...args);};
-    // Mark-read can use a provider native request rather than a button selector.
-    if (entry.operation === 'mark_read') await context.beforeEffect();
+    // Mark-read releases its dispatch just before the native request, inside
+    // markCapturedRead, after the target has been reselected.
     if (!reconcile && ["read", "capture", "collect_page"].includes(entry.operation)) await context.beforeEffect();
     const runtime = createProviderRuntime(page, entry);
     if (entry.operation === 'send') runtime.notSentReceipt = (request, reason) => createNotSentReceipt(request, context, reason, 'pre_dispatch_failure');
