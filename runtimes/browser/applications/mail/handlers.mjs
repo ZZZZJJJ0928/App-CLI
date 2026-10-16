@@ -3,6 +3,7 @@ import {MailPage, createProviderRuntime} from './runtime/mail-page.mjs';
 import {ProviderScriptRegistry} from './runtime/provider-scripts.mjs';
 import {isManagedSend} from './lib/managed-send.mjs';
 import {createNotSentReceipt, legacyNotSentReceipt, validateNotSentBinding} from './lib/send-recovery.mjs';
+import {removeSendJournal} from './lib/send-journal.mjs';
 
 export async function mailHandlers() {
   const registry = new ProviderScriptRegistry(); await registry.prepare();
@@ -12,6 +13,9 @@ export async function mailHandlers() {
     handlers[`${entry.provider}.${name}`] = name === 'watch' ? {run: (input, context) => watch(entry, input, context)} : {
       run: (input, context) => execute(entry, input, context),
       ...(['send', 'read', 'capture', 'collect_page'].includes(name) ? {reconcile: (input, context) => execute(entry, input, context, true)} : {}),
+      // Captured mail is business data owned by the product; only the send
+      // journal is runtime evidence reclaimed with its ledger row.
+      ...(name === 'send' ? {reclaim: (input, context) => removeSendJournal(context.resource.workspace_root, {...input, provider: entry.provider})} : {}),
     };
   }
   return handlers;

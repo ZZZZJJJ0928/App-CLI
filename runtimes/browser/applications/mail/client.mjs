@@ -280,5 +280,12 @@ export class MailboxClient {
     }
     return this.watchStatus(provider);
   }
+  // Periodic product-side maintenance: refresh the epoch state and drop
+  // authorization heads/aliases of requests the executor has reclaimed.
+  async maintain() {
+    if (!this.bindings.size) return 0;
+    await this.client.epoch(this.control([...this.bindings.keys()][0]));
+    return this.client.prune();
+  }
   async close() {await Promise.all([...this.watches.keys()].map(provider => this.stopWatch(provider)));}
 }

@@ -10,9 +10,12 @@ import {digest, encode, requireCondition, RuntimeError, TERMINAL} from './protoc
 export const SCHEMA_VERSION = 2;
 const ZERO = '0'.repeat(64);
 const HOUR = 3600_000;
+const DAY = 24 * HOUR;
 export const DEFAULT_POLICY = Object.freeze({
   // Placeholders until shadow measurement derives deployed values.
-  maxOpenEpochMs: 24 * HOUR, maxOfflineMs: 7 * 24 * HOUR, rotateTerminalRows: 50_000, maxAttempts: 3,
+  maxOpenEpochMs: DAY, maxOfflineMs: 7 * DAY, rotateTerminalRows: 50_000, maxAttempts: 3,
+  ackedResultMs: HOUR, unackedResultMs: DAY, sendReceiptMs: 30 * DAY,
+  eventTaskBytes: 2 * 1024 * 1024, eventOwnerBytes: 32 * 1024 * 1024, gcBatch: 500,
 });
 const TASK_COLUMNS = [
   ['generation', 'INTEGER NOT NULL DEFAULT 1'], ['request_epoch', 'INTEGER NOT NULL DEFAULT 0'],
@@ -42,9 +45,12 @@ export class Ledger {
     const previous = fs.existsSync(marker) ? JSON.parse(fs.readFileSync(marker)) : null;
     requireCondition(!previous || [1, SCHEMA_VERSION].includes(previous.schema_version) && fs.existsSync(file), 'LEDGER_RECOVERY_REQUIRED');
     if (fs.existsSync(file)) requireCondition(fs.lstatSync(file).isFile() && !fs.lstatSync(file).isSymbolicLink(), 'CONFIGURATION_INVALID');
+    const fresh = !fs.existsSync(file);
     this.db = new DatabaseSync(file);
     fs.chmodSync(file, 0o600);
     try {
+      // New ledgers return freed pages incrementally; never a full VACUUM.
+      if (fresh) this.db.exec('PRAGMA auto_vacuum=INCREMENTAL');
       this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;
         CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value INTEGER NOT NULL);
         INSERT OR IGNORE INTO metadata VALUES ('epoch',0);
@@ -63,6 +69,7 @@ export class Ledger {
       requireCondition(!version || [1, SCHEMA_VERSION].includes(version.value), 'LEDGER_VERSION_UNSUPPORTED');
       this.transaction(() => {
         if (!version || version.value === 1) this.migrate(Boolean(version));
+        this.ensureSchema();
         const current = this.meta('epoch'), sequence = this.meta('commit_sequence');
         requireCondition(!previous || current >= previous.epoch && sequence >= (previous.commit_sequence ?? 0), 'LEDGER_RECOVERY_REQUIRED');
         this.db.exec("UPDATE metadata SET value=value+1 WHERE key='epoch'");
@@ -103,6 +110,13 @@ export class Ledger {
     this.db.prepare("INSERT OR IGNORE INTO epoch_seals VALUES (0,'legacy',?,NULL)").run(now);
     if (fromV1) this.db.exec("UPDATE metadata SET value=2 WHERE key='schema_version'");
     else this.db.exec(`INSERT INTO metadata VALUES ('schema_version',${SCHEMA_VERSION})`);
+  }
+  // Idempotent schema-2 objects added after the first schema-2 release.
+  ensureSchema() {
+    this.db.exec(`CREATE TABLE IF NOT EXISTS gc_queue (task TEXT PRIMARY KEY, grant_ref TEXT NOT NULL, app TEXT NOT NULL,
+      command TEXT NOT NULL, arguments TEXT NOT NULL, queued_ms INTEGER NOT NULL);
+      CREATE INDEX IF NOT EXISTS tasks_reclaim ON tasks(request_epoch, finished_ms);`);
+    this.db.prepare("INSERT OR IGNORE INTO metadata VALUES ('reclaimed_total',0)").run();
   }
   meta(key) {return this.db.prepare('SELECT value FROM metadata WHERE key=?').get(key)?.value;}
   setMeta(key, value) {
@@ -282,6 +296,13 @@ export class Ledger {
     const {sequence} = this.get(id);
     this.db.prepare('INSERT INTO events VALUES(?,?,?,?)').run(id, sequence, type, body);
     this.db.prepare('DELETE FROM events WHERE task=? AND sequence<=?').run(id, sequence - this.retention);
+    // Rolling per-task byte window; trimmed events surface as an explicit gap.
+    let bytes = this.db.prepare('SELECT COALESCE(SUM(length(payload)),0) AS n FROM events WHERE task=?').get(id).n;
+    while (bytes > this.policy.eventTaskBytes) {
+      const oldest = this.db.prepare('SELECT sequence, length(payload) AS n FROM events WHERE task=? ORDER BY sequence LIMIT 1').get(id);
+      if (!oldest || oldest.sequence === sequence) break;
+      this.db.prepare('DELETE FROM events WHERE task=? AND sequence=?').run(id, oldest.sequence); bytes -= oldest.n;
+    }
   }
   events(row, cursor, limit = 100) {
     const earliest = this.db.prepare('SELECT MIN(sequence) AS first FROM events WHERE task=?').get(row.id).first;
@@ -462,6 +483,74 @@ export class Ledger {
       this.transaction(() => this.db.prepare('UPDATE anchor_state SET generation=? WHERE id=1').run(generation));
     }
     return {mode, affected};
+  }
+  // ---- Reclamation ------------------------------------------------------------
+  // A terminal row is reclaimable only after its request epoch is sealed (the
+  // fence then rejects replay without it), its delivery obligation is met and
+  // no execution remains. Legacy rows lack ACK evidence and are retained.
+  reclaimable(active = new Set()) {
+    const now = this.clock(), policy = this.policy, sealed = this.meta('sealed_through');
+    const rows = this.db.prepare(`SELECT id, recovery_class, status, dispatch, ack, finished_ms FROM tasks
+      WHERE status IN ('completed','failed','cancelled','resolved') AND request_epoch BETWEEN 1 AND ?
+      ORDER BY finished_ms LIMIT ?`).all(sealed, policy.gcBatch * 4);
+    return rows.filter(row => {
+      if (active.has(row.id) || !row.finished_ms) return false;
+      const age = now - row.finished_ms, ack = row.ack ? JSON.parse(row.ack) : null;
+      if (row.status === 'resolved') return true;
+      const delivered = row.recovery_class === 'external_write' && (row.dispatch === 'released' || row.dispatch === 'sent');
+      // A send conclusion is the sole evidence of delivery: it waits for a
+      // durable product receipt and then the receipt retention window.
+      if (delivered) return Boolean(ack) && now - ack.at_ms >= policy.sendReceiptMs;
+      return ack ? now - ack.at_ms >= policy.ackedResultMs : age >= policy.unackedResultMs;
+    }).slice(0, policy.gcBatch).map(row => row.id);
+  }
+  queueReclaim(ids) {
+    return this.transaction(() => {
+      const insert = this.db.prepare('INSERT OR IGNORE INTO gc_queue VALUES (?,?,?,?,?,?)');
+      for (const id of ids) {
+        const row = this.get(id);
+        if (!row) continue;
+        insert.run(id, row.grant_ref, row.app, row.command, JSON.stringify(JSON.parse(row.request).arguments ?? {}), this.clock());
+        this.db.prepare('DELETE FROM events WHERE task=?').run(id);
+        this.db.prepare('DELETE FROM tasks WHERE id=?').run(id);
+      }
+      this.db.prepare("UPDATE metadata SET value=value+? WHERE key='reclaimed_total'").run(ids.length);
+      return this.reclaimQueue();
+    });
+  }
+  reclaimQueue(limit = this.policy.gcBatch) {return this.db.prepare('SELECT * FROM gc_queue ORDER BY queued_ms LIMIT ?').all(limit);}
+  finishReclaim(task) {this.transaction(() => this.db.prepare('DELETE FROM gc_queue WHERE task=?').run(task));}
+  // Owner-wide event budget: trim the oldest events of finished tasks first.
+  trimEvents() {
+    let total = this.db.prepare('SELECT COALESCE(SUM(length(payload)),0) AS n FROM events').get().n;
+    if (total <= this.policy.eventOwnerBytes) return 0;
+    let removed = 0;
+    this.transaction(() => {
+      const victims = this.db.prepare(`SELECT e.task, e.sequence, length(e.payload) AS n FROM events e JOIN tasks t ON t.id=e.task
+        WHERE t.status IN ('completed','failed','cancelled','resolved') ORDER BY e.rowid LIMIT ?`).all(this.policy.gcBatch * 10);
+      for (const victim of victims) {
+        if (total <= this.policy.eventOwnerBytes) break;
+        this.db.prepare('DELETE FROM events WHERE task=? AND sequence=?').run(victim.task, victim.sequence);
+        total -= victim.n; removed++;
+      }
+    });
+    return removed;
+  }
+  pruneSchedules() {
+    const sealed = this.meta('sealed_through');
+    return this.transaction(() => this.db.prepare('DELETE FROM schedule_fences WHERE deleted=1 AND creation_epoch<=?').run(sealed).changes);
+  }
+  checkpoint() {
+    this.db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+    if (this.db.prepare('PRAGMA auto_vacuum').get().auto_vacuum === 2) this.db.exec('PRAGMA incremental_vacuum(1024)');
+  }
+  // Physical bytes of the ledger, including WAL and shared memory files.
+  storageBytes() {
+    let total = 0;
+    for (const suffix of ['', '-wal', '-shm']) {
+      try {total += fs.statSync(this.file + suffix).size;} catch (error) {if (error.code !== 'ENOENT') throw error;}
+    }
+    return total;
   }
   lastRecovery() {return this.db.prepare('SELECT * FROM recoveries ORDER BY id DESC LIMIT 1').get() ?? null;}
   close() { this.db.close(); }

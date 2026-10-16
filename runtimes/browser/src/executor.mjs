@@ -2,7 +2,8 @@ import {compileSchema, digest, encode, envelope, intentDigest, OPERATIONS, requi
   RuntimeError, TERMINAL, validateRequest, validateResponse} from './protocol.mjs';
 import {NoAnchor} from './anchor.mjs';
 
-import {readFileSync} from 'node:fs';
+import fs, {readFileSync} from 'node:fs';
+import path from 'node:path';
 const validateBinding = compileSchema(JSON.parse(readFileSync(new URL('../schemas/execution-binding-v1.schema.json', import.meta.url))));
 
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u;
@@ -19,9 +20,15 @@ export function recoveryClass(execution, sideEffect) {
 
 export class Executor {
   constructor({ledger, authorization, bindings, handlers, host, anchor = new NoAnchor(), clock = Date.now,
-    anchorRetries = 3, rotationIntervalMs = 60_000}) {
+    anchorRetries = 3, rotationIntervalMs = 60_000, gcIntervalMs = 300_000, storage = {}}) {
     this.ledger = ledger; this.authorization = authorization; this.host = host; this.clock = clock; this.anchor = anchor;
     this.anchorRetries = anchorRetries;
+    // Placeholder budget (design section 9); deployments derive their own.
+    const budget = storage.budget_bytes ?? 2 * 1024 ** 3;
+    this.storage = {budget, reserve: storage.reserve_bytes ?? Math.max(64 * 1024 ** 2, Math.floor(budget / 10)),
+      directories: storage.directories ?? (authorization?.directory ? [authorization.directory] : []),
+      freeFloor: storage.free_floor_bytes ?? 256 * 1024 ** 2};
+    this.gcRunning = null;
     this.active = new Map(); this.lanes = new Map(); this.closing = false; this.releasing = Promise.resolve();
     // Bindings are installed release inputs, never accepted from a wire request.
     this.commands = new Map();
@@ -43,6 +50,10 @@ export class Executor {
     if (rotationIntervalMs > 0) {
       this.rotation = setInterval(() => {try {this.ledger.rotate();} catch { /* retried next interval */ }}, rotationIntervalMs);
       this.rotation.unref();
+    }
+    if (gcIntervalMs > 0) {
+      this.collector = setInterval(() => {void this.gc().catch(() => { /* retried next interval */ });}, gcIntervalMs);
+      this.collector.unref();
     }
   }
   // Resolve a pending release and detect rollback before serving anything.
@@ -96,7 +107,8 @@ export class Executor {
     if (request.operation === 'prepare') {
       requireCondition(!this.closing, 'EXECUTOR_DRAINING');
       requireCondition(spec.input(request.arguments), 'INPUT_VALIDATION_FAILED');
-      encode(request.arguments, 1536 * 1024);
+      const bytes = encode(request.arguments, 1536 * 1024).length;
+      if (!this.ledger.find(grant)) this.admitStorage(bytes);
       row = this.ledger.prepare(request, grant, intentDigest(request), digest(resource), spec.recovery_class).row;
       return this.response(request, row);
     }
@@ -158,6 +170,66 @@ export class Executor {
       case 'events': return envelope(request, {kind: 'events', task: {id: row.id, status: row.status}, ...this.ledger.events(row, request.cursor, request.limit)});
     }
     return this.response(request, this.ledger.get(row.id));
+  }
+  // Current usage, not lifetime request count, decides admission. The
+  // recovery reserve stays available to existing tasks, ACK and cancellation.
+  usage() {
+    if (this.usageCache && this.clock() - this.usageCache.at < 5000) return this.usageCache.value;
+    let used = this.ledger.storageBytes();
+    const walk = directory => {
+      let entries;
+      try {entries = fs.readdirSync(directory, {withFileTypes: true});} catch {return;}
+      for (const entry of entries) {
+        const file = path.join(directory, entry.name);
+        if (entry.isDirectory()) walk(file);
+        else if (entry.isFile()) {try {used += fs.statSync(file).size;} catch {}}
+      }
+    };
+    for (const directory of this.storage.directories) walk(directory);
+    let free = Infinity;
+    try {const stat = fs.statfsSync(this.ledger.directory); free = stat.bavail * stat.bsize;} catch {}
+    const value = {used, free, budget: this.storage.budget, reserve: this.storage.reserve};
+    this.usageCache = {at: this.clock(), value};
+    return value;
+  }
+  admitStorage(bytes) {
+    const {used, free, budget, reserve} = this.usage();
+    if (used >= budget * 0.7) void this.gc().catch(() => {});
+    // Reserve room for the worst reasonable footprint: arguments, result,
+    // compact evidence and WAL growth before admitting new work.
+    const peak = bytes * 4 + 1024 * 1024;
+    requireCondition(used + peak + reserve <= budget && free - peak >= this.storage.freeFloor, 'STORAGE_PRESSURE');
+  }
+  // Background single-writer reclamation; queries never delete.
+  gc() {
+    if (this.gcRunning) return this.gcRunning;
+    const run = async () => {
+      const report = {reclaimed: 0, events: 0, schedules: 0};
+      {
+        this.ledger.rotate();
+        const ids = this.ledger.reclaimable(new Set(this.active.keys()));
+        const queue = ids.length ? this.ledger.queueReclaim(ids) : this.ledger.reclaimQueue();
+        for (const item of queue) {
+          // Files are deleted only after the row is gone and the queue records
+          // them; a crash simply retries this idempotent step.
+          let resource = null;
+          try {resource = this.authorization.record(item.grant_ref).resource;} catch {}
+          const spec = this.commands.get(`${item.app}\0${item.command}`);
+          if (resource && spec?.handler.reclaim) {
+            try {await spec.handler.reclaim(JSON.parse(item.arguments), {resource});} catch {continue;}
+          }
+          try {this.authorization.remove(item.grant_ref);} catch {continue;}
+          this.ledger.finishReclaim(item.task); report.reclaimed++;
+        }
+        report.events = this.ledger.trimEvents();
+        report.schedules = this.ledger.pruneSchedules();
+        this.ledger.checkpoint();
+        return report;
+      }
+    };
+    const running = run().finally(() => {if (this.gcRunning === running) this.gcRunning = null;});
+    this.gcRunning = running;
+    return running;
   }
   epoch(request) {
     let schedule;
@@ -352,7 +424,7 @@ export class Executor {
     });
   }
   async close() {
-    this.closing = true; clearInterval(this.rotation);
+    this.closing = true; clearInterval(this.rotation); clearInterval(this.collector);
     for (const active of this.active.values()) {active.stopReason = 'EXECUTOR_STOPPING'; active.abort.abort();}
     await Promise.all([...this.active.values()].map(active => active.promise));
   }

@@ -41,7 +41,7 @@ function issue(f, {request_key, command = 'send', args = {}, owner = 'fixture-ow
     ...(deadline ? {deadline_ms: DEADLINE} : {})};
   const grant = {principal: 'fixture-principal', owner, app: request.app, command, request_key,
     intent_digest: intentDigest(request), side_effect: {watch: 'read_only', send: 'remote_mutation'}[command] ?? 'local_mutation',
-    operations: [...operations, 'epoch'], access_expires_ms: Date.now() + 600000, execution_expires_ms: Date.now() + 60000,
+    operations: [...operations, 'epoch'], access_expires_ms: Date.now() + 90 * 86400000, execution_expires_ms: Date.now() + 60000,
     max_deadline_ms: request.deadline_ms ?? null, task_id: null, revision: 1, authorization_generation: generation};
   const resource = {binding_digest: digest(binding)};
   request.authorization_ref = f.authorization.issue(grant, resource);
@@ -56,10 +56,11 @@ async function until(action, predicate, timeout = 6000) {
   do {const value = await action(); if (predicate(value)) return value; await delay(20);} while (Date.now() < stop);
   throw new Error('condition timed out');
 }
-async function open(f, {anchor = new MemoryAnchor(), clock = Date.now, policy} = {}) {
+async function open(f, {anchor = new MemoryAnchor(), clock = Date.now, policy, storage} = {}) {
   const ledger = new Ledger(f.directory, {clock, policy});
   const assembly = await assemble({config: f.config});
-  const executor = new Executor({...assembly, ledger, authorization: f.authorization, anchor, clock, rotationIntervalMs: 0});
+  const executor = new Executor({...assembly, ledger, authorization: f.authorization, anchor, clock, rotationIntervalMs: 0,
+    gcIntervalMs: 0, storage});
   await executor.start();
   return {ledger, executor, anchor};
 }
@@ -415,4 +416,133 @@ test('product heads replace renewal chains with three fixed slots', async t => {
   const restored = product.restore({principal: 'fixture-principal', owner: 'fixture-owner', request_key: 'legacy-chain-key'});
   assert.equal(restored.request.authorization_ref, second);
   assert.equal(restored.grant.revision, 2);
+});
+
+test('terminal rows are reclaimed only after sealing and their delivery window', async t => {
+  const f = fixture(t); let now = Date.now();
+  const state = await open(f, {clock: () => now}); t.after(() => state.ledger.close());
+  const {executor, ledger} = state;
+  const make = name => issue(f, {request_key: operationIdentity({generation: 1, epoch: 1}, nonce(name)), command: 'increment'});
+  const read = make('reclaim-read'), acked = make('reclaim-acked');
+  const send = issue(f, {request_key: operationIdentity({generation: 1, epoch: 1}, nonce('reclaim-send'))});
+  const ids = {};
+  for (const [name, value] of Object.entries({read, acked, send})) {
+    ids[name] = (await admit(executor, value.request)).task.id;
+    await until(() => ledger.get(ids[name]), row => row.status === 'completed');
+  }
+  const done = await executor.control(control(acked.request, 'status', ids.acked));
+  await executor.control(control(acked.request, 'ack_result', ids.acked, {result_digest: done.result_digest,
+    terminal_revision: done.terminal_revision, receiver_id: 'product-store', receipt_id: 'r1'}));
+  now += 48 * 3600_000;
+  assert.equal((await executor.gc()).reclaimed, 0, 'an open epoch keeps compact deduplication rows');
+  await executor.control(epochRequest(read.request, 'rotate'));
+  await executor.control(epochRequest(read.request, 'seal', {epoch: 1, drained_digest: digest({e: 1})}));
+  const report = await executor.gc();
+  assert.equal(report.reclaimed, 2);
+  assert.equal(ledger.get(ids.read), undefined); assert.equal(ledger.get(ids.acked), undefined);
+  assert.equal(fs.existsSync(path.join(f.config.grants_directory, read.request.authorization_ref + '.json')), false);
+  // The unacknowledged send conclusion is the sole delivery evidence.
+  assert.equal(ledger.get(ids.send).status, 'completed');
+  const replay = await executor.control(control(issue(f, {request_key: read.request.request_key, command: 'increment'}).request, 'lookup'));
+  assert.deepEqual([replay.outcome, replay.reason], ['retired', 'drained']);
+  const sent = await executor.control(control(send.request, 'status', ids.send));
+  await executor.control(control(send.request, 'ack_result', ids.send, {result_digest: sent.result_digest,
+    terminal_revision: sent.terminal_revision, receiver_id: 'product-store', receipt_id: 'r2'}));
+  now += 29 * 24 * 3600_000; assert.equal((await executor.gc()).reclaimed, 0);
+  now += 2 * 24 * 3600_000; assert.equal((await executor.gc()).reclaimed, 1);
+  assert.equal(ledger.db.prepare('SELECT COUNT(*) AS n FROM tasks').get().n, 0);
+  assert.equal(ledger.db.prepare('SELECT COUNT(*) AS n FROM events').get().n, 0);
+  assert.equal(ledger.db.prepare('SELECT COUNT(*) AS n FROM gc_queue').get().n, 0);
+  await executor.close();
+});
+
+test('reclamation runs app cleanup hooks and resumes an interrupted queue', async t => {
+  const f = fixture(t); let now = Date.now();
+  const state = await open(f, {clock: () => now}); t.after(() => state.ledger.close());
+  const {executor, ledger} = state;
+  const spec = executor.commands.get('local-fixture\0increment'), reclaimed = [];
+  let fail = true;
+  spec.handler = {...spec.handler, async reclaim(args, context) {
+    if (fail) {fail = false; throw new Error('transient');}
+    reclaimed.push(context.resource.binding_digest);
+  }};
+  const value = issue(f, {request_key: operationIdentity({generation: 1, epoch: 1}, nonce('hook')), command: 'increment'});
+  const id = (await admit(executor, value.request)).task.id;
+  await until(() => ledger.get(id), row => row.status === 'completed');
+  await executor.control(epochRequest(value.request, 'rotate'));
+  await executor.control(epochRequest(value.request, 'seal', {epoch: 1, drained_digest: digest({e: 1})}));
+  now += 48 * 3600_000;
+  assert.equal((await executor.gc()).reclaimed, 0);
+  assert.equal(ledger.get(id), undefined);
+  assert.equal(ledger.reclaimQueue().length, 1);
+  assert.equal((await executor.gc()).reclaimed, 1);
+  assert.deepEqual(reclaimed, [digest(binding)]);
+  await executor.close();
+});
+
+test('a resolved unknown send is reclaimed as soon as its epoch is sealed', async t => {
+  const f = fixture(t), anchor = new MemoryAnchor();
+  let state = await open(f, {anchor});
+  const {request} = issue(f, {request_key: operationIdentity({generation: 1, epoch: 1}, nonce('resolved-gc'))});
+  provider.hooks.afterRelease = hang;
+  const id = (await admit(state.executor, request)).task.id;
+  await until(() => state.ledger.get(id), row => row.dispatch === 'released');
+  crash(state); provider.hooks = {};
+  state = await open(f, {anchor}); t.after(() => state.ledger.close());
+  await state.executor.control(control(request, 'resolve', id, {resolution: 'accept_unknown'}));
+  await state.executor.control(epochRequest(request, 'rotate'));
+  await state.executor.control(epochRequest(request, 'seal', {epoch: 1, drained_digest: digest({e: 1})}));
+  assert.equal((await state.executor.gc()).reclaimed, 1);
+  // The reclaimed grant is gone; a fresh access grant sees the fence.
+  await assert.rejects(state.executor.control(control(request, 'lookup')), {code: 'AUTHORIZATION_UNAVAILABLE'});
+  const replay = await state.executor.control(control(issue(f, {request_key: request.request_key}).request, 'lookup'));
+  assert.deepEqual([replay.outcome, replay.reason], ['retired', 'drained']);
+  assert.deepEqual(provider.deliveries, []);
+  await state.executor.close();
+});
+
+test('storage pressure refuses new work but keeps replay, ACK and control of admitted tasks', async t => {
+  const f = fixture(t), state = await open(f); t.after(() => state.ledger.close());
+  const {executor, ledger} = state;
+  const first = issue(f, {request_key: operationIdentity({generation: 1, epoch: 1}, nonce('before-pressure')), command: 'increment'});
+  const id = (await admit(executor, first.request)).task.id;
+  await until(() => ledger.get(id), row => row.status === 'completed');
+  executor.storage.budget = ledger.storageBytes() + 1024; executor.usageCache = null;
+  const second = issue(f, {request_key: operationIdentity({generation: 1, epoch: 1}, nonce('under-pressure')), command: 'increment'});
+  await assert.rejects(executor.control(second.request), {code: 'STORAGE_PRESSURE'});
+  assert.equal((await executor.control(control(second.request, 'lookup'))).outcome, 'not_admitted');
+  assert.equal((await executor.control(first.request)).task.id, id);
+  const done = await executor.control(control(first.request, 'status', id));
+  assert.equal((await executor.control(control(first.request, 'ack_result', id, {result_digest: done.result_digest,
+    terminal_revision: done.terminal_revision, receiver_id: 'product-store', receipt_id: 'r'}))).kind, 'ack');
+  await executor.close();
+});
+
+test('event storage is bounded per task by bytes as well as count', async t => {
+  const f = fixture(t), state = await open(f, {policy: {eventTaskBytes: 4096}}); t.after(() => state.ledger.close());
+  const value = issue(f, {request_key: operationIdentity({generation: 1, epoch: 1}, nonce('events')), command: 'increment'});
+  const id = (await state.executor.control(value.request)).task.id;
+  state.ledger.transaction(() => {for (let index = 0; index < 50; index++) state.ledger.event(id, 'tick', {pad: 'x'.repeat(500)});});
+  const bytes = state.ledger.db.prepare('SELECT SUM(length(payload)) AS n FROM events WHERE task=?').get(id).n;
+  assert.ok(bytes <= 4096, String(bytes));
+  const page = await state.executor.control(control(value.request, 'events', id, {cursor: 0}));
+  assert.equal(page.gap, true);
+  await state.executor.close();
+});
+
+test('product heads and aliases of reclaimed requests are pruned', async t => {
+  const f = fixture(t);
+  fs.writeFileSync(path.join(f.directory, 'config.json'), JSON.stringify({...f.config, owner_id: 'fixture-owner'}), {mode: 0o600});
+  const product = new ProductClient({configFile: path.join(f.directory, 'config.json'), python});
+  product.observe({generation: 1, open_epoch: 1, draining_epoch: null, sealed_through: 0, authorization_generation: 1});
+  const keep = product.allocate(), drop = product.allocate();
+  const base = {app: 'local-fixture', command: 'increment', arguments: {}, principal: 'fixture-principal', owner: 'fixture-owner',
+    resource: {binding_digest: digest(binding)}, side_effect: 'local_mutation', timeout_ms: 60000};
+  const kept = product.authorize({...base, request_key: keep}), dropped = product.authorize({...base, request_key: drop});
+  product.observe({generation: 1, open_epoch: 2, draining_epoch: null, sealed_through: 1, authorization_generation: 1});
+  assert.equal(product.prune(), 0, 'a live grant keeps its head');
+  f.authorization.remove(dropped.request.authorization_ref);
+  assert.equal(product.prune(), 1);
+  assert.throws(() => product.restore({principal: 'fixture-principal', owner: 'fixture-owner', request_key: drop}), {code: 'ADMISSION_UNRESOLVED'});
+  assert.equal(product.restore({principal: 'fixture-principal', owner: 'fixture-owner', request_key: keep}).request.authorization_ref, kept.request.authorization_ref);
 });

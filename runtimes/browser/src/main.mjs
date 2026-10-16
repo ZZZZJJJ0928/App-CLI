@@ -18,13 +18,13 @@ try {
   const expected = fs.lstatSync(path.join(config.state_directory, 'executor.lock'));
   requireCondition(lock.isFile() && lock.ino === expected.ino && lock.dev === expected.dev && lock.uid === process.getuid(), 'EXECUTOR_LOCK_REQUIRED');
   const authorization = new SignedFileAuthorization(config.grants_directory, config.issuer_key_file);
-  const ledger = new Ledger(config.state_directory);
+  const ledger = new Ledger(config.state_directory, {policy: config.lifecycle_policy ?? {}});
   // Installation-owned assembly module, never selected by command arguments.
   requireCondition(path.isAbsolute(config.assembly_module), 'CONFIGURATION_INVALID');
   const assembly = await import(pathToFileURL(config.assembly_module));
   const {bindings, handlers, host} = await assembly.assemble({config, authorization, epoch: ledger.epoch});
   await host?.connect?.(ledger.epoch);
-  const executor = new Executor({ledger, authorization, bindings, handlers, host, anchor: createAnchor(config)});
+  const executor = new Executor({ledger, authorization, bindings, handlers, host, anchor: createAnchor(config), storage: config.storage ?? {}});
   // Resolve any pending release against the independent anchor (and detect
   // whole-set rollback) before the socket accepts a single request.
   await executor.start();

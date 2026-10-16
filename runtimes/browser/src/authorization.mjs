@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {createHmac, randomUUID, timingSafeEqual} from 'node:crypto';
-import {decode, digest, encode, requireCondition} from './protocol.mjs';
+import {decode, digest, encode, requireCondition, RuntimeError} from './protocol.mjs';
 
 export function privateDirectory(directory) {
   requireCondition(path.isAbsolute(directory), 'CONFIGURATION_INVALID');
@@ -28,7 +28,10 @@ export class SignedFileAuthorization {
   mac(payload) { return createHmac('sha256', this.key).update(digest(payload)).digest('hex'); }
   record(reference) {
     requireCondition(typeof reference === 'string' && /^[0-9a-f-]{36}$/u.test(reference), 'AUTHORIZATION_INVALID');
-    const record = decode(privateRead(path.join(this.directory, reference + '.json')), 65536);
+    let raw;
+    try {raw = privateRead(path.join(this.directory, reference + '.json'));}
+    catch (error) {throw new RuntimeError(error.code === 'ENOENT' ? 'AUTHORIZATION_UNAVAILABLE' : 'AUTHORIZATION_INVALID');}
+    const record = decode(raw, 65536);
     requireCondition(Object.keys(record).sort().join() === 'grant,mac,resource' && /^[0-9a-f]{64}$/u.test(record.mac), 'AUTHORIZATION_INVALID');
     requireCondition(timingSafeEqual(Buffer.from(record.mac), Buffer.from(this.mac({grant: record.grant, resource: record.resource}))), 'AUTHORIZATION_INVALID');
     return record;

@@ -5,7 +5,7 @@ import {randomUUID} from 'node:crypto';
 import {spawn} from 'node:child_process';
 import {setTimeout as delay} from 'node:timers/promises';
 import {SignedFileAuthorization, privateDirectory, privateRead} from './authorization.mjs';
-import {operationIdentity} from './identity.mjs';
+import {operationIdentity, parseIdentity} from './identity.mjs';
 import {decode, digest, encode, intentDigest, OPERATIONS, PROTOCOL_VERSION, requireCondition, RESPONSE_LIMIT, RuntimeError} from './protocol.mjs';
 
 const TRANSPORT = new Set(['CONTROL_TIMEOUT', 'BACKEND_UNAVAILABLE', 'BACKEND_EXECUTION_FAILED', 'BACKEND_TIMEOUT', 'BACKEND_PROTOCOL_INVALID']);
@@ -100,7 +100,21 @@ export class ProductClient {
   }
   record(reference) {return this.authorization.record(reference);}
   admissionFrom(head) {
-    const {grant, resource} = this.record(head.current);
+    let record;
+    try {record = this.record(head.current);}
+    catch (error) {
+      // The executor reclaims the current grant with its task row only after
+      // the request epoch was sealed: the original identity is retired.
+      if (error.code !== 'AUTHORIZATION_UNAVAILABLE') throw error;
+      let identity;
+      try {identity = parseIdentity(head.request.request_key);} catch {throw error;}
+      const state = this.epochState;
+      if (identity.kind === 'operation' && state && (identity.generation < state.generation || identity.epoch <= state.sealed_through)) {
+        throw new RuntimeError('OPERATION_RETIRED', 'reclaimed');
+      }
+      throw error;
+    }
+    const {grant, resource} = record;
     return {request: {...head.request, authorization_ref: head.current}, grant, resource, existing: true};
   }
   issueGrant(grant, resource) {
@@ -266,4 +280,35 @@ export class ProductClient {
     } finally {this.authorization.remove?.(admission.request.authorization_ref);}
   }
   seal(control, epoch, drainedDigest) {return this.epoch(control, 'seal', {epoch, drained_digest: drainedDigest});}
+  // Remove authorization heads (and their remaining slots) for requests whose
+  // epoch is sealed and whose current grant the executor already reclaimed.
+  // Only identities that the fence now retires are eligible.
+  prune({limit = 1000} = {}) {
+    const state = this.epochState;
+    if (!state) return 0;
+    const retired = key => {
+      let identity;
+      try {identity = parseIdentity(key);} catch {return false;}
+      return identity.kind === 'operation' && (identity.generation < state.generation || identity.epoch <= state.sealed_through);
+    };
+    let removed = 0;
+    for (const name of fs.readdirSync(this.index)) {
+      if (removed >= limit) break;
+      const file = path.join(this.index, name);
+      if (name.endsWith('.head.json')) {
+        let head;
+        try {head = decode(privateRead(file, 2 * 1024 * 1024));} catch {continue;}
+        if (!retired(head.request?.request_key) || fs.existsSync(path.join(this.config.grants_directory, head.current + '.json'))) continue;
+        for (const reference of [head.previous, head.candidate].filter(Boolean)) this.authorization.remove(reference);
+        fs.unlinkSync(file); removed++;
+      } else if (name.startsWith('alias-') && name.endsWith('.json')) {
+        let alias;
+        try {alias = JSON.parse(fs.readFileSync(file, 'utf8'));} catch {continue;}
+        const owner = this.config.owner_id;
+        if (!retired(alias.request_key) || fs.existsSync(this.headFile({principal: 'product-owner', owner, request_key: alias.request_key}))) continue;
+        fs.unlinkSync(file); removed++;
+      }
+    }
+    return removed;
+  }
 }
