@@ -70,6 +70,7 @@ for (const rotate of [false, true]) test(`expired refused watch recovers with or
           : [{value: {...next(), kind: 'heartbeat'}}]};
       }};
     }}});
+  await executor.start();
   const server = await serve(config.socket, request => executor.control(request));
   t.after(async () => {await executor.close(); await server.close(); ledger.close(); fs.rmSync(root, {recursive: true, force: true});});
   const events = [], spec = binding.commands.watch;
@@ -91,8 +92,8 @@ for (const rotate of [false, true]) test(`expired refused watch recovers with or
   const watchFile = path.join(mailbox.client.index, 'watch-' + digest({owner: config.owner_id, provider: 'outlook'}) + '.json');
   const refused = fs.readFileSync(watchFile, 'utf8'), saved = JSON.parse(refused);
   assert.equal(saved.taskID, undefined); assert.equal(saved.previousTask, first);
-  const key = digest({taskID: saved.sessionKey, app: binding.manifest.id, command: 'watch'});
-  const keyFile = path.join(mailbox.client.index, digest({principal: 'product-owner', owner: config.owner_id, request_key: key}) + '.json');
+  const key = await mailbox.requestKey(binding.manifest.id, 'watch', saved.sessionKey, {allocate: false});
+  const keyFile = mailbox.client.headFile({principal: 'product-owner', owner: config.owner_id, request_key: key});
   const originalIndex = fs.readFileSync(keyFile, 'utf8');
   ledger.maxTasks = 0;
   mailbox = new MailboxClient({configFile, python}); // Cold product restart.
