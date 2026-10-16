@@ -207,8 +207,11 @@ export class MailboxClient {
       ...(response.attempt ? {attempt: response.attempt} : {}), ...(response.resolution ? {resolution: response.resolution} : {}),
       ...(typeof response.effect === 'boolean' ? {effect: response.effect} : {})} : undefined;
     if (response.kind === 'task' && response.task.status === 'completed') return {state: 'completed', result: response.data, sourceChecksum: spec.source_checksum, lifecycle};
-    const undispatched = operation === 'send' && response.effect === false && ['failed', 'cancelled'].includes(response.task?.status);
-    const code = undispatched ? 'send_not_dispatched' : response.task?.status === 'uncertain' ? (operation === 'send' ? 'send_outcome_unknown' : 'email_source_recovery_pending') :
+    if (operation === 'send' && response.effect === false && ['failed', 'cancelled'].includes(response.task?.status)) {
+      return {state: 'failed', result: {schema_version: 1, status: 'error', provider, code: 'send_not_dispatched'},
+        sourceChecksum: spec.source_checksum, task: response.task, lifecycle};
+    }
+    const code = response.task?.status === 'uncertain' ? (operation === 'send' ? 'send_outcome_unknown' : 'email_source_recovery_pending') :
       response.task?.status === 'resolved' ? 'send_resolved_by_user' : (response.reason ?? 'provider_script_failed').toLowerCase();
     return {state: 'failed', result: {schema_version: 1, status: 'error', provider, code}, sourceChecksum: spec.source_checksum,
       task: response.task, lifecycle};
