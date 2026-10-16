@@ -188,16 +188,27 @@ export class MailboxClient {
       admission = recovery.admission; response = await recovery.acknowledged;
     }
     response = await this.client.wait(admission, response, {signal: request.signal});
+    if (request.operation === 'send') response = await this.finalizeUndispatched(admission, response);
     return this.legacyResult(request.provider, request.operation, response, admission);
+  }
+  // A send whose dispatch was never released is provably not sent. Close a
+  // resumable original task so it can never dispatch later, and report it as
+  // definitively not dispatched instead of an unknown outcome.
+  async finalizeUndispatched(admission, response) {
+    if (response.kind !== 'task' || response.effect !== false || !['blocked', 'waiting_confirmation'].includes(response.task.status)) return response;
+    await this.client.control(admission, 'cancel', response.task.id);
+    return this.client.control(admission, 'status', response.task.id);
   }
   legacyResult(provider, operation, response, admission) {
     const {spec} = this.describe(provider, operation);
     // Identity and terminal revision the product echoes back in ack_result.
     const lifecycle = response.task ? {operation_id: admission?.request?.request_key, task_id: response.task.id, status: response.task.status,
       ...(response.terminal_revision ? {terminal_revision: response.terminal_revision, result_digest: response.result_digest} : {}),
-      ...(response.attempt ? {attempt: response.attempt} : {}), ...(response.resolution ? {resolution: response.resolution} : {})} : undefined;
+      ...(response.attempt ? {attempt: response.attempt} : {}), ...(response.resolution ? {resolution: response.resolution} : {}),
+      ...(typeof response.effect === 'boolean' ? {effect: response.effect} : {})} : undefined;
     if (response.kind === 'task' && response.task.status === 'completed') return {state: 'completed', result: response.data, sourceChecksum: spec.source_checksum, lifecycle};
-    const code = response.task?.status === 'uncertain' ? (operation === 'send' ? 'send_outcome_unknown' : 'email_source_recovery_pending') :
+    const undispatched = operation === 'send' && response.effect === false && ['failed', 'cancelled'].includes(response.task?.status);
+    const code = undispatched ? 'send_not_dispatched' : response.task?.status === 'uncertain' ? (operation === 'send' ? 'send_outcome_unknown' : 'email_source_recovery_pending') :
       response.task?.status === 'resolved' ? 'send_resolved_by_user' : (response.reason ?? 'provider_script_failed').toLowerCase();
     return {state: 'failed', result: {schema_version: 1, status: 'error', provider, code}, sourceChecksum: spec.source_checksum,
       task: response.task, lifecycle};

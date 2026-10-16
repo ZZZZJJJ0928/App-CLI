@@ -12,7 +12,7 @@ independent of Node, mail and browsers.
 
 ```text
 SparkClaw product admission → ProductClient → app-cli --machine
- → Registry.control → RuntimeAdapter 2.0 → fixed transport client
+ → Registry.control → RuntimeAdapter 3.0 → fixed transport client
  → owner-local Executor → registered application handler
  → signed BrowserHostPort → SparkClaw task page / Bridge / Desktop
 ```
@@ -54,12 +54,24 @@ Apache-2.0 license and original commit attribution; the existing core is MIT.
 ## Persistence, bounds and recovery
 
 The Python service launcher holds an inherited POSIX `flock`. SQLite WAL/FULL
-commits request key, principal, owner, immutable intent, task, effect fence and
-events before side effects. Each launch advances `execution_epoch`; an atomic
-`authority.json` high-water mark tracks epoch and commit sequence, rejecting a missing or older database, including same-epoch backups. Restart
-blocks unfinished reads and makes unfinished effects uncertain, with an event
-gap. Reconciliation reads original send evidence and never clicks Send again. Journal-only recovery retains the original resource-bound authority after a Bridge credential change; it does not acquire a browser page.
-A product index entry followed by unresolved lookup never creates another invoke.
+(ledger 2) commits request key, principal, owner, immutable intent, task,
+request epoch, dispatch phase and events before side effects. Each launch
+advances `execution_epoch`; an atomic `authority.json` high-water mark tracks
+epoch and commit sequence, rejecting a missing or older database, including
+same-epoch backups. A ledger 1 database migrates in place into the sealed legacy
+epoch on first start. Restart blocks unfinished reads, voids unreleased dispatch
+reservations (the task stays resumable) and makes released dispatches uncertain,
+with an event gap. An optional independent progress anchor (`anchor` in the
+deployment config: `none` or `http` over a Unix socket/URL with a bearer token)
+confirms every dispatch release and detects whole-set rollback.
+Reconciliation reads original send evidence and never clicks Send again. A user
+may resolve an uncertain send; resolution never resends.
+
+A background single writer reclaims terminal tasks only after their request
+epoch is sealed and their delivery obligation is met (read results one hour
+after ACK or a day without it; delivered sends after ACK plus the receipt
+window; resolved sends at once). Legacy epoch rows are retained. Admission uses
+measured ledger, WAL and grant storage against a budget with a recovery reserve.
 These guarantees do not claim exactly-once remote delivery.
 
 | Boundary | Frozen default |
@@ -72,8 +84,8 @@ These guarantees do not claim exactly-once remote delivery.
 | Watch disconnect recovery budget | 60 seconds, then blocked with a gap |
 | Idle read page | At most 30 minutes; no action authority while parked |
 | Host large result | Owner-private hash-verified reference, at most 16 MiB |
-| Event retention | Last 1,000 events per task, cursor gap reported |
-| Ledger admission | No cumulative task count limit by default (`maxTasks=0`); 512 MiB allocated data plus new request |
+| Event retention | Last 1,000 events and 2 MiB per task, 32 MiB per owner, cursor gap reported |
+| Ledger admission | No cumulative task count limit; 512 MiB allocated database plus measured storage within `storage.budget_bytes` (placeholder 2 GiB) and a recovery reserve; pressure returns `STORAGE_PRESSURE` |
 | Product task-access grant | 30 days, separate from execution authority |
 
 A positive integer `maxTasks` opts into a task-count cap; zero disables counting.
@@ -123,9 +135,10 @@ content are never part of a release.
 Install all files first, drain the Executor and Host, then activate the matched
 consumer, wheel, npm runtime and Reader/preload projections. Handshake checks
 actual release and binding digests. Rollback restores the whole matching set
-with compatible ledger version 1 while retaining the same state directory,
-request index, journals and monotonically increasing epoch. Unknown versions
-or missing authority evidence fail closed. SparkClaw's installer and disposable
+with a compatible ledger version while retaining the same state directory,
+request index, journals and monotonically increasing epoch. Ledger 1 releases refuse a migrated ledger 2 directory, so rolling back
+after activation requires restoring the drained pre-upgrade state set. Unknown
+versions or missing authority evidence fail closed. SparkClaw's installer and disposable
 paired-release qualifier exercise these steps.
 
 ## Validation boundary

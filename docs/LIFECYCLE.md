@@ -1,10 +1,10 @@
-# Lifecycle contract 2.0
+# Lifecycle contract 3.0
 
 [简体中文](LIFECYCLE.zh-CN.md)
 
 This fork extends the existing Registry and Adapter boundary. Runtime protocol
 1.0 and legacy CLI envelopes remain unchanged. The public JSON contract is
-[the lifecycle schema](../schemas/lifecycle-v2.schema.json); its package copy is
+[the lifecycle schema](../schemas/lifecycle-v3.schema.json); its package copy is
 checked for byte parity. No browser/mail integration is claimed by this contract.
 
 A reviewed registration binds an app's manifest digest, implementation identity,
@@ -12,7 +12,7 @@ conformance evidence, supported operations and renewable commands. Implementing
 `invoke_lifecycle(request, context)` alone does not enable mutation: Registry
 requires that explicit registration and an injected trusted authorization provider.
 There is no adapter import, endpoint, executable or approval flag in business input.
-RuntimeAdapter 2.0 is a transport implementation, not the authority for other
+RuntimeAdapter 3.0 is a transport implementation, not the authority for other
 adapters' admission. A native adapter can implement the same interface.
 
 `app-cli --machine` reads one bounded UTF-8 JSON request on stdin. It cannot be
@@ -21,19 +21,26 @@ most 1.5 MiB, and responses at most 1 MiB. Duplicate keys, non-finite numbers,
 unpaired surrogates and integers outside JavaScript's safe range are rejected.
 The legacy CLI retains its old numeric behavior. Native failures are sanitized.
 
-Operations are invoke, lookup, status, cancel, resume, renew, events and reconcile.
-Each supplies app, command and an opaque authorization_ref. invoke supplies a
-stable request_key and arguments, plus deadline_ms unless the command is explicitly
-renewable. lookup supplies the original request_key. Other operations supply the
-original task_id; events also supplies cursor and optional limit (default 100,
-maximum 200). Deadlines are UTC epoch milliseconds, not transport timeouts.
+Operations are prepare, invoke, lookup, status, cancel, resume, renew, events,
+reconcile, ack_result, resolve and epoch. Each supplies app, command and an opaque
+authorization_ref. prepare supplies a stable request_key and arguments, plus
+deadline_ms unless the command is explicitly renewable; it durably admits the
+task without side effects. invoke starts that prepared task by task_id. lookup
+supplies the original request_key. Other task operations supply the original
+task_id; events also supplies cursor and optional limit (default 100, maximum
+200). ack_result binds a terminal revision and result digest to a durable
+receiver; resolve records an explicit user conclusion for an uncertain external
+write and never dispatches; epoch reads or changes owner-level request epochs.
+Deadlines are UTC epoch milliseconds, not transport timeouts.
 
-The trusted provider resolves principal, owner, exact app/command, request key,
-intent digest, allowed operations/effect, maximum deadline and independent access
-and execution expiry. Caller JSON cannot supply those facts. Query/cancel/events
-can remain available after execution authority expires, until access expires.
-invoke, resume, renew and reconcile require live execution authority. The backend
-must revalidate authority and bind control requests to its stored original task.
+New request keys are `op3.<generation>.<epoch>.<32 hex>` operation identities
+issued by the trusted product in the open request epoch, or
+`sch3.<generation>.<epoch>.<nonce>.<revision>.<occurrence_ms>` scheduled
+occurrences of a registered schedule. Epochs rotate: the runtime opens E+1 and
+drains E; the product seals E once no identity it issued there is unsubmitted;
+the runtime force-seals only after the offline window. An absent identity in a
+sealed epoch is retired, so replay is rejected without per-request tombstones.
+Pre-3.0 keys belong to the sealed legacy epoch 0.
 
 The intent digest is SHA-256 of a deterministic, typed binary encoding of the
 object containing app, command, request_key, arguments and any deadline_ms.
@@ -45,13 +52,26 @@ numbers must fit +/-9007199254740991; equivalent integer/float values have the
 same encoding. This avoids Python/JavaScript JSON float-format differences.
 
 Valid responses echo version, operation, app and command, plus request_key for
-invoke/lookup. kind=task carries one
-of the existing eight statuses and an ID. Only completed carries data, checked
-against the original command output schema. kind=ack acknowledges cancellation,
-not completion. kind=events carries a bounded sequence page, cursor and explicit
-gap. lookup returns the original task, or kind=lookup with not_found/unresolved.
-Only an authoritative intact ledger can prove not_found; transport failure cannot.
-No operation automatically retries or creates another business intent.
+prepare/lookup, and the current epoch_state. kind=task carries one of ten
+statuses (prepared, pending, running, waiting_confirmation, uncertain, blocked,
+completed, failed, cancelled, resolved) and an ID; `effect` reports whether any
+effect began (for an external write: whether a dispatch was released), and a
+terminal task carries terminal_revision and result_digest for ack_result. Only
+completed carries data, checked against the original command output schema.
+kind=ack acknowledges cancellation or a durable receipt, not completion.
+kind=events carries a bounded sequence page, cursor and explicit gap. lookup
+returns the original task, or kind=lookup with not_admitted, retired (with a
+reason) or unresolved. Only an authoritative intact ledger can prove
+not_admitted; transport failure cannot. No operation automatically retries or
+creates another business intent.
+
+External writes reserve a dispatch, persist consume_pending, advance an
+independent progress anchor by compare-and-advance and persist released before
+the worker may act. A crash before release is provably undispatched and the
+task stays resumable with a new attempt; only a released attempt can become
+uncertain. Startup compares the ledger with the anchor and fences forward after a
+whole-set rollback (sealing epochs, raising the authorization generation and
+classifying unfinished external writes).
 
 A machine-level failure is kind=error with a sanitized error code/message and,
 when available, the original request_key/task metadata. It is distinct from a
@@ -69,7 +89,7 @@ by the concrete backend, not inferred from schema acceptance.
 ## Implemented scope and qualification
 
 The core implements machine parsing, reviewed lifecycle registration, trusted
-provider admission and response/output validation. RuntimeAdapter 2.0 sends one
+provider admission and response/output validation. RuntimeAdapter 3.0 sends one
 request to a fixed executable with bounded stdout and a maximum 30-second client
 budget, killing its POSIX process group on completion/failure. This transport is
 currently enabled only on POSIX; v1 and native adapters retain their portability.

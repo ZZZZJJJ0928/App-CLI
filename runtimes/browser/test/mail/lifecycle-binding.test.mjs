@@ -144,3 +144,26 @@ test('send reconciliation after credential rotation uses original journal author
     taskID: 'original', credentialGeneration: 2, token: 'fixture-new-token', scriptID: 'send', revision: 'test'});
   assert.equal(result.state, 'completed'); assert.deepEqual(calls, ['restore', 'lookup', 'reconcile']);
 });
+
+test('a send that never released its dispatch is closed and reported as not dispatched', async () => {
+  const {MailboxClient} = await import('../../applications/mail/client.mjs');
+  for (const [status, finalStatus, effect, code] of [['blocked', 'cancelled', false, 'send_not_dispatched'], ['failed', 'failed', false, 'send_not_dispatched'],
+    ['waiting_confirmation', 'cancelled', false, 'send_not_dispatched'], ['uncertain', 'uncertain', true, 'send_outcome_unknown']]) {
+    const mailbox = Object.create(MailboxClient.prototype), calls = [];
+    mailbox.describe = () => ({spec: {source_checksum: 'fixture'}, binding: {manifest: {id: 'mail-gmail'}}, command: 'send', manifest: {side_effect: 'remote_mutation'}});
+    mailbox.invoke = async () => ({admission: {request: {request_key: 'op3.1.1.' + '0'.repeat(32)}, existing: false, grant: {}},
+      response: {kind: 'task', task: {id: 'original', status}, effect}});
+    let current = status;
+    mailbox.client = {
+      async wait(admission, response) {return response;},
+      async control(admission, operation, id) {
+        calls.push(operation); if (operation === 'cancel') current = 'cancelled';
+        return {kind: 'task', task: {id, status: current}, effect, ...(operation === 'cancel' ? {} : {})};
+      },
+    };
+    const result = await mailbox.execute({provider: 'gmail', operation: 'send', input: {mode: 'compose'}, taskID: 'op3.1.1.' + '0'.repeat(32)});
+    assert.equal(result.state, 'failed'); assert.equal(result.result.code, code);
+    assert.equal(result.lifecycle.status, finalStatus); assert.equal(result.lifecycle.effect, effect);
+    assert.deepEqual(calls, ['blocked', 'waiting_confirmation'].includes(status) ? ['cancel', 'status'] : []);
+  }
+});

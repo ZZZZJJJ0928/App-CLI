@@ -6,7 +6,7 @@
 
 ## 调用与维护边界
 
-SparkClaw 产品准入 → ProductClient → `app-cli --machine` → `Registry.control` → RuntimeAdapter 2.0 → 固定传输客户端 → owner-local Executor → 应用 handler → 签名 BrowserHostPort → SparkClaw 任务页 / Bridge / Desktop。
+SparkClaw 产品准入 → ProductClient → `app-cli --machine` → `Registry.control` → RuntimeAdapter 3.0 → 固定传输客户端 → owner-local Executor → 应用 handler → 签名 BrowserHostPort → SparkClaw 任务页 / Bridge / Desktop。
 
 Python Registry 是唯一公共能力目录和准入点；Node binding 只是内部执行映射。`APP_CLI_CONFIG` 指向 owner-private 的可信部署配置，不接受业务参数指定模块、程序或服务。未配置时原生/CLI/Runtime v1 计算器独立可用，默认拒绝写操作。
 
@@ -21,7 +21,7 @@ Python Registry 是唯一公共能力目录和准入点；Node binding 只是内
 
 ## 状态与固定边界
 
-Python 启动器持有继承的 POSIX flock。SQLite WAL/FULL 在效果发生前持久提交主体、owner、request key、意图、task、效果围栏和事件。每次启动增加 execution_epoch；原子 `authority.json` 高水位同时记录 epoch 与提交序列，阻止缺失或旧账本（含同一 epoch 的旧快照）启动。重启将未完成读取置 blocked、有副作用任务置 uncertain，并发 gap。发送对账只读原 journal，不再次点击发送。Bridge 凭据变化后，journal 对账保留原任务资源绑定的授权，不领浏览器页。产品索引存在但 lookup 无法确认时不再次 invoke；不声称远端 exactly-once。
+Python 启动器持有继承的 POSIX flock。SQLite WAL/FULL 在效果发生前持久提交主体、owner、request key、意图、task、效果围栏和事件。每次启动增加 execution_epoch；原子 `authority.json` 高水位同时记录 epoch 与提交序列，阻止缺失或旧账本（含同一 epoch 的旧快照）启动。重启将未完成读取置 blocked、有副作用任务置 uncertain，并发 gap。发送对账只读原 journal，不再次点击发送。Bridge 凭据变化后，journal 对账保留原任务资源绑定的授权，不领浏览器页。产品索引存在但 lookup 无法确认时不再次提交。ledger 2 在首次启动时把 ledger 1 原地迁入已关闭的 legacy 代次；重启时作废未放行的发送保留（任务仍可恢复），已放行的发送置为 uncertain。可选独立进度锚（部署配置 `anchor`：`none`，或经 Unix socket/URL 与 bearer token 的 `http`）确认每次发送放行并检测整组回滚。用户可为结果未知的发送结案，结案从不重新发送。后台单写者仅在请求代次关闭且交付义务满足后回收终态任务（读取结果 ACK 后 1 小时或无 ACK 1 天；已发送在 ACK 加回执保留期后；已结案发送立即）；legacy 代次行保留。准入按账本、WAL 与授权的实测占用及恢复预留判断。不声称远端 exactly-once。
 
 | 边界 | 冻结值 |
 | --- | --- |
@@ -34,7 +34,7 @@ Python 启动器持有继承的 POSIX flock。SQLite WAL/FULL 在效果发生前
 | 读取页空闲保留 | 最长 30 分钟，无动作权限 |
 | 大型宿主结果 | owner-private 的哈希校验引用，最多 16 MiB |
 | 事件保留 | 每 task 最近 1,000 条，过期 cursor 显示 gap |
-| 新任务容量门槛 | 默认不限制累计任务条数（`maxTasks=0`）；已分配数据加新请求达到 512 MiB 时拒绝 |
+| 新任务容量门槛 | 不限制累计任务条数；数据库 512 MiB，另按 `storage.budget_bytes`（占位 2 GiB）及恢复预留判断实测占用，压力时返回 `STORAGE_PRESSURE` |
 | 产品任务访问授权 | 30 天，与执行授权独立 |
 
 显式正整数 `maxTasks` 可启用任务条数门，零表示不计数。旧数据库无需迁移，完整请求历史继续保留。
@@ -58,7 +58,7 @@ npm test --prefix runtimes/browser
 
 `python -m app_cli.executor_service /absolute/private/config.json` 启动 owner-local 服务。配置固定 Node/assembly/socket、binding 摘要与私有 key/grants 路径。可信产品签发不可变 `{grant, resource, mac}`，Python、Executor、Host 分别校验；key、登录态、用户内容不进入发行。
 
-准备全部产物后排空 Executor 和 Host，再切换匹配的消费者、wheel、npm 与 Reader/preload 投影；握手核对实际发行和 binding。回退恢复整组兼容 ledger v1 的产物，保留原 state、请求索引、journal，epoch 继续递增。未知状态版本或缺失权威记录阻止启动。SparkClaw 安装器与隔离发行验证脚本覆盖这些步骤。
+准备全部产物后排空 Executor 和 Host，再切换匹配的消费者、wheel、npm 与 Reader/preload 投影；握手核对实际发行和 binding。回退恢复整组兼容当前 ledger 版本的产物；ledger 1 发行拒绝已迁移的 ledger 2 目录，激活后回退需恢复排空后的升级前状态集，保留原 state、请求索引、journal，epoch 继续递增。未知状态版本或缺失权威记录阻止启动。SparkClaw 安装器与隔离发行验证脚本覆盖这些步骤。
 
 ## 验证边界
 

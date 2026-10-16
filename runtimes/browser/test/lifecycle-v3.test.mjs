@@ -56,11 +56,11 @@ async function until(action, predicate, timeout = 6000) {
   do {const value = await action(); if (predicate(value)) return value; await delay(20);} while (Date.now() < stop);
   throw new Error('condition timed out');
 }
-async function open(f, {anchor = new MemoryAnchor(), clock = Date.now, policy, storage} = {}) {
+async function open(f, {anchor = new MemoryAnchor(), clock = Date.now, policy, storage, anchorCooldownMs = 0} = {}) {
   const ledger = new Ledger(f.directory, {clock, policy});
   const assembly = await assemble({config: f.config});
   const executor = new Executor({...assembly, ledger, authorization: f.authorization, anchor, clock, rotationIntervalMs: 0,
-    gcIntervalMs: 0, storage});
+    gcIntervalMs: 0, storage, anchorBackoffMs: [0], anchorCooldownMs});
   await executor.start();
   return {ledger, executor, anchor};
 }
@@ -157,7 +157,7 @@ test('a normal send reserves, releases through the anchor and delivers once', as
   const started = await admit(state.executor, request);
   const done = await until(() => state.executor.control(control(request, 'status', started.task.id)), value => value.task.status === 'completed');
   assert.deepEqual(done.data, {sent: 1});
-  assert.equal(done.attempt, 1);
+  assert.equal(done.attempt, 1); assert.equal(done.effect, true);
   assert.deepEqual(provider.deliveries, [started.task.id]);
   assert.equal(state.anchor.state.seq, 1);
   assert.deepEqual(state.anchor.state.ring.map(entry => entry.operation_id), [request.request_key]);
@@ -241,6 +241,7 @@ test('an unreachable anchor blocks only the release and produces no uncertain se
   const started = await admit(state.executor, request);
   const blocked = await until(() => state.executor.control(control(request, 'status', started.task.id)), value => value.task.status === 'blocked');
   assert.equal(blocked.reason, 'ANCHOR_UNAVAILABLE');
+  assert.equal(blocked.effect, false, 'a blocked release is reported as never dispatched');
   assert.deepEqual(provider.deliveries, []);
   anchor.unavailable = false;
   await state.executor.control(control(request, 'resume', started.task.id));
@@ -545,4 +546,24 @@ test('product heads and aliases of reclaimed requests are pruned', async t => {
   assert.equal(product.prune(), 1);
   assert.throws(() => product.restore({principal: 'fixture-principal', owner: 'fixture-owner', request_key: drop}), {code: 'ADMISSION_UNRESOLVED'});
   assert.equal(product.restore({principal: 'fixture-principal', owner: 'fixture-owner', request_key: keep}).request.authorization_ref, kept.request.authorization_ref);
+});
+
+test('after an anchor outage queued releases fail fast until the cooldown ends, then resume', async t => {
+  const f = fixture(t); let now = Date.now();
+  const state = await open(f, {clock: () => now, anchorCooldownMs: 5000}); t.after(() => state.ledger.close());
+  const first = issue(f, {request_key: operationIdentity({generation: 1, epoch: 1}, nonce('cooldown-1'))});
+  const second = issue(f, {request_key: operationIdentity({generation: 1, epoch: 1}, nonce('cooldown-2'))});
+  state.anchor.unavailable = true;
+  const a = (await admit(state.executor, first.request)).task.id;
+  await until(() => state.ledger.get(a), row => row.status === 'blocked');
+  const calls = state.anchor.calls.length;
+  state.anchor.unavailable = false;
+  const b = (await admit(state.executor, second.request)).task.id;
+  const fast = await until(() => state.executor.control(control(second.request, 'status', b)), value => value.task.status === 'blocked');
+  assert.deepEqual([fast.reason, fast.effect, state.anchor.calls.length], ['ANCHOR_UNAVAILABLE', false, calls]);
+  now += 5001;
+  await state.executor.control(control(second.request, 'resume', b));
+  await until(() => state.ledger.get(b), row => row.status === 'completed');
+  assert.deepEqual(provider.deliveries, [b]);
+  await state.executor.close();
 });

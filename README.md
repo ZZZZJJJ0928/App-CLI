@@ -27,7 +27,7 @@ This repository provides an installable CLI, a manifest contract, an explicitly 
 | Application API, IPC, scripting, browser, UI, instrumentation, file and vision integrations | Planned target-adapter work; recognized kinds do not install implementations |
 | Generic `RuntimeAdapter` and `TaskResult` | Implemented; explicit subprocess protocol and task outcomes |
 | MCP server, automatic backend selection | Planned integration work |
-| Fork lifecycle extension | Registry admission, trusted context, machine protocol 2.0 and bounded POSIX runtime transport implemented; self-owned durable mutation fixture |
+| Fork lifecycle extension | Registry admission, trusted context, machine protocol 3.0 (request epochs, anchored dispatch release, ACK, user resolution) and bounded POSIX runtime transport implemented; self-owned durable mutation fixture |
 | Optional resident Executor, BrowserHostPort and QQ/Gmail/Outlook | Implemented in the fork; paired release and product admission required, live-mail acceptance separate |
 
 Current releases establish reusable contracts and independent reference implementations. They do not claim production application coverage.

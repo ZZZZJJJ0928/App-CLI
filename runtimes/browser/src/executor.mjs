@@ -1,6 +1,7 @@
 import {compileSchema, digest, encode, envelope, intentDigest, OPERATIONS, requireCondition,
   RuntimeError, TERMINAL, validateRequest, validateResponse} from './protocol.mjs';
 import {NoAnchor} from './anchor.mjs';
+import {setTimeout as delay} from 'node:timers/promises';
 
 import fs, {readFileSync} from 'node:fs';
 import path from 'node:path';
@@ -20,9 +21,10 @@ export function recoveryClass(execution, sideEffect) {
 
 export class Executor {
   constructor({ledger, authorization, bindings, handlers, host, anchor = new NoAnchor(), clock = Date.now,
-    anchorRetries = 3, rotationIntervalMs = 60_000, gcIntervalMs = 300_000, storage = {}}) {
+    anchorRetries = 3, anchorBackoffMs = [250, 1000], anchorCooldownMs = 5000, rotationIntervalMs = 60_000, gcIntervalMs = 300_000, storage = {}}) {
     this.ledger = ledger; this.authorization = authorization; this.host = host; this.clock = clock; this.anchor = anchor;
-    this.anchorRetries = anchorRetries;
+    this.anchorRetries = anchorRetries; this.anchorBackoffMs = anchorBackoffMs; this.anchorCooldownMs = anchorCooldownMs;
+    this.anchorDownUntil = 0;
     // Placeholder budget (design section 9); deployments derive their own.
     const budget = storage.budget_bytes ?? 2 * 1024 ** 3;
     this.storage = {budget, reserve: storage.reserve_bytes ?? Math.max(64 * 1024 ** 2, Math.floor(budget / 10)),
@@ -258,6 +260,8 @@ export class Executor {
       ...(kind === 'ack' ? {accepted: true} : {
         ...(row.status === 'completed' ? {data: JSON.parse(row.data)} : row.reason ? {reason: row.reason} : {}),
         ...(row.attempt ? {attempt: row.attempt} : {}),
+        // Whether any effect (for external writes: a released dispatch) began.
+        effect: Boolean(row.effect),
         ...(terminal && row.terminal_revision ? {terminal_revision: row.terminal_revision, result_digest: row.result_digest} : {}),
         ...(resolution ? {resolution} : {}),
         epoch_state: this.ledger.epochState()})});
@@ -294,18 +298,24 @@ export class Executor {
   }
   async release(id, token) {
     const run = async () => {
+      // After a recent outage, fail fast instead of making every queued
+      // release wait out its own retries; the attempt stays undispatched.
+      if (this.clock() < this.anchorDownUntil) throw new RuntimeError('ANCHOR_UNAVAILABLE');
       await this.settleRelease();
       const body = this.ledger.beginRelease(id, token);
       let lastError;
       for (let attempt = 0; attempt < this.anchorRetries; attempt++) {
+        if (attempt) await delay(this.anchorBackoffMs[Math.min(attempt - 1, this.anchorBackoffMs.length - 1)] ?? 0);
         try {
           await this.anchor.advance(body);
+          this.anchorDownUntil = 0;
           return this.ledger.completeRelease(id);
         } catch (error) {
           lastError = error;
           if (error.code === 'ANCHOR_CONFLICT') break;
         }
       }
+      if (lastError?.code !== 'ANCHOR_CONFLICT') this.anchorDownUntil = this.clock() + this.anchorCooldownMs;
       // The worker never receives this release. Leave the pending slot for
       // reconciliation against the anchor; the attempt stays undispatched.
       throw new RuntimeError(lastError?.code === 'ANCHOR_CONFLICT' ? 'ANCHOR_CONFLICT' : 'ANCHOR_UNAVAILABLE');
