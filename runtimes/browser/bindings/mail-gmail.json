@@ -1617,7 +1617,7 @@
       "script_id": "gmail.send",
       "revision": 2,
       "reconcile_requires_host": false,
-      "source_checksum": "sha256:9520a5d2ef8e1a538adedb0d0b135b4235ced8e87883bfa7228745fa08b1eaa5",
+      "source_checksum": "sha256:6073fd36b8ee8ae455e017a8718fe683647756a8240c8eaeef8f4b2c21a425ff",
       "host": {
         "family": "send",
         "activity": "exclusive",
@@ -2087,7 +2087,7 @@
       "timeout_ms": 120000,
       "script_id": "gmail.observe",
       "revision": 1,
-      "source_checksum": "sha256:469cad2f317cd5b1a8fe8df5c984355d1400221314d415607efac81b4c8409b7",
+      "source_checksum": "sha256:d15babec200c25715cf0e47935df59403540ef18dd11f948f5078e69bb21fdb8",
       "host": {
         "family": "gmail.inbound",
         "activity": "watch",

@@ -1618,7 +1618,7 @@
       "script_id": "qqmail.send",
       "revision": 2,
       "reconcile_requires_host": false,
-      "source_checksum": "sha256:db384f35f726c4a84f0c42b815f81fd04d0cbe4a604ba97b76c5897a8e020299",
+      "source_checksum": "sha256:734dc7c69bbe2ca758475bd5997a7663a297ddfa0a9bc77acf74fd42ca8057e1",
       "host": {
         "family": "send",
         "activity": "exclusive",
@@ -2089,7 +2089,7 @@
       "timeout_ms": 120000,
       "script_id": "qq_mail.observe",
       "revision": 1,
-      "source_checksum": "sha256:469cad2f317cd5b1a8fe8df5c984355d1400221314d415607efac81b4c8409b7",
+      "source_checksum": "sha256:d15babec200c25715cf0e47935df59403540ef18dd11f948f5078e69bb21fdb8",
       "host": {
         "family": "qq_mail.inbound",
         "activity": "watch",
