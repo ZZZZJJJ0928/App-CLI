@@ -1618,7 +1618,7 @@
       "script_id": "qqmail.send",
       "revision": 2,
       "reconcile_requires_host": false,
-      "source_checksum": "sha256:734dc7c69bbe2ca758475bd5997a7663a297ddfa0a9bc77acf74fd42ca8057e1",
+      "source_checksum": "sha256:239a21111dad88a06f0770df9ff8b8c8fd49e633cd455dc4975cca5084a95f10",
       "host": {
         "family": "send",
         "activity": "exclusive",
@@ -1684,7 +1684,7 @@
       "timeout_ms": 180000,
       "script_id": "qqmail.read",
       "revision": 1,
-      "source_checksum": "sha256:33fe77c0f832127bfa247d0328a71965eb80a6b851a3971fd3852d204578b320",
+      "source_checksum": "sha256:3e9e81c51f11da08e078cb557bd390dbc978ccfbfe1eb9bce8aa272b63c6a55b",
       "host": {
         "family": "read",
         "activity": "exclusive",
@@ -1750,7 +1750,7 @@
       "timeout_ms": 180000,
       "script_id": "qqmail.discover",
       "revision": 1,
-      "source_checksum": "sha256:33fe77c0f832127bfa247d0328a71965eb80a6b851a3971fd3852d204578b320",
+      "source_checksum": "sha256:3e9e81c51f11da08e078cb557bd390dbc978ccfbfe1eb9bce8aa272b63c6a55b",
       "host": {
         "family": "discover",
         "activity": "exclusive",
@@ -1816,7 +1816,7 @@
       "timeout_ms": 180000,
       "script_id": "qqmail.capture",
       "revision": 1,
-      "source_checksum": "sha256:33fe77c0f832127bfa247d0328a71965eb80a6b851a3971fd3852d204578b320",
+      "source_checksum": "sha256:3e9e81c51f11da08e078cb557bd390dbc978ccfbfe1eb9bce8aa272b63c6a55b",
       "host": {
         "family": "capture",
         "activity": "exclusive",
@@ -1882,7 +1882,7 @@
       "timeout_ms": 180000,
       "script_id": "qqmail.enumerate_thread",
       "revision": 1,
-      "source_checksum": "sha256:33fe77c0f832127bfa247d0328a71965eb80a6b851a3971fd3852d204578b320",
+      "source_checksum": "sha256:3e9e81c51f11da08e078cb557bd390dbc978ccfbfe1eb9bce8aa272b63c6a55b",
       "host": {
         "family": "enumerate_thread",
         "activity": "exclusive",
@@ -1948,7 +1948,7 @@
       "timeout_ms": 180000,
       "script_id": "qqmail.mark_read",
       "revision": 1,
-      "source_checksum": "sha256:33fe77c0f832127bfa247d0328a71965eb80a6b851a3971fd3852d204578b320",
+      "source_checksum": "sha256:3e9e81c51f11da08e078cb557bd390dbc978ccfbfe1eb9bce8aa272b63c6a55b",
       "host": {
         "family": "mark_read",
         "activity": "exclusive",
@@ -2014,7 +2014,7 @@
       "timeout_ms": 1800000,
       "script_id": "qqmail.collect_page",
       "revision": 1,
-      "source_checksum": "sha256:33fe77c0f832127bfa247d0328a71965eb80a6b851a3971fd3852d204578b320",
+      "source_checksum": "sha256:3e9e81c51f11da08e078cb557bd390dbc978ccfbfe1eb9bce8aa272b63c6a55b",
       "host": {
         "family": "qq_mail.inbound",
         "activity": "read",
@@ -2089,7 +2089,7 @@
       "timeout_ms": 120000,
       "script_id": "qq_mail.observe",
       "revision": 1,
-      "source_checksum": "sha256:d15babec200c25715cf0e47935df59403540ef18dd11f948f5078e69bb21fdb8",
+      "source_checksum": "sha256:27e61fc7054dbfea84c0f91e8a0a967f2ed9a14174db0893dd9e0fef598e059c",
       "host": {
         "family": "qq_mail.inbound",
         "activity": "watch",
