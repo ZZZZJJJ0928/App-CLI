@@ -319,29 +319,30 @@ const parseQQMailList=function parseQQMailList(value) {
   }
   return {rows,total_count:value.body.total_num,unsupported_rows:value.body.list.length-rows.length};
 };
-const markQQMailRead=async function markQQMailRead({provider_message_id,row,binding,fetch:originalFetch}) {
-  if (row?.provider_message_id !== provider_message_id || row.unread !== true ||
-      !(binding instanceof URL) || binding.origin !== location.origin || binding.pathname !== '/list/maillist' ||
-      binding.searchParams.get('func') !== '1' || !binding.searchParams.get('sid') || typeof originalFetch !== 'function') return null;
-  const matches=[...document.querySelectorAll('.mail-list-page-item[data-mailid]')].filter(node=>
-    node?.getAttribute?.('data-mailid')===provider_message_id && node.isConnected!==false && node.getClientRects?.().length>0);
-  if(matches.length!==1||typeof matches[0].click!=='function')return null;
-  matches[0].click();
-  for(let attempt=0;attempt<20;attempt++){
-    await new Promise(resolve=>setTimeout(resolve,250));
-    let response,value;
-    try{
-      response=await originalFetch.call(window,binding.href,{method:'GET',credentials:'same-origin',redirect:'error',cache:'no-store',signal:AbortSignal.timeout(20000)});
-      if(!response.ok||response.url&&new URL(response.url).origin!==location.origin)return {provider_message_id,read_state:'unknown'};
-      const text=await response.text();
-      if(text.length>10<<20)return {provider_message_id,read_state:'unknown'};
-      value=JSON.parse(text);
-    }catch{return {provider_message_id,read_state:'unknown'};}
-    const parsed=parseQQMailList(value);
-    const confirmed=parsed?.rows?.find(candidate=>candidate.provider_message_id===provider_message_id);
-    if(confirmed?.unread===false)return {provider_message_id,read_state:'read'};
+const markQQMailRead=async function markQQMailRead({provider_message_id, readTarget, checkAccount, confirmOnly = false}) {
+  const result=read_state=>({provider_message_id,read_state});
+  if(typeof readTarget!=='function'||typeof checkAccount!=='function')return result('unknown');
+  const signal=AbortSignal.timeout(8000);
+  let row;
+  try { row=await readTarget(signal); } catch { return result('unknown'); }
+  if(row?.unread===false)return result('read');
+  if(row?.unread!==true||signal.aborted)return result('unknown');
+  if(!confirmOnly) {
+    const matches=[...document.querySelectorAll('.mail-list-page-item[data-mailid]')].filter(node=>
+      node?.getAttribute?.('data-mailid')===provider_message_id && node.isConnected!==false && node.getClientRects?.().length>0);
+    if(matches.length!==1||typeof matches[0].click!=='function')return result('unknown');
+    checkAccount();
+    // Never repeat this action. Failure or an absent confirmation is unknown;
+    // recovery is limited to the independent read-only observations below.
+    matches[0].click();
   }
-  return {provider_message_id,read_state:'unknown'};
+  for(let attempt=0;attempt<3&&!signal.aborted;attempt++) {
+    await new Promise(resolve=>setTimeout(resolve,250*(attempt+1)));
+    if(signal.aborted)break;
+    try { row=await readTarget(signal); } catch { return result('unknown'); }
+    if(row?.unread===false)return result('read');
+  }
+  return result('unknown');
 };
 (function installReader(config) {
   'use strict';
@@ -349,7 +350,7 @@ const markQQMailRead=async function markQQMailRead({provider_message_id,row,bind
   window.SparkClawMailReader?.dispose();
   const originalFetch = window.fetch, originalOpen = XMLHttpRequest.prototype.open;
   const originalSend = XMLHttpRequest.prototype.send, originalSetHeader = XMLHttpRequest.prototype.setRequestHeader;
-  const records = new Map(), pageTokens = new Map();
+  const records = new Map(), pageTokens = new Map(), readAttempts = new Set();
   let listRequest = null, networkQuery = null, inbox = null, transport = null, objectURL = null, originalAbort = null;
   let originalBytes = null, originalMessageID = '';
   let originalState = 'unlearned', responseOrigin = '';
@@ -670,7 +671,7 @@ const markQQMailRead=async function markQQMailRead({provider_message_id,row,bind
     })();
   }
 
-  async function listPage({account_address,interval_start,interval_end,page=0,folder='inbox',provider_mode}) {
+  async function listPage({account_address,interval_start,interval_end,page=0,folder='inbox',provider_mode}, signal) {
     checkedAccount(account_address);
     if(config.provider==='outlook' && transport?.listPage)return transport.listPage({account_address,interval_start,interval_end,page,folder,provider_mode});
     if (config.provider === 'qq_mail') {
@@ -692,8 +693,9 @@ const markQQMailRead=async function markQQMailRead({provider_message_id,row,bind
         search.searchParams.set('sid',url.searchParams.get('sid'));
         const body=new URLSearchParams({page_now:'0',page_size:'50',after:String(start/1000000000n-1n),before:String((end+999999999n)/1000000000n),sort_type:'1',sort_direction:'1'});
         listStage='qq_request';
-        const response=await originalFetch.call(window,search.href,{method:'POST',credentials:'same-origin',redirect:'error',headers:{'content-type':'application/x-www-form-urlencoded'},body,signal:AbortSignal.timeout(20000)});
+        const response=await originalFetch.call(window,search.href,{method:'POST',credentials:'same-origin',redirect:'error',cache:'no-store',headers:{'content-type':'application/x-www-form-urlencoded'},body,signal:signal??AbortSignal.timeout(20000)});
         if([401,403].includes(response.status))failure('email_login_required');if(!response.ok)failure('email_network_read_failed');
+        if(response.url&&new URL(response.url).origin!==location.origin)failure('email_network_list_unqualified');
         const reader=response.body.getReader(),chunks=[];let length=0;
         try {for(;;){const {done,value}=await reader.read();if(done)break;length+=value.length;if(length>10<<20){void reader.cancel();failure('email_capture_limit');}chunks.push(value);}}finally{reader.releaseLock();}
         const bytes=new Uint8Array(length);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}
@@ -814,13 +816,39 @@ const markQQMailRead=async function markQQMailRead({provider_message_id,row,bind
     listStage = 'complete';
     return {provider:config.provider,account_address:account,rows:received,unsupported_rows:unsupported,has_next:value[3]===1,page};
   }
-  async function markRead({account_address,provider_message_id} = {}) {
+  async function markRead({account_address,provider_message_id,provider_selection_id,received_at,folder} = {}, confirmOnly = false) {
     checkedAccount(account_address);
     if (!idPattern.test(provider_message_id || '') || !records.has(provider_message_id)) failure('email_network_target_unobserved');
     const row=records.get(provider_message_id);
-    if (row.unread === false) return {provider:config.provider,account_address:account,provider_message_id,read_state:'read'};
-    const result=await config.markRead?.({account_address:account,provider_message_id,row,binding,request:listRequest,fetch:originalFetch});
+    let readTarget;
+    if(config.provider==='qq_mail') {
+      const expected=instantNanos(received_at),received=Date.parse(received_at);
+      if(expected===null||!Number.isFinite(received)||provider_selection_id!==provider_message_id||
+          row.provider_selection_id!==provider_selection_id||instantNanos(row.received_at)!==expected||
+          row.folder!==folder)failure('email_message_identity_invalid');
+      readTarget=async signal=>{
+        if(!active)failure('email_network_capability_unavailable');
+        const page=await listPage({account_address,provider_mode:'time_range',page:0,
+          interval_start:new Date(received-1000).toISOString(),interval_end:new Date(received+1000).toISOString()},signal);
+        if(!active)failure('email_network_capability_unavailable');
+        const matches=page.rows.filter(candidate=>candidate.provider_message_id===provider_message_id);
+        if(matches.length!==1||page.unsupported_rows!==0||page.has_next)failure('email_network_mark_read_unqualified');
+        const current=matches[0];
+        if(current.provider_selection_id!==provider_selection_id||instantNanos(current.received_at)!==expected||current.folder!==folder)
+          failure('email_message_identity_invalid');
+        return current;
+      };
+      confirmOnly ||= readAttempts.has(provider_message_id);
+      if(!confirmOnly)readAttempts.add(provider_message_id);
+    } else {
+      // Other providers do not expose an independent read confirmation yet.
+      if(confirmOnly)return {provider:config.provider,account_address:account,provider_message_id,read_state:'unknown'};
+      if(row.unread===false)return {provider:config.provider,account_address:account,provider_message_id,read_state:'read'};
+    }
+    const result=await config.markRead?.({account_address:account,provider_message_id,row,binding,request:listRequest,fetch:originalFetch,
+      readTarget,checkAccount:()=>{if(!active)failure('email_network_capability_unavailable');checkedAccount(account_address);},confirmOnly});
     if (!result || result.provider_message_id !== provider_message_id || !['read','unknown'].includes(result.read_state)) failure('email_network_mark_read_unqualified');
+    if(!active)failure('email_network_capability_unavailable');
     checkedAccount(account_address);
     if(result.read_state==='read')row.unread=false;
     return {provider:config.provider,account_address:account,provider_message_id,read_state:result.read_state};
@@ -848,35 +876,37 @@ const markQQMailRead=async function markQQMailRead({provider_message_id,row,bind
     listPage:request=>inRound(async request=>{
       const value=await listPage(request);checkedAccount(request.account_address);
       return {...value,...accountMetadata()};
-    },request), prepareOriginal:request=>inRound(prepareOriginal,request), prepareRetainedOriginal:request=>inRound(prepareRetainedOriginal,request), markRead, dispose,
+    },request), prepareOriginal:request=>inRound(prepareOriginal,request), prepareRetainedOriginal:request=>inRound(prepareRetainedOriginal,request),
+    markRead:request=>inRound(markRead,request), confirmRead:request=>inRound(value=>markRead(value,true),request), dispose,
     verifyTarget({account_address,provider_message_id,provider_selection_id,folder}) {
       checkedAccount(account_address);
       const row=records.get(provider_message_id);
       return Boolean(row && !row.draft && !row.sent && row.provider_selection_id===provider_selection_id && (!folder||folder==='all'||row.folder===folder) && Number.isFinite(Date.parse(row.received_at)));
     },
   })});
-})({"provider":"qq_mail","origins":["https://wx.mail.qq.com"],"account":()=>document.querySelector('.frame-header .profile-user-info .user-email')?.textContent?.trim()||'',"listURL":u=>u.pathname==='/list/maillist',"parse":value=>(parseQQMailList(value)?.rows??[]).map(row=>({...row,draft:false,sent:row.folder==='sent',grouped:/^(?:C|@)/.test(row.provider_message_id)})),"download":({id,row,binding})=>{if(!binding||row.grouped)return null;const u=new URL('/read/readmail',location.origin);u.searchParams.set('func','5');u.searchParams.set('mailid',id);u.searchParams.set('sid',binding.searchParams.get('sid'));return u;},"markRead":async function markQQMailRead({provider_message_id,row,binding,fetch:originalFetch}) {
-  if (row?.provider_message_id !== provider_message_id || row.unread !== true ||
-      !(binding instanceof URL) || binding.origin !== location.origin || binding.pathname !== '/list/maillist' ||
-      binding.searchParams.get('func') !== '1' || !binding.searchParams.get('sid') || typeof originalFetch !== 'function') return null;
-  const matches=[...document.querySelectorAll('.mail-list-page-item[data-mailid]')].filter(node=>
-    node?.getAttribute?.('data-mailid')===provider_message_id && node.isConnected!==false && node.getClientRects?.().length>0);
-  if(matches.length!==1||typeof matches[0].click!=='function')return null;
-  matches[0].click();
-  for(let attempt=0;attempt<20;attempt++){
-    await new Promise(resolve=>setTimeout(resolve,250));
-    let response,value;
-    try{
-      response=await originalFetch.call(window,binding.href,{method:'GET',credentials:'same-origin',redirect:'error',cache:'no-store',signal:AbortSignal.timeout(20000)});
-      if(!response.ok||response.url&&new URL(response.url).origin!==location.origin)return {provider_message_id,read_state:'unknown'};
-      const text=await response.text();
-      if(text.length>10<<20)return {provider_message_id,read_state:'unknown'};
-      value=JSON.parse(text);
-    }catch{return {provider_message_id,read_state:'unknown'};}
-    const parsed=parseQQMailList(value);
-    const confirmed=parsed?.rows?.find(candidate=>candidate.provider_message_id===provider_message_id);
-    if(confirmed?.unread===false)return {provider_message_id,read_state:'read'};
+})({"provider":"qq_mail","origins":["https://wx.mail.qq.com"],"account":()=>document.querySelector('.frame-header .profile-user-info .user-email')?.textContent?.trim()||'',"listURL":u=>u.pathname==='/list/maillist',"parse":value=>(parseQQMailList(value)?.rows??[]).map(row=>({...row,draft:false,sent:row.folder==='sent',grouped:/^(?:C|@)/.test(row.provider_message_id)})),"download":({id,row,binding})=>{if(!binding||row.grouped)return null;const u=new URL('/read/readmail',location.origin);u.searchParams.set('func','5');u.searchParams.set('mailid',id);u.searchParams.set('sid',binding.searchParams.get('sid'));return u;},"markRead":async function markQQMailRead({provider_message_id, readTarget, checkAccount, confirmOnly = false}) {
+  const result=read_state=>({provider_message_id,read_state});
+  if(typeof readTarget!=='function'||typeof checkAccount!=='function')return result('unknown');
+  const signal=AbortSignal.timeout(8000);
+  let row;
+  try { row=await readTarget(signal); } catch { return result('unknown'); }
+  if(row?.unread===false)return result('read');
+  if(row?.unread!==true||signal.aborted)return result('unknown');
+  if(!confirmOnly) {
+    const matches=[...document.querySelectorAll('.mail-list-page-item[data-mailid]')].filter(node=>
+      node?.getAttribute?.('data-mailid')===provider_message_id && node.isConnected!==false && node.getClientRects?.().length>0);
+    if(matches.length!==1||typeof matches[0].click!=='function')return result('unknown');
+    checkAccount();
+    // Never repeat this action. Failure or an absent confirmation is unknown;
+    // recovery is limited to the independent read-only observations below.
+    matches[0].click();
   }
-  return {provider_message_id,read_state:'unknown'};
+  for(let attempt=0;attempt<3&&!signal.aborted;attempt++) {
+    await new Promise(resolve=>setTimeout(resolve,250*(attempt+1)));
+    if(signal.aborted)break;
+    try { row=await readTarget(signal); } catch { return result('unknown'); }
+    if(row?.unread===false)return result('read');
+  }
+  return result('unknown');
 }});
 })();

@@ -29,7 +29,7 @@ export function outputSchema(provider, command) {
   } else if (command === 'discover') {
     Object.assign(properties, {status: {enum: ['listed', 'empty', 'partial']}, account_address: text,
       delivery_address:{type:'string',maxLength:320,pattern:'^[^\\s@<>]+@[^\\s@<>]+\\.[^\\s@<>]+$'},
-      account_aliases:{type:'array',maxItems:100,uniqueItems:true,items:{type:'string',maxLength:320,pattern:'^[^\\s@<>]+@[^\\s@<>]+\\.[^\\s@<>]+$'}},
+      account_aliases:{type:'array',minItems:1,maxItems:100,uniqueItems:true,items:{type:'string',maxLength:320,pattern:'^[^\\s@<>]+@[^\\s@<>]+\\.[^\\s@<>]+$'}},
       candidates: list, threads: list, coverage: object, observed_at: text});
     required.push('status', 'account_address', 'candidates', 'coverage', 'observed_at');
   } else if (command === 'enumerate_thread') {
@@ -43,7 +43,8 @@ export function outputSchema(provider, command) {
     Object.assign(properties, {status: {const: 'stopped'}}); required.push('status');
   }
   const schema = {type: 'object', properties, required, additionalProperties: false};
-  if (command === 'discover') schema.allOf = [{if:{required:['delivery_address']},then:{required:['account_aliases']}}];
+  if (command === 'discover') schema.allOf = [{if:{required:['delivery_address']},then:{required:['account_aliases']}},
+    {if:{required:['account_aliases']},then:{required:['delivery_address']}}];
   if (command === 'send') schema.allOf = [{if:{properties:{status:{const:'not_sent'}}},
     then:{required:['not_sent'],not:{anyOf:[{required:['provider_message_id']},{required:['provider_thread_id']}]}},
     else:{not:{required:['not_sent']}}}];

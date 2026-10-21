@@ -9,6 +9,8 @@ import {markQQMailRead} from '../../applications/mail/userscripts/lib/qqmail-mar
 import {parseQQMailList} from '../../applications/mail/lib/qqmail-list.mjs';
 import {captureMail} from '../../applications/mail/lib/read-capture.mjs';
 import {markEmailRead} from '../../applications/mail/read.mjs';
+import {compileSchema} from '../../src/protocol.mjs';
+import {outputSchema} from '../../applications/mail/output-schema.mjs';
 
 const target={account_address:'owner@example.test',provider_message_id:'fixture-message',provider_selection_id:'fixture-message',
   received_at:'2026-09-10T01:02:03.000Z',folder:'inbox'};
@@ -148,7 +150,8 @@ async function capturedFixture(t,options={}) {
 
 test('committed capture through actual Reader confirms a write once and preserves original bytes',async t=>{
   const f=await capturedFixture(t),before=await f.immutable();
-  assert.equal((await markEmailRead(f.request,f.runtime,'qq_mail')).read_state,'read');
+  const result=await markEmailRead(f.request,f.runtime,'qq_mail');
+  assert.equal(result.read_state,'read');assert.equal(compileSchema(outputSchema('qq_mail','mark_read'))(result),true);
   assert.equal(f.state.clicks,1);assert.equal(f.state.releaseCalls,1);assert.equal(f.state.markCalls,1);
   assert.deepEqual(await f.immutable(),before);
   await markEmailRead({...f.request,invocation_id:'new-invocation'},f.runtime,'qq_mail');
@@ -171,6 +174,7 @@ test('an actual unknown attempt is never repeated by a subsequent business invoc
   assert.equal((await markEmailRead(f.request,f.runtime,'qq_mail')).read_state,'unknown');
   assert.equal(f.state.clicks,1);assert.equal(f.state.releaseCalls,1);
   const second=await markEmailRead({...f.request,invocation_id:'next-page'},f.runtime,'qq_mail');
+  assert.equal(compileSchema(outputSchema('qq_mail','mark_read'))(second),true);
   assert.equal(second.read_state,'unknown');assert.equal(f.state.clicks,1);assert.equal(f.state.releaseCalls,1);
   f.state.unread=false;
   assert.equal((await markEmailRead({...f.request,invocation_id:'confirmed-later'},f.runtime,'qq_mail')).read_state,'read');

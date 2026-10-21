@@ -754,6 +754,7 @@
             },
             "account_aliases": {
               "type": "array",
+              "minItems": 1,
               "maxItems": 100,
               "uniqueItems": true,
               "items": {
@@ -804,6 +805,18 @@
               "then": {
                 "required": [
                   "account_aliases"
+                ]
+              }
+            },
+            {
+              "if": {
+                "required": [
+                  "account_aliases"
+                ]
+              },
+              "then": {
+                "required": [
+                  "delivery_address"
                 ]
               }
             }
@@ -1574,7 +1587,7 @@
       }
     ]
   },
-  "manifest_digest": "a23748bf2f3c123c5ef11f5add8919ed064683fb50644220eb6a2812df0476f2",
+  "manifest_digest": "420459c1e9b3909d3dfa562cfe3fa2fc4d58c1ab8bb81253ab3b3bc0a39f9ae1",
   "commands": {
     "probe": {
       "handler": "gmail.probe",
@@ -1653,7 +1666,7 @@
       "script_id": "gmail.send",
       "revision": 2,
       "reconcile_requires_host": false,
-      "source_checksum": "sha256:aba9716c6c3c9071e97cb89ce9e618cfa0b4df56e2877c376381f23d58b11198",
+      "source_checksum": "sha256:534a4e7cd09877cf6fe5fbe3ae6d5ea7de3fccf36784954e2fd9ab4f5979ccf2",
       "host": {
         "family": "send",
         "activity": "exclusive",
@@ -1719,7 +1732,7 @@
       "timeout_ms": 180000,
       "script_id": "gmail.read",
       "revision": 1,
-      "source_checksum": "sha256:a5acaca012bbc478ec76b5963106d61f267899b6aee34a2b0c0aa787d3e150b2",
+      "source_checksum": "sha256:9966269e3daf8b49bdb7a9852273a3d157926b588f9f11a798de4fec512a02e0",
       "host": {
         "family": "gmail.inbound",
         "activity": "read",
@@ -1792,7 +1805,7 @@
       "timeout_ms": 180000,
       "script_id": "gmail.discover",
       "revision": 1,
-      "source_checksum": "sha256:a5acaca012bbc478ec76b5963106d61f267899b6aee34a2b0c0aa787d3e150b2",
+      "source_checksum": "sha256:9966269e3daf8b49bdb7a9852273a3d157926b588f9f11a798de4fec512a02e0",
       "host": {
         "family": "gmail.inbound",
         "activity": "read",
@@ -1865,7 +1878,7 @@
       "timeout_ms": 180000,
       "script_id": "gmail.capture",
       "revision": 1,
-      "source_checksum": "sha256:a5acaca012bbc478ec76b5963106d61f267899b6aee34a2b0c0aa787d3e150b2",
+      "source_checksum": "sha256:9966269e3daf8b49bdb7a9852273a3d157926b588f9f11a798de4fec512a02e0",
       "host": {
         "family": "gmail.inbound",
         "activity": "read",
@@ -1938,7 +1951,7 @@
       "timeout_ms": 180000,
       "script_id": "gmail.enumerate_thread",
       "revision": 1,
-      "source_checksum": "sha256:a5acaca012bbc478ec76b5963106d61f267899b6aee34a2b0c0aa787d3e150b2",
+      "source_checksum": "sha256:9966269e3daf8b49bdb7a9852273a3d157926b588f9f11a798de4fec512a02e0",
       "host": {
         "family": "gmail.inbound",
         "activity": "read",
@@ -2011,7 +2024,7 @@
       "timeout_ms": 180000,
       "script_id": "gmail.mark_read",
       "revision": 1,
-      "source_checksum": "sha256:a5acaca012bbc478ec76b5963106d61f267899b6aee34a2b0c0aa787d3e150b2",
+      "source_checksum": "sha256:9966269e3daf8b49bdb7a9852273a3d157926b588f9f11a798de4fec512a02e0",
       "host": {
         "family": "mark_read",
         "activity": "exclusive",
@@ -2077,7 +2090,7 @@
       "timeout_ms": 1800000,
       "script_id": "gmail.collect_page",
       "revision": 1,
-      "source_checksum": "sha256:a5acaca012bbc478ec76b5963106d61f267899b6aee34a2b0c0aa787d3e150b2",
+      "source_checksum": "sha256:9966269e3daf8b49bdb7a9852273a3d157926b588f9f11a798de4fec512a02e0",
       "host": {
         "family": "gmail.inbound",
         "activity": "read",

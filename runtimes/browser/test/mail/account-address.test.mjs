@@ -11,6 +11,7 @@ import {accountAddressMetadata} from '../../applications/mail/lib/account-addres
 import {discoverEmail,collectEmailPage} from '../../applications/mail/read.mjs';
 import {networkListPage} from '../../applications/mail/lib/network-reader.mjs';
 import {outputSchema} from '../../applications/mail/output-schema.mjs';
+import {compileSchema} from '../../src/protocol.mjs';
 
 const identity='outlook_abcd@outlook.com', delivery='owner@example.test';
 const interval={account_address:identity,interval_start:'2026-10-21T00:00:00Z',interval_end:'2026-10-22T00:00:00Z',lane:'recent_inbound',limit:50,continuation:''};
@@ -99,6 +100,7 @@ for(const ranged of [false,true])test(`discovery preserves stable identity and d
   const f=fixture(),reader=f.reader();
   const input={schema_version:1,operation:'discover',provider:'outlook',account:'default',invocation_id:'identity-test',owner_scope:'a'.repeat(64),...(ranged?{discovery:interval}:{})};
   const result=await discoverEmail(input,{withReadTab:fn=>fn(tabFor(reader))},'outlook');
+  assert.equal(compileSchema(outputSchema('outlook','discover'))(result),true);
   assert.equal(result.account_address,identity);assert.equal(result.delivery_address,delivery);assert.deepEqual(plain(result.account_aliases),[delivery]);reader.dispose();
 });
 
@@ -115,6 +117,8 @@ test('production collect_page embeds observed delivery metadata only inside disc
   const f=fixture(),reader=f.reader();t.after(()=>reader.dispose());
   const input={schema_version:1,operation:'collect_page',provider:'outlook',account:'default',owner_scope:'a'.repeat(64),invocation_id:`email_changes_${'c'.repeat(64)}_r1`,discovery:{...interval,provider_mode:'time_range'}};
   const value=await collectEmailPage(input,{emailWorkspaceRoot:root,withReadTab:fn=>fn(tabFor(reader))},'outlook');
+  assert.equal(compileSchema(outputSchema('outlook','collect_page'))(value),true);
+  assert.equal(compileSchema(outputSchema('outlook','discover'))(value.discovery),true);
   assert.equal(value.account_address,identity);assert.equal(value.discovery.account_address,identity);assert.equal(value.discovery.delivery_address,delivery);
   assert.deepEqual(plain(value.discovery.account_aliases),[delivery]);assert.ok(!Object.hasOwn(value,'delivery_address'));
 });
@@ -127,7 +131,14 @@ test('discovery does not promote a missing Outlook address to its internal ident
 
 test('additive wire metadata validates addresses, alias membership and bounds',()=>{
   assert.deepEqual(accountAddressMetadata({}),{});assert.deepEqual(accountAddressMetadata(),{});assert.deepEqual(accountAddressMetadata(null),{});
-  assert.deepEqual(accountAddressMetadata({account_aliases:[delivery]}),{account_aliases:[delivery]});
-  for(const value of [{delivery_address:delivery},{delivery_address:delivery,account_aliases:[]},{account_aliases:[delivery,delivery]},{account_aliases:[delivery.toUpperCase()]},{account_aliases:Array(101).fill(delivery)},{account_aliases:['other\n@example.test']}])assert.throws(()=>accountAddressMetadata(value),{code:'email_account_address_unqualified'});
+  assert.deepEqual(accountAddressMetadata({delivery_address:delivery,account_aliases:[delivery]}),{delivery_address:delivery,account_aliases:[delivery]});
+  for(const value of [{delivery_address:delivery},{account_aliases:[delivery]},{account_aliases:[]},
+    ...[[],[delivery,delivery],[delivery.toUpperCase()],Array(101).fill(delivery),['other\n@example.test'],['other@example.test']].map(account_aliases=>({delivery_address:delivery,account_aliases}))])
+    assert.throws(()=>accountAddressMetadata(value),{code:'email_account_address_unqualified'});
   const schema=outputSchema('outlook','discover');assert.ok(schema.properties.delivery_address);assert.ok(schema.properties.account_aliases);assert.equal(schema.additionalProperties,false);
+  const valid={schema_version:1,provider:'outlook',status:'empty',account_address:identity,candidates:[],coverage:{},observed_at:'2026-10-21T00:00:00Z',delivery_address:delivery,account_aliases:[delivery]};
+  const validate=compileSchema(schema);
+  assert.equal(validate(valid),true);
+  for(const invalid of [{...valid,account_aliases:undefined},{...valid,delivery_address:undefined},{...valid,account_aliases:[]},{...valid,account_aliases:[delivery,delivery]},
+    {...valid,unexpected:true},{...valid,delivery_address:'invalid'}])assert.equal(validate(invalid),false);
 });
