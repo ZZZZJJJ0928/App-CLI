@@ -1,3 +1,4 @@
+import {accountAddressMetadata} from './lib/account-address.mjs';
 import {receiptTimeNanos} from './lib/receipt-time.mjs';
 import { prepareNetworkOriginal, networkListPage, networkSnapshot, networkMarkRead } from './lib/network-reader.mjs';
 import crypto from 'node:crypto';
@@ -136,7 +137,7 @@ export async function discoverEmail(input, runtime, provider) {
     if (!input.discovery) {
       const snapshot = await networkSnapshot(tab, provider, {interval_start:'2000-01-01T00:00:00Z', interval_end:new Date().toISOString()}, {required:true});
       if (!snapshot?.account_address) throw fail('email_account_identity_unavailable');
-      return {schema_version:1,provider,status:'partial',account_address:snapshot.account_address.toLowerCase(),candidates:[],coverage:{scope:'account',scan_complete:false,scanned_rows:0,unsupported_rows:0,limited:true},observed_at:new Date().toISOString()};
+      return {schema_version:1,provider,status:'partial',account_address:snapshot.account_address.toLowerCase(),...accountAddressMetadata(snapshot),candidates:[],coverage:{scope:'account',scan_complete:false,scanned_rows:0,unsupported_rows:0,limited:true},observed_at:new Date().toISOString()};
     }
     const listed=await networkSnapshot(tab,provider,input.discovery,{required:true});
     const network=await networkListPage(tab,provider,input.discovery,listed);

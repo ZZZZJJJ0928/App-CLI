@@ -747,6 +747,21 @@
               "type": "string",
               "maxLength": 4096
             },
+            "delivery_address": {
+              "type": "string",
+              "maxLength": 320,
+              "pattern": "^[^\\s@<>]+@[^\\s@<>]+\\.[^\\s@<>]+$"
+            },
+            "account_aliases": {
+              "type": "array",
+              "maxItems": 100,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "maxLength": 320,
+                "pattern": "^[^\\s@<>]+@[^\\s@<>]+\\.[^\\s@<>]+$"
+              }
+            },
             "candidates": {
               "type": "array",
               "maxItems": 100,
@@ -778,7 +793,21 @@
             "coverage",
             "observed_at"
           ],
-          "additionalProperties": false
+          "additionalProperties": false,
+          "allOf": [
+            {
+              "if": {
+                "required": [
+                  "delivery_address"
+                ]
+              },
+              "then": {
+                "required": [
+                  "account_aliases"
+                ]
+              }
+            }
+          ]
         }
       },
       {
@@ -1545,7 +1574,7 @@
       }
     ]
   },
-  "manifest_digest": "22983c57602006384204e083379a39423661c615b92fed152a4467ad5dc812c4",
+  "manifest_digest": "a23748bf2f3c123c5ef11f5add8919ed064683fb50644220eb6a2812df0476f2",
   "commands": {
     "probe": {
       "handler": "gmail.probe",
@@ -1624,7 +1653,7 @@
       "script_id": "gmail.send",
       "revision": 2,
       "reconcile_requires_host": false,
-      "source_checksum": "sha256:b14bf8ef5aa30d72090f0c731f28b7070e7d34ad9ed48b79613b271ac737b404",
+      "source_checksum": "sha256:aba9716c6c3c9071e97cb89ce9e618cfa0b4df56e2877c376381f23d58b11198",
       "host": {
         "family": "send",
         "activity": "exclusive",
@@ -1690,7 +1719,7 @@
       "timeout_ms": 180000,
       "script_id": "gmail.read",
       "revision": 1,
-      "source_checksum": "sha256:57cc80b747acdddcbd4d6d80728201d82d555e563ccfc744283456f43384f313",
+      "source_checksum": "sha256:a5acaca012bbc478ec76b5963106d61f267899b6aee34a2b0c0aa787d3e150b2",
       "host": {
         "family": "gmail.inbound",
         "activity": "read",
@@ -1763,7 +1792,7 @@
       "timeout_ms": 180000,
       "script_id": "gmail.discover",
       "revision": 1,
-      "source_checksum": "sha256:57cc80b747acdddcbd4d6d80728201d82d555e563ccfc744283456f43384f313",
+      "source_checksum": "sha256:a5acaca012bbc478ec76b5963106d61f267899b6aee34a2b0c0aa787d3e150b2",
       "host": {
         "family": "gmail.inbound",
         "activity": "read",
@@ -1836,7 +1865,7 @@
       "timeout_ms": 180000,
       "script_id": "gmail.capture",
       "revision": 1,
-      "source_checksum": "sha256:57cc80b747acdddcbd4d6d80728201d82d555e563ccfc744283456f43384f313",
+      "source_checksum": "sha256:a5acaca012bbc478ec76b5963106d61f267899b6aee34a2b0c0aa787d3e150b2",
       "host": {
         "family": "gmail.inbound",
         "activity": "read",
@@ -1909,7 +1938,7 @@
       "timeout_ms": 180000,
       "script_id": "gmail.enumerate_thread",
       "revision": 1,
-      "source_checksum": "sha256:57cc80b747acdddcbd4d6d80728201d82d555e563ccfc744283456f43384f313",
+      "source_checksum": "sha256:a5acaca012bbc478ec76b5963106d61f267899b6aee34a2b0c0aa787d3e150b2",
       "host": {
         "family": "gmail.inbound",
         "activity": "read",
@@ -1982,7 +2011,7 @@
       "timeout_ms": 180000,
       "script_id": "gmail.mark_read",
       "revision": 1,
-      "source_checksum": "sha256:57cc80b747acdddcbd4d6d80728201d82d555e563ccfc744283456f43384f313",
+      "source_checksum": "sha256:a5acaca012bbc478ec76b5963106d61f267899b6aee34a2b0c0aa787d3e150b2",
       "host": {
         "family": "mark_read",
         "activity": "exclusive",
@@ -2048,7 +2077,7 @@
       "timeout_ms": 1800000,
       "script_id": "gmail.collect_page",
       "revision": 1,
-      "source_checksum": "sha256:57cc80b747acdddcbd4d6d80728201d82d555e563ccfc744283456f43384f313",
+      "source_checksum": "sha256:a5acaca012bbc478ec76b5963106d61f267899b6aee34a2b0c0aa787d3e150b2",
       "host": {
         "family": "gmail.inbound",
         "activity": "read",

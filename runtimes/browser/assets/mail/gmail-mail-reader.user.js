@@ -510,6 +510,8 @@ const parseQQMailList=function parseQQMailList(value) {
   };
   XMLHttpRequest.prototype.open = open; XMLHttpRequest.prototype.send = send; XMLHttpRequest.prototype.setRequestHeader = setHeader;
   window.fetch = fetch;
+  const resolveAccountIdentity=config.accountIdentity?.();
+  const accountMetadata=()=>config.provider==='outlook' ? resolveAccountIdentity?.(account) : {delivery_address:account,account_aliases:[account]};
   function snapshot({account_address, interval_start, interval_end} = {}) {
     checkedAccount(account_address);
     const start = instantNanos(interval_start), end = instantNanos(interval_end);
@@ -523,7 +525,8 @@ const parseQQMailList=function parseQQMailList(value) {
       if (received===null) { unsupported++; continue; }
       if (received >= start && received < end) rows.push({...row});
     }
-    return {provider:config.provider, account_address:account, rows, unsupported_rows:unsupported,
+    return {provider:config.provider, account_address:account,
+      ...accountMetadata(), rows, unsupported_rows:unsupported,
       scan_complete:false, reason:'folder_scope_and_pagination_unqualified'};
   }
   async function prepareRetainedOriginal(target = {}) {
@@ -818,7 +821,10 @@ const parseQQMailList=function parseQQMailList(value) {
       checkedAccount(account_address);
       return true;
     }, diagnostics:()=>({original:{state:originalState,responseOrigin,response:originalResponse?{...originalResponse}:null},list:{stage:listStage,template:Boolean(listRequest),body:Array.isArray(listRequest?.body),paging:Array.isArray(listRequest?.body?.[0]?.[15])},inbox:Boolean(inbox),records:records.size,transport:transport?.diagnostics?.()}), snapshot, resetRound,
-    listPage:request=>inRound(listPage,request), prepareOriginal:request=>inRound(prepareOriginal,request), prepareRetainedOriginal:request=>inRound(prepareRetainedOriginal,request), markRead, dispose,
+    listPage:request=>inRound(async request=>{
+      const value=await listPage(request);checkedAccount(request.account_address);
+      return {...value,...accountMetadata()};
+    },request), prepareOriginal:request=>inRound(prepareOriginal,request), prepareRetainedOriginal:request=>inRound(prepareRetainedOriginal,request), markRead, dispose,
     verifyTarget({account_address,provider_message_id,provider_selection_id,folder}) {
       checkedAccount(account_address);
       const row=records.get(provider_message_id);

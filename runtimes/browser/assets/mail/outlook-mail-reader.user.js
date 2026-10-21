@@ -512,6 +512,8 @@ const parseQQMailList=function parseQQMailList(value) {
   };
   XMLHttpRequest.prototype.open = open; XMLHttpRequest.prototype.send = send; XMLHttpRequest.prototype.setRequestHeader = setHeader;
   window.fetch = fetch;
+  const resolveAccountIdentity=config.accountIdentity?.();
+  const accountMetadata=()=>config.provider==='outlook' ? resolveAccountIdentity?.(account) : {delivery_address:account,account_aliases:[account]};
   function snapshot({account_address, interval_start, interval_end} = {}) {
     checkedAccount(account_address);
     const start = instantNanos(interval_start), end = instantNanos(interval_end);
@@ -525,7 +527,8 @@ const parseQQMailList=function parseQQMailList(value) {
       if (received===null) { unsupported++; continue; }
       if (received >= start && received < end) rows.push({...row});
     }
-    return {provider:config.provider, account_address:account, rows, unsupported_rows:unsupported,
+    return {provider:config.provider, account_address:account,
+      ...accountMetadata(), rows, unsupported_rows:unsupported,
       scan_complete:false, reason:'folder_scope_and_pagination_unqualified'};
   }
   async function prepareRetainedOriginal(target = {}) {
@@ -820,14 +823,52 @@ const parseQQMailList=function parseQQMailList(value) {
       checkedAccount(account_address);
       return true;
     }, diagnostics:()=>({original:{state:originalState,responseOrigin,response:originalResponse?{...originalResponse}:null},list:{stage:listStage,template:Boolean(listRequest),body:Array.isArray(listRequest?.body),paging:Array.isArray(listRequest?.body?.[0]?.[15])},inbox:Boolean(inbox),records:records.size,transport:transport?.diagnostics?.()}), snapshot, resetRound,
-    listPage:request=>inRound(listPage,request), prepareOriginal:request=>inRound(prepareOriginal,request), prepareRetainedOriginal:request=>inRound(prepareRetainedOriginal,request), markRead, dispose,
+    listPage:request=>inRound(async request=>{
+      const value=await listPage(request);checkedAccount(request.account_address);
+      return {...value,...accountMetadata()};
+    },request), prepareOriginal:request=>inRound(prepareOriginal,request), prepareRetainedOriginal:request=>inRound(prepareRetainedOriginal,request), markRead, dispose,
     verifyTarget({account_address,provider_message_id,provider_selection_id,folder}) {
       checkedAccount(account_address);
       const row=records.get(provider_message_id);
       return Boolean(row && !row.draft && !row.sent && row.provider_selection_id===provider_selection_id && (!folder||folder==='all'||row.folder===folder) && Number.isFinite(Date.parse(row.received_at)));
     },
   })});
-})({"provider":"outlook","parseFolders":function parseOutlookFolders(value) {
+})({"provider":"outlook","accountIdentity":function installOutlookAccountIdentity() {
+  let nativeRequire;
+  const normalize=value=>typeof value==='string'&&value.length<=320&&/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(value)?value.toLowerCase():'';
+  // OWA uses MobX observable arrays, which can fail Array.isArray. Copy only
+  // bounded indexed entries; never run an arbitrary iterator from native state.
+  const addresses=value=>value&&typeof value==='object'&&Number.isSafeInteger(value.length)&&value.length>=0&&value.length<=100
+    ? Array.from({length:value.length},(_,index)=>value[index]) : null;
+  return expected=>{
+    try {
+      if(location.origin!=='https://outlook.live.com'||!normalize(expected))return {};
+      if(!nativeRequire) {
+        if(!Array.isArray(window.webpackChunkOwa))return {};
+        window.webpackChunkOwa.push([['appcli_mail_identity_'+crypto.randomUUID()],{},require=>{nativeRequire=require;}]);
+      }
+      if(typeof nativeRequire!=='function')return {};
+      const mailbox=nativeRequire(129387)?.A,configuration=nativeRequire(859741)?.C;
+      const defaultFrom=nativeRequire(107357)?.A,aliases=nativeRequire(871008)?.Ay,internal=nativeRequire(791573)?.A;
+      if([mailbox,configuration,defaultFrom,aliases,internal].some(fn=>typeof fn!=='function'))return {};
+      const info=mailbox(),config=configuration(info),session=config?.SessionSettings;
+      const owner=normalize(expected);
+      if(info?.type!=='UserMailbox'||info.isExplicitLogon||session?.IsExplicitLogon||normalize(session?.UserEmailAddress)!==owner)return {};
+      const proxies=addresses(session.UserProxyAddresses);
+      if(!proxies||proxies.some(value=>!normalize(value)))return {};
+      const allowed=new Set([owner,...proxies.map(normalize)]);
+      const nativeAliases=addresses(aliases(info,false,false,false)),from=defaultFrom(info);
+      if(!nativeAliases||nativeAliases.some(value=>!normalize(value)||!allowed.has(normalize(value))||internal(value,info)!==false))return {};
+      const account_aliases=[...new Set(nativeAliases.map(normalize))];
+      const delivery_address=normalize(from?.EmailAddress);
+      if(from?.RoutingType!=='SMTP'||from.MailboxType!=='Mailbox'||!delivery_address||!allowed.has(delivery_address)||internal(delivery_address,info)!==false||!account_aliases.includes(delivery_address))return {};
+      // A mailbox switch during a native getter must not associate new aliases
+      // with the old immutable account/capture namespace.
+      if(mailbox()!==info||configuration(info)!==config||normalize(config.SessionSettings?.UserEmailAddress)!==owner)return {};
+      return {delivery_address,account_aliases};
+    } catch { return {}; } // Unqualified native versions never guess an address.
+  };
+},"parseFolders":function parseOutlookFolders(value) {
   const owner=value?.owaUserConfig?.SessionSettings?.UserEmailAddress;
   const root=value?.findFolders?.Body?.ResponseMessages?.Items?.[0]?.RootFolder;
   const inboxID=value?.findConversation?.Body?.FolderId?.Id;

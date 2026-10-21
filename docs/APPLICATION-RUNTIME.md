@@ -176,3 +176,30 @@ verification, original-file handling and watch contracts. No real mailbox was
 sent mail or used for this extraction's final validation. Live QQ/Gmail/Outlook
 acceptance and production activation remain the user's final acceptance step.
 No cloud CI matrix or non-POSIX lifecycle transport execution is claimed.
+
+## Account identity and delivery addresses
+
+Mail discovery preserves `account_address` as the verified, stable namespace for
+Reader checks, captures, message identifiers, send journals and account binding.
+It is not necessarily an address that accepts incoming SMTP mail. Discovery may
+also return `delivery_address` (at most 320 characters) and `account_aliases`
+(at most 100 distinct, lowercase addresses). A delivery address must appear in
+the aliases. Range discovery carries the same fields inside `collect_page`'s
+`discovery`; the page does not introduce a second identity copy. Consumers must
+retain mailbox IDs and existing messages when these observations change, and
+exclude all verified aliases when constructing reply-all recipients.
+
+QQ Mail and Gmail use the already verified signed-in account for both roles.
+For qualified consumer Outlook pages, the adapter reads the current native
+`UserMailbox` configuration and invokes its native default SMTP From/alias
+selection. It verifies every candidate against that same mailbox's proxy
+addresses, rejects the native internal-routing addresses, and checks that the
+mailbox did not change during observation. It does not infer identity or aliases
+from received/sent message headers, rewrite internal MSA addresses, or select
+a different account. Native module/version failures omit delivery metadata
+without promoting the internal identity to a delivery address. Such omission
+is not evidence that a previously observed address is still current.
+
+This is address-selection evidence, not a delivery guarantee: recipient policy,
+service health and mailbox state can still reject mail. Actual send and receive
+qualification remains separate from login checks and synthetic fixture tests.

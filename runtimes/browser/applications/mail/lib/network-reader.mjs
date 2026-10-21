@@ -1,3 +1,4 @@
+import {accountAddressMetadata} from './account-address.mjs';
 import {receiptTimeNanos} from './receipt-time.mjs';
 // Calls the actually installed userscript; it never injects replacement source.
 // Provider adapters own URLs, request templates, parsing and account checks.
@@ -52,6 +53,7 @@ export async function networkSnapshot(tab, provider, options, { required = false
   if (value.provider !== provider || options.account_address && value.account_address !== options.account_address.toLowerCase() ||
       !Array.isArray(value.rows) || !Number.isInteger(value.unsupported_rows) || value.unsupported_rows < 0 ||
       value.scan_complete !== false) throw networkError('email_network_list_unqualified');
+  accountAddressMetadata(value);
   return { ...value, network_reader: true };
 }
 
@@ -177,7 +179,7 @@ export async function networkListPage(tab, provider, options, observedListed) {
   const rows=[...groups].map(([thread,members])=>({provider_thread_id:thread,provider_selection_id:provider==='outlook'||provider==='gmail'?thread:members.at(-1).provider_message_id,provider_message_id:members.at(-1).provider_message_id,
     members:members.map(member=>({...member,local:true})),inventory_complete:false,network_member_proven:provider==='outlook',unread:members.some(m=>m.unread)}));
   const candidates=selected.map(candidate);
-  return {listed:{...observedListed,account_address:page.account_address,rows,network_reader:true},discovery:{schema_version:1,provider,status:complete?(candidates.length?'listed':'empty'):'partial',account_address:page.account_address,candidates,threads:[],
+  return {listed:{...observedListed,account_address:page.account_address,rows,network_reader:true},discovery:{schema_version:1,provider,status:complete?(candidates.length?'listed':'empty'):'partial',account_address:page.account_address,...accountAddressMetadata(page),candidates,threads:[],
     coverage:{scope:'inbound_received',lane:'recent_inbound',scan_complete:complete,boundary_qualified:complete,scanned_rows:page.rows.length+unsupported,unsupported_rows:unsupported,limited:!complete,
       ...(next?{continuation:'n1:'+Buffer.from(JSON.stringify(next)).toString('base64url')}:{}),...(complete?{}:{reason:unsupported?'network_rows_unqualified':changed?'network_page_changed':incompleteScope?'folder_scope_and_pagination_unqualified':'network_page_continues'})},observed_at:new Date().toISOString()}};
 }

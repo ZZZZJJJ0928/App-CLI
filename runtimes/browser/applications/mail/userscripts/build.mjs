@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
 import crypto from 'node:crypto';
+import {installOutlookAccountIdentity} from './lib/outlook-account.mjs';
 import {installOutlookEarlyBridge} from './lib/outlook-early-bridge.mjs';
 import {installOutlookTransport} from './lib/outlook-transport.mjs';
 import {installOutlookRangeTransport} from './lib/outlook-range.mjs';
@@ -29,7 +30,7 @@ const definitions = [
    parse:parseGmailReceivedList,
    markRead:()=>null,
   },
-  {provider:'outlook', parseFolders:parseOutlookFolders, installTransport:installOutlookTransport, file:'outlook-mail-reader.user.js', label:'Outlook', uuid:'c2b90f5c-629d-41bd-8fc8-179729ad70b4', origins:['https://outlook.live.com','https://outlook.office.com','https://outlook.office365.com'],
+  {provider:'outlook', accountIdentity:installOutlookAccountIdentity, parseFolders:parseOutlookFolders, installTransport:installOutlookTransport, file:'outlook-mail-reader.user.js', label:'Outlook', uuid:'c2b90f5c-629d-41bd-8fc8-179729ad70b4', origins:['https://outlook.live.com','https://outlook.office.com','https://outlook.office365.com'],
    account:()=>{const roots=[...document.querySelectorAll('[role="tree"] [role="treeitem"][aria-level="1"][data-folder-name]')];const addresses=roots.map(n=>{const title=n.getAttribute('title')||'';return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(title)&&[...n.querySelectorAll(':scope > span')].some(child=>child.textContent.trim().toLowerCase()===title.toLowerCase())?title:'';}).filter(Boolean);return addresses.length===1?addresses[0]:document.querySelector('#mectrl_currentAccount_secondary')?.textContent?.trim()||'';},
    listURL:u=>/^\/owa\/\d+\/(?:startupdata\.ashx|service\.svc)$/.test(u.pathname),
    parse:value=>parseOutlookList(value,true).flatMap(row=>row.members?.map(member=>({...member,provider_thread_id:row.provider_selection_id,provider_selection_id:row.provider_selection_id,...(row.members.length===1?{received_at:row.last_delivery_time}:{}),sent:!member.local}))??(row.provider_message_id?[{...row,received_at:row.last_delivery_time,draft:false,sent:false}]:[])),
