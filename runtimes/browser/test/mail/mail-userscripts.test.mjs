@@ -300,16 +300,18 @@ test('QQ mark-read triggers only the exact visible row and confirms unread=0 fro
   f.context.location={origin:'https://wx.mail.qq.com',href:'https://wx.mail.qq.com/home/index'};
   f.context.performance={now:()=>performance.now(),getEntriesByType:()=>[{name:'https://wx.mail.qq.com/list/maillist?func=1&sid=private-qq-session&dirid=1'}]};
   let clicked=false,requests=0;
-  const raw=()=>({head:{ret:0,time:Math.floor(Date.now()/1000)},body:{total_num:1,list:[{emailid:'qq-message',dirid:1,totime:Math.floor(Date.now()/1000)-1,unread:clicked?0:1}]}});
+  const received=Math.floor(Date.now()/1000)-1;
+  const raw=()=>({head:{ret:0,time:Math.floor(Date.now()/1000)},body:{total_num:1,lock_num:0,list:[{emailid:'qq-message',dirid:1,totime:received,unread:clicked?0:1}]}});
   f.context.document.querySelectorAll=()=>[{isConnected:true,getAttribute:name=>name==='data-mailid'?'qq-message':null,getClientRects:()=>[{}],click:()=>{clicked=true;}}];
   f.context.fetch=async()=>{requests++;return new Response(JSON.stringify(raw()),{status:200});};
   vm.runInContext(`const parseQQMailList=${parseQQMailList.toString()};const markQQMailRead=${markQQMailRead.toString()};(${installReader.toString()})({provider:'qq_mail',origins:['https://wx.mail.qq.com'],account:()=>account,listURL:u=>u.pathname==='/list/maillist',parse:value=>(parseQQMailList(value)?.rows??[]).map(row=>({...row,draft:false,sent:false,grouped:false})),markRead:markQQMailRead});`,f.context);
   const reader=f.context.SparkClawMailReader;
+  const target={account_address:interval.account_address,provider_message_id:'qq-message',provider_selection_id:'qq-message',received_at:new Date(received*1000).toISOString(),folder:'inbox'};
   await reader.listPage({...interval,page:0,folder:'inbox'});
-  const result=await reader.markRead({account_address:interval.account_address,provider_message_id:'qq-message'});
-  assert.equal(clicked,true);assert.equal(result.read_state,'read');assert.equal(requests,2);
-  assert.equal((await reader.markRead({account_address:interval.account_address,provider_message_id:'qq-message'})).read_state,'read');
-  assert.equal(requests,2,'confirmed records must not repeat the provider effect');
+  const result=await reader.markRead(target);
+  assert.equal(clicked,true);assert.equal(result.read_state,'read');assert.equal(requests,3);
+  assert.equal((await reader.markRead(target)).read_state,'read');
+  assert.equal(requests,4,'a cached read flag is not fresh provider confirmation');
 });
 
 test('account changes fail closed and disposal restores only owned network hooks',()=>{

@@ -155,6 +155,15 @@ the page without parking it again. Expiry, revocation and cleanup fences remain
 authoritative. Periodic authorization maintenance yields between bounded batches
 so directory growth cannot monopolize the Host event loop.
 
+QQ read confirmation rechecks the exact account, message, selection, folder and
+receipt timestamp through a fresh bounded native search. It never relies on a
+cached read flag or the page's incidental list URL. A visible exact row may be
+clicked once; the effect is accepted only after independent provider metadata
+confirms read. An interrupted or unknown read journal permits only read-only
+confirmation on later invocations, without releasing another write. Preparation
+and released attempts are recorded separately, and neither recovery path alters
+the captured original or its manifest.
+
 Source Python (86) and optional runtime/provider (275) tests pass locally.
 A fresh installation and two compatible artifact sets verify tamper rejection,
 mixed-version rejection, stopped-service activation and state-preserving

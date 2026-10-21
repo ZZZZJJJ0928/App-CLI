@@ -379,7 +379,8 @@ export async function captureMail(input, runtime, provider, adapter) {
     if (existing) {
       const {receipt,manifest,finalDir}=existing;
       receipt.capture.read_state = adapter.markAfterCapture === true
-        ? await recordReadState(finalDir, manifest.status === "collected", message, () => adapter.markRead(tab, provider, message))
+        ? await recordReadState(finalDir, manifest.status === "collected", message, () => adapter.markRead(tab, provider, message), undefined,
+          typeof adapter.confirmRead==='function' ? ()=>adapter.confirmRead(tab,provider,message) : undefined)
         : observedReadState(message);
       journal.receipt = receipt;
       await replaceJSON(journalPath, journal);
@@ -427,7 +428,8 @@ export async function captureMail(input, runtime, provider, adapter) {
       // Background intake publishes through Store before a separate mark_read
       // job. Explicit human reading retains its existing read confirmation.
       const readState = adapter.markAfterCapture === true
-        ? await recordReadState(finalDir, captured.complete, message, () => adapter.markRead(tab, provider, message))
+        ? await recordReadState(finalDir, captured.complete, message, () => adapter.markRead(tab, provider, message), undefined,
+          typeof adapter.confirmRead==='function' ? ()=>adapter.confirmRead(tab,provider,message) : undefined)
         : observedReadState(message);
       const receipt = receiptFor(provider, manifest, {path:manifestRelative,bytes:manifestBytes.length,sha256:`sha256:${hash(manifestBytes)}`}, readState);
       journal.receipt = receipt;
@@ -469,27 +471,37 @@ export async function markCapturedRead(input, runtime, provider, adapter) {
         folder:input.target.folder,capture_required:false,onSelected:async selected => {
           if (accountIdentity(provider,selected).mail_id !== identity.mail_id) throw error('email_capture_invalid');
         }});
-      return recordReadState(finalDir,true,message,()=>adapter.markRead(tab,provider,message),()=>runtime.releaseDispatch());
+      return recordReadState(finalDir,true,message,()=>adapter.markRead(tab,provider,message),()=>runtime.releaseDispatch(),
+        typeof adapter.confirmRead==='function' ? ()=>adapter.confirmRead(tab,provider,message) : undefined);
     });
   }
   return {schema_version:1,provider,target:input.target,read_state:readState,observed_at:new Date().toISOString()};
 }
 
-async function recordReadState(finalDir, complete, message, markRead, release) {
+async function recordReadState(finalDir, complete, message, markRead, release, confirmRead) {
   let readState = "unknown";
   const statePath = path.join(finalDir, "read-state.json");
   const previous = await readJSON(statePath);
   // A crash after confirmation but before receipt publication must not repeat
   // the remote effect or overwrite the durable confirmation with pending.
   if (complete && previous?.schema_version === 1 && previous.state === "confirmed" && previous.observed === "read") return "read";
-  await replaceJSON(statePath, { schema_version: 1, state: complete ? "pending" : "not_requested", at: new Date().toISOString() });
+  const uncertain = complete && previous?.schema_version === 1 && ['pending','unknown'].includes(previous.state);
+  // Old unknown journals also represent a potentially released write. A new
+  // invocation must reconcile the exact target without repeating that write.
+  // Persist preparation separately: a failed release has not called markRead.
+  if(!uncertain)await replaceJSON(statePath, { schema_version: 1, state: complete ? "prepared" : "not_requested", at: new Date().toISOString() });
   if (complete) {
     // The remote mutation is deliberately independent from source capture.
     // A missing or changed provider request records unknown and never rolls
     // back the durable MIME source or its synchronization boundary.
     // A failed release never reaches the provider and is not an unknown read.
-    if (release) await release();
-    try { readState = await markRead(); } catch { readState = "unknown"; }
+    if(uncertain) {
+      try { readState = typeof confirmRead==='function' ? await confirmRead() : 'unknown'; } catch { readState = 'unknown'; }
+    } else {
+      if (release) await release();
+      await replaceJSON(statePath, { schema_version: 1, state: "pending", at: new Date().toISOString() });
+      try { readState = await markRead(); } catch { readState = "unknown"; }
+    }
   } else if (["read", "unread"].includes(message.read_state)) readState = message.read_state;
   if (!["read", "unread", "unknown"].includes(readState)) readState = "unknown";
   await replaceJSON(statePath, { schema_version: 1, state: complete && readState === "read" ? "confirmed" : complete ? "unknown" : "not_requested", observed: readState, at: new Date().toISOString() });

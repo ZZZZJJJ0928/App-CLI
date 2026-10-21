@@ -90,7 +90,7 @@ async function collectNetworkListed(tab, provider, options, listed) {
     : (!row.draft && !row.sent) && (!row.folder || row.folder === folder || folder === 'all');
   let selected = listed.rows.find(matches);
   if (!selected) throw fail(pinned ? 'email_pinned_message_unavailable' : 'email_network_list_unqualified');
-  if (options.pinned_message_id && selected.provider_message_id !== options.pinned_message_id) {
+  if (options.pinned_message_id && (selected.provider_message_id !== options.pinned_message_id || selected.members?.length)) {
     const member = selected.members?.find(item => item.provider_message_id === options.pinned_message_id && !item.draft);
     if (!member) throw fail('email_pinned_message_unavailable');
     selected = {...selected, ...member, provider_selection_id:selected.provider_selection_id ?? selected.provider_thread_id,
@@ -110,21 +110,24 @@ async function collectNetworkListed(tab, provider, options, listed) {
 }
 
 
-export async function markRead(tab, provider, message) {
+export async function markRead(tab, provider, message, {confirmOnly = false} = {}) {
   if (!message?.account_address || !message?.provider_message_id) throw fail('email_message_identity_invalid');
   return networkMarkRead(tab, provider, {
     account_address:message.account_address,
     provider_message_id:message.provider_message_id,
     provider_selection_id:message.provider_selection_id,
+    ...(message.received_at ? {received_at:message.received_at} : {}),
     folder:message.folder,
-  });
+  },{confirmOnly});
 }
+
+export const confirmRead = (tab,provider,message) => markRead(tab,provider,message,{confirmOnly:true});
 
 export const readEmail = (input,runtime,provider) => captureMail(input,runtime,provider,{collectUnread,markRead,markAfterCapture:false});
 export const readQQMail = (input,runtime) => readEmail(input,runtime,'qq_mail');
 export const readOutlook = (input,runtime) => readEmail(input,runtime,'outlook');
 export const readGmail = (input,runtime) => readEmail(input,runtime,'gmail');
-export const markEmailRead = (input,runtime,provider) => markCapturedRead(input,runtime,provider,{collectUnread,markRead});
+export const markEmailRead = (input,runtime,provider) => markCapturedRead(input,runtime,provider,{collectUnread,markRead,confirmRead});
 
 export async function discoverEmail(input, runtime, provider) {
   validateCaptureInput(input, provider);

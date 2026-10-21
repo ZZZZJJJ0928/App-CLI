@@ -6,7 +6,7 @@ export function installReader(config) {
   window.SparkClawMailReader?.dispose();
   const originalFetch = window.fetch, originalOpen = XMLHttpRequest.prototype.open;
   const originalSend = XMLHttpRequest.prototype.send, originalSetHeader = XMLHttpRequest.prototype.setRequestHeader;
-  const records = new Map(), pageTokens = new Map();
+  const records = new Map(), pageTokens = new Map(), readAttempts = new Set();
   let listRequest = null, networkQuery = null, inbox = null, transport = null, objectURL = null, originalAbort = null;
   let originalBytes = null, originalMessageID = '';
   let originalState = 'unlearned', responseOrigin = '';
@@ -324,7 +324,7 @@ export function installReader(config) {
     })();
   }
 
-  async function listPage({account_address,interval_start,interval_end,page=0,folder='inbox',provider_mode}) {
+  async function listPage({account_address,interval_start,interval_end,page=0,folder='inbox',provider_mode}, signal) {
     checkedAccount(account_address);
     if(config.provider==='outlook' && transport?.listPage)return transport.listPage({account_address,interval_start,interval_end,page,folder,provider_mode});
     if (config.provider === 'qq_mail') {
@@ -346,8 +346,9 @@ export function installReader(config) {
         search.searchParams.set('sid',url.searchParams.get('sid'));
         const body=new URLSearchParams({page_now:'0',page_size:'50',after:String(start/1000000000n-1n),before:String((end+999999999n)/1000000000n),sort_type:'1',sort_direction:'1'});
         listStage='qq_request';
-        const response=await originalFetch.call(window,search.href,{method:'POST',credentials:'same-origin',redirect:'error',headers:{'content-type':'application/x-www-form-urlencoded'},body,signal:AbortSignal.timeout(20000)});
+        const response=await originalFetch.call(window,search.href,{method:'POST',credentials:'same-origin',redirect:'error',cache:'no-store',headers:{'content-type':'application/x-www-form-urlencoded'},body,signal:signal??AbortSignal.timeout(20000)});
         if([401,403].includes(response.status))failure('email_login_required');if(!response.ok)failure('email_network_read_failed');
+        if(response.url&&new URL(response.url).origin!==location.origin)failure('email_network_list_unqualified');
         const reader=response.body.getReader(),chunks=[];let length=0;
         try {for(;;){const {done,value}=await reader.read();if(done)break;length+=value.length;if(length>10<<20){void reader.cancel();failure('email_capture_limit');}chunks.push(value);}}finally{reader.releaseLock();}
         const bytes=new Uint8Array(length);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}
@@ -468,13 +469,39 @@ export function installReader(config) {
     listStage = 'complete';
     return {provider:config.provider,account_address:account,rows:received,unsupported_rows:unsupported,has_next:value[3]===1,page};
   }
-  async function markRead({account_address,provider_message_id} = {}) {
+  async function markRead({account_address,provider_message_id,provider_selection_id,received_at,folder} = {}, confirmOnly = false) {
     checkedAccount(account_address);
     if (!idPattern.test(provider_message_id || '') || !records.has(provider_message_id)) failure('email_network_target_unobserved');
     const row=records.get(provider_message_id);
-    if (row.unread === false) return {provider:config.provider,account_address:account,provider_message_id,read_state:'read'};
-    const result=await config.markRead?.({account_address:account,provider_message_id,row,binding,request:listRequest,fetch:originalFetch});
+    let readTarget;
+    if(config.provider==='qq_mail') {
+      const expected=instantNanos(received_at),received=Date.parse(received_at);
+      if(expected===null||!Number.isFinite(received)||provider_selection_id!==provider_message_id||
+          row.provider_selection_id!==provider_selection_id||instantNanos(row.received_at)!==expected||
+          row.folder!==folder)failure('email_message_identity_invalid');
+      readTarget=async signal=>{
+        if(!active)failure('email_network_capability_unavailable');
+        const page=await listPage({account_address,provider_mode:'time_range',page:0,
+          interval_start:new Date(received-1000).toISOString(),interval_end:new Date(received+1000).toISOString()},signal);
+        if(!active)failure('email_network_capability_unavailable');
+        const matches=page.rows.filter(candidate=>candidate.provider_message_id===provider_message_id);
+        if(matches.length!==1||page.unsupported_rows!==0||page.has_next)failure('email_network_mark_read_unqualified');
+        const current=matches[0];
+        if(current.provider_selection_id!==provider_selection_id||instantNanos(current.received_at)!==expected||current.folder!==folder)
+          failure('email_message_identity_invalid');
+        return current;
+      };
+      confirmOnly ||= readAttempts.has(provider_message_id);
+      if(!confirmOnly)readAttempts.add(provider_message_id);
+    } else {
+      // Other providers do not expose an independent read confirmation yet.
+      if(confirmOnly)return {provider:config.provider,account_address:account,provider_message_id,read_state:'unknown'};
+      if(row.unread===false)return {provider:config.provider,account_address:account,provider_message_id,read_state:'read'};
+    }
+    const result=await config.markRead?.({account_address:account,provider_message_id,row,binding,request:listRequest,fetch:originalFetch,
+      readTarget,checkAccount:()=>{if(!active)failure('email_network_capability_unavailable');checkedAccount(account_address);},confirmOnly});
     if (!result || result.provider_message_id !== provider_message_id || !['read','unknown'].includes(result.read_state)) failure('email_network_mark_read_unqualified');
+    if(!active)failure('email_network_capability_unavailable');
     checkedAccount(account_address);
     if(result.read_state==='read')row.unread=false;
     return {provider:config.provider,account_address:account,provider_message_id,read_state:result.read_state};
@@ -499,7 +526,8 @@ export function installReader(config) {
       checkedAccount(account_address);
       return true;
     }, diagnostics:()=>({original:{state:originalState,responseOrigin,response:originalResponse?{...originalResponse}:null},list:{stage:listStage,template:Boolean(listRequest),body:Array.isArray(listRequest?.body),paging:Array.isArray(listRequest?.body?.[0]?.[15])},inbox:Boolean(inbox),records:records.size,transport:transport?.diagnostics?.()}), snapshot, resetRound,
-    listPage:request=>inRound(listPage,request), prepareOriginal:request=>inRound(prepareOriginal,request), prepareRetainedOriginal:request=>inRound(prepareRetainedOriginal,request), markRead, dispose,
+    listPage:request=>inRound(listPage,request), prepareOriginal:request=>inRound(prepareOriginal,request), prepareRetainedOriginal:request=>inRound(prepareRetainedOriginal,request),
+    markRead:request=>inRound(markRead,request), confirmRead:request=>inRound(value=>markRead(value,true),request), dispose,
     verifyTarget({account_address,provider_message_id,provider_selection_id,folder}) {
       checkedAccount(account_address);
       const row=records.get(provider_message_id);

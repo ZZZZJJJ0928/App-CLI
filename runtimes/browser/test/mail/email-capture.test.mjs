@@ -282,13 +282,13 @@ test("a pinned selection cannot switch accounts or list locators before identity
   assert.equal(f.events.includes("mark"), false);
 });
 
-test("uncertain mark-read retries the pinned mail without replacing durable source", async t => {
+test("uncertain mark-read only confirms the pinned mail without replacing durable source", async t => {
   const f = await fixture(t, { message: { original: { selector: "original" } } });
-  const markRead = f.adapter.markRead;
   f.adapter.markRead = async () => { throw new Error("synthetic mark timeout"); };
   const first = await f.run();
   assert.equal(first.capture.read_state, "unknown");
-  f.adapter.markRead = markRead;
+  f.adapter.markRead = () => assert.fail('an unknown write must not be repeated');
+  f.adapter.confirmRead = async () => 'read';
   const second = await f.run();
   assert.equal(second.capture.read_state, "read");
   assert.equal(second.capture.manifest_sha256, first.capture.manifest_sha256);
