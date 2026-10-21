@@ -1682,7 +1682,7 @@
       "script_id": "outlook.send",
       "revision": 2,
       "reconcile_requires_host": false,
-      "source_checksum": "sha256:36549d0a804be004d8af12a9f8e3702ac866164bdee9681168f5d8d924729f64",
+      "source_checksum": "sha256:9b32e86a749f6bc4161f270be65cadd4ad0644ddba9223f0579c332934fe55d4",
       "host": {
         "family": "send",
         "activity": "exclusive",
@@ -1760,7 +1760,7 @@
       "timeout_ms": 180000,
       "script_id": "outlook.read",
       "revision": 1,
-      "source_checksum": "sha256:9966269e3daf8b49bdb7a9852273a3d157926b588f9f11a798de4fec512a02e0",
+      "source_checksum": "sha256:29e71d42754a482902ecad883fbe01ad9f5153bcd0f4f0af4ca67ae670bc5f6b",
       "host": {
         "family": "outlook.inbound",
         "activity": "read",
@@ -1851,7 +1851,7 @@
       "timeout_ms": 180000,
       "script_id": "outlook.discover",
       "revision": 1,
-      "source_checksum": "sha256:9966269e3daf8b49bdb7a9852273a3d157926b588f9f11a798de4fec512a02e0",
+      "source_checksum": "sha256:29e71d42754a482902ecad883fbe01ad9f5153bcd0f4f0af4ca67ae670bc5f6b",
       "host": {
         "family": "outlook.inbound",
         "activity": "read",
@@ -1942,7 +1942,7 @@
       "timeout_ms": 180000,
       "script_id": "outlook.capture",
       "revision": 1,
-      "source_checksum": "sha256:9966269e3daf8b49bdb7a9852273a3d157926b588f9f11a798de4fec512a02e0",
+      "source_checksum": "sha256:29e71d42754a482902ecad883fbe01ad9f5153bcd0f4f0af4ca67ae670bc5f6b",
       "host": {
         "family": "outlook.inbound",
         "activity": "read",
@@ -2033,7 +2033,7 @@
       "timeout_ms": 180000,
       "script_id": "outlook.enumerate_thread",
       "revision": 1,
-      "source_checksum": "sha256:9966269e3daf8b49bdb7a9852273a3d157926b588f9f11a798de4fec512a02e0",
+      "source_checksum": "sha256:29e71d42754a482902ecad883fbe01ad9f5153bcd0f4f0af4ca67ae670bc5f6b",
       "host": {
         "family": "outlook.inbound",
         "activity": "read",
@@ -2124,7 +2124,7 @@
       "timeout_ms": 180000,
       "script_id": "outlook.mark_read",
       "revision": 1,
-      "source_checksum": "sha256:9966269e3daf8b49bdb7a9852273a3d157926b588f9f11a798de4fec512a02e0",
+      "source_checksum": "sha256:29e71d42754a482902ecad883fbe01ad9f5153bcd0f4f0af4ca67ae670bc5f6b",
       "host": {
         "family": "mark_read",
         "activity": "exclusive",
@@ -2206,7 +2206,7 @@
       "timeout_ms": 1800000,
       "script_id": "outlook.collect_page",
       "revision": 1,
-      "source_checksum": "sha256:9966269e3daf8b49bdb7a9852273a3d157926b588f9f11a798de4fec512a02e0",
+      "source_checksum": "sha256:29e71d42754a482902ecad883fbe01ad9f5153bcd0f4f0af4ca67ae670bc5f6b",
       "host": {
         "family": "outlook.inbound",
         "activity": "read",

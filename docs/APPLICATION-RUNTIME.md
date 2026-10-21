@@ -2,9 +2,9 @@
 
 [简体中文](APPLICATION-RUNTIME.zh-CN.md) · [Lifecycle](LIFECYCLE.md) · [Validation](VALIDATION.md)
 
-The maintenance fork implements `0.3.0-sparkclaw.29`.
-Python is packaged as `0.3.0+sparkclaw.29`; the optional Node runtime is
-`@infinimesh/app-cli-runtime@0.3.0-sparkclaw.29`. This is a fork release, not an
+The maintenance fork implements `0.3.0-sparkclaw.30`.
+Python is packaged as `0.3.0+sparkclaw.30`; the optional Node runtime is
+`@infinimesh/app-cli-runtime@0.3.0-sparkclaw.30`. This is a fork release, not an
 upstream release. Mail is the first application; the public Registry remains
 independent of Node, mail and browsers.
 
@@ -164,7 +164,7 @@ confirmation on later invocations, without releasing another write. Preparation
 and released attempts are recorded separately, and neither recovery path alters
 the captured original or its manifest.
 
-Source Python (86) and optional runtime/provider (414 passed, 2 skipped) tests
+Source Python (86) and optional runtime/provider (444 passed, 2 skipped) tests
 pass locally on macOS with Python 3.11 and Node 26.
 A fresh installation and two compatible artifact sets verify tamper rejection,
 mixed-version rejection, stopped-service activation and state-preserving
@@ -192,6 +192,13 @@ retain mailbox IDs and existing messages when these observations change, and
 exclude all verified aliases when constructing reply-all recipients.
 
 QQ Mail and Gmail use the already verified signed-in account for both roles.
+Gmail reads the single visible account button in the page header, verified by its
+Google Accounts sign-out-options destination. Its accessible label may be in any
+language; conflicting or ambiguous account attributes fail closed. The generated
+Reader and native-send fallback share this extraction, preserving expected-account
+checks and refusing to repin after an account switch. Login checks still use the
+existing compose readiness signal; their optional account hint is not an identity
+binding. No message body, account-switcher list or inferred sender supplies identity.
 For qualified consumer Outlook pages, the adapter reads the current native
 `UserMailbox` configuration and invokes its native default SMTP From/alias
 selection. It verifies every candidate against that same mailbox's proxy

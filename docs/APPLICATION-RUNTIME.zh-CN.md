@@ -13,7 +13,7 @@ QQ 已读确认通过新鲜、有界的原生搜索，精确绑定账户、邮�
 服务端元数据才能确认已读。中断或结果未知的已读 journal，在后续调用中只允许只读确认，
 不再放行写入；准备和已放行尝试分别记录，恢复不改动已抓取原文或清单。
 
-维护 fork 的发行身份为 `0.3.0-sparkclaw.29`；Python 版本为 `0.3.0+sparkclaw.29`，可选 Node 包为 `@infinimesh/app-cli-runtime@0.3.0-sparkclaw.29`。这不是上游发行。邮件是首批应用，公共 Registry 不依赖 Node、邮件或浏览器。
+维护 fork 的发行身份为 `0.3.0-sparkclaw.30`；Python 版本为 `0.3.0+sparkclaw.30`，可选 Node 包为 `@infinimesh/app-cli-runtime@0.3.0-sparkclaw.30`。这不是上游发行。邮件是首批应用，公共 Registry 不依赖 Node、邮件或浏览器。
 
 ## 调用与维护边界
 
@@ -73,7 +73,7 @@ npm test --prefix runtimes/browser
 
 ## 验证边界
 
-本机 macOS、Python 3.11、Node 26 下，Python 86 项通过，运行时/供应商 414 项通过、2 项跳过。仓库外安装和两组兼容制品验证了篡改拒绝、混版拒绝、运行中禁止切换和持久状态回退。SparkClaw 另以安装后的 Python Registry、常驻 Executor、实际隔离 Electron 任务页验证非邮件命令，同时回归普通 MCP/CLI 和个人页隔离。
+本机 macOS、Python 3.11、Node 26 下，Python 86 项通过，运行时/供应商 444 项通过、2 项跳过。仓库外安装和两组兼容制品验证了篡改拒绝、混版拒绝、运行中禁止切换和持久状态回退。SparkClaw 另以安装后的 Python Registry、常驻 Executor、实际隔离 Electron 任务页验证非邮件命令，同时回归普通 MCP/CLI 和个人页隔离。
 
 供应商测试使用合成邮件，覆盖账户/文档、发送完成证据、原件处理和 watch 契约。自动化测试不等于 QQ/Gmail/Outlook 实际收发验收；后者属于配套部署的独立验收。未宣称云端矩阵或非 POSIX 生命周期传输通过。
 
@@ -87,7 +87,12 @@ npm test --prefix runtimes/browser
 这些观测变化时，调用方必须保留邮箱ID和已有邮件，并在构造回复全部收件人
 时排除所有已验证别名。
 
-QQ Mail、Gmail使用原来已验证的登录账号承担两种角色。对于已验证的消费版
+QQ Mail、Gmail使用原来已验证的登录账号承担两种角色。Gmail只读取页头唯一
+可见的账号按钮，并核验其Google Accounts退出选项目标；账号标签不依赖界面
+语言，属性冲突或账号歧义直接拒绝。生成的Reader与原生发信回退共用这一提取，
+保留预期账号校验，账号切换不能覆盖既有绑定。登录检查仍使用原有写信按钮
+就绪信号，可选账号提示不作为身份绑定。邮件正文、账号切换列表及推测的发件人
+均不作为身份依据。对于已验证的消费版
 Outlook页面，适配器读取当前原生 `UserMailbox` 配置，调用其原生默认SMTP
 发件地址和别名选择，要求每个候选属于同一邮箱的代理地址，排除原生判定的
 内部路由地址，并确认观测期间邮箱没有变化。它不会根据收发邮件头推断身份
