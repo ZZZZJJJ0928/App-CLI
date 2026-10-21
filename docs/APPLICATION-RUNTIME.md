@@ -2,9 +2,9 @@
 
 [简体中文](APPLICATION-RUNTIME.zh-CN.md) · [Lifecycle](LIFECYCLE.md) · [Validation](VALIDATION.md)
 
-The maintenance fork implements `0.3.0-sparkclaw.1` on `codex/sparkclaw-email`.
-Python is packaged as `0.3.0+sparkclaw.1`; the optional Node runtime is
-`@infinimesh/app-cli-runtime@0.3.0-sparkclaw.1`. This is a fork release, not an
+The maintenance fork implements `0.3.0-sparkclaw.29`.
+Python is packaged as `0.3.0+sparkclaw.29`; the optional Node runtime is
+`@infinimesh/app-cli-runtime@0.3.0-sparkclaw.29`. This is a fork release, not an
 upstream release. Mail is the first application; the public Registry remains
 independent of Node, mail and browsers.
 
@@ -164,7 +164,8 @@ confirmation on later invocations, without releasing another write. Preparation
 and released attempts are recorded separately, and neither recovery path alters
 the captured original or its manifest.
 
-Source Python (86) and optional runtime/provider (275) tests pass locally.
+Source Python (86) and optional runtime/provider (414 passed, 2 skipped) tests
+pass locally on macOS with Python 3.11 and Node 26.
 A fresh installation and two compatible artifact sets verify tamper rejection,
 mixed-version rejection, stopped-service activation and state-preserving
 rollback. SparkClaw additionally qualifies a non-mail command through the
@@ -172,9 +173,9 @@ installed Python Registry, resident Executor and actual isolated Electron task
 page, alongside ordinary MCP/CLI tasks and personal-page protection.
 
 Provider tests cover synthetic mail content, account/document checks, send
-verification, original-file handling and watch contracts. No real mailbox was
-sent mail or used for this extraction's final validation. Live QQ/Gmail/Outlook
-acceptance and production activation remain the user's final acceptance step.
+verification, original-file handling and watch contracts. Automated validation
+does not establish live QQ/Gmail/Outlook send/receive acceptance; that remains
+part of the paired deployment's separate acceptance.
 No cloud CI matrix or non-POSIX lifecycle transport execution is claimed.
 
 ## Account identity and delivery addresses
@@ -183,8 +184,9 @@ Mail discovery preserves `account_address` as the verified, stable namespace for
 Reader checks, captures, message identifiers, send journals and account binding.
 It is not necessarily an address that accepts incoming SMTP mail. Discovery may
 also return `delivery_address` (at most 320 characters) and `account_aliases`
-(at most 100 distinct, lowercase addresses). A delivery address must appear in
-the aliases. Range discovery carries the same fields inside `collect_page`'s
+(1–100 distinct, lowercase addresses). Both fields are either omitted or
+returned together, and the delivery address must appear in the aliases.
+Range discovery carries the same fields inside `collect_page`'s
 `discovery`; the page does not introduce a second identity copy. Consumers must
 retain mailbox IDs and existing messages when these observations change, and
 exclude all verified aliases when constructing reply-all recipients.
