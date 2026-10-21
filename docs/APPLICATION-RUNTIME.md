@@ -2,9 +2,9 @@
 
 [简体中文](APPLICATION-RUNTIME.zh-CN.md) · [Lifecycle](LIFECYCLE.md) · [Validation](VALIDATION.md)
 
-The maintenance fork implements `0.3.0-sparkclaw.30`.
-Python is packaged as `0.3.0+sparkclaw.30`; the optional Node runtime is
-`@infinimesh/app-cli-runtime@0.3.0-sparkclaw.30`. This is a fork release, not an
+The maintenance fork implements `0.3.0-sparkclaw.31`.
+Python is packaged as `0.3.0+sparkclaw.31`; the optional Node runtime is
+`@infinimesh/app-cli-runtime@0.3.0-sparkclaw.31`. This is a fork release, not an
 upstream release. Mail is the first application; the public Registry remains
 independent of Node, mail and browsers.
 
@@ -175,7 +175,7 @@ confirmation on later invocations, without releasing another write. Preparation
 and released attempts are recorded separately, and neither recovery path alters
 the captured original or its manifest.
 
-Source Python (86) and optional runtime/provider (444 passed, 2 skipped) tests
+Source Python (86) and optional runtime/provider (457 passed, 2 skipped) tests
 pass locally on macOS with Python 3.11 and Node 26.
 A fresh installation and two compatible artifact sets verify tamper rejection,
 mixed-version rejection, stopped-service activation and state-preserving

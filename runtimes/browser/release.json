@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "id": "0.3.0-sparkclaw.30",
+  "id": "0.3.0-sparkclaw.31",
   "runtime_protocol": "3.0",
   "host_protocol": "1.0",
   "ledger_version": 2,
@@ -73,7 +73,7 @@
     "src/assembly.mjs": "8d159b710a1983f4c98c82b8315a81d1b85f74ea4fa4dfef2e853c6d717a52f9",
     "src/authorization.mjs": "5c49860b099e79e60619303f2bff576fc5cc3a3d43831a994042baf5a331121c",
     "src/client.mjs": "94871cf8a2f9cd4c306022f3e31b16b32f951cef9373e02d77bff36ca2230977",
-    "src/executor.mjs": "00cb798f9046d8cae92b70cc0fc16bed5c8c8b2d4b0132f84c1cdf99ab4ca426",
+    "src/executor.mjs": "445a53eb0c2e572bd73057bdfa8ebe225507ac90404f5cf408efc831ae172dc0",
     "src/host-port.mjs": "2dbcca63ee238aa0e71fb8b3b7fc94191744b7bda9bee841d5b57d6faf7f3a66",
     "src/http-transport.mjs": "7fc221859d831bebf0785f3b43b59dec6c1259a5adf612b715827d04f94373da",
     "src/identity.mjs": "bbaff68592da8e3c79f9ac21c9df72fa82654376974e315fe9ba57ac864d448c",
@@ -83,8 +83,8 @@
     "src/protocol.mjs": "d756ea8af257b1ff7c06f9dde8a410ff4388b8feb3ce55feb127334e8b23619f",
     "src/release.mjs": "2179af4f63f251a3037bd6d8380b5edcd48a397d0baf12f8d18519a9bc68877d",
     "src/socket.mjs": "fd584c49170f7a3418641facffdc6edec0dca06a801038e59ec8adec401f1787",
-    "package.json": "aea7ca4630044c29250d52f43d1691842f8b0ef936901d84fdafedc332829207",
-    "npm-shrinkwrap.json": "b809fb64dde4ab8c539b0181bcdc6f93388cf4046a3eb72bbbef0fc0387a5b8b",
+    "package.json": "2eecdbd785e6955b3f0bd8ccba4e03dfb026420cfe93702c85457bb042d25152",
+    "npm-shrinkwrap.json": "e9c9e9aab00299ceeee7f8a3284c26820d3e29183db8b6cc8a3a1c9f6678abec",
     "LICENSE": "ab7cd02c6615f01a6dd5f7d54cf58a86e12757c57c3c75660adbc6e43859c2af",
     "NOTICE": "b99aa80477e9d49d7ecb459c231a7ce07c82c6b97dcb1880203ccfa3ffc17e71"
   }
