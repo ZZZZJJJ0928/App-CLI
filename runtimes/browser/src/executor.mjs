@@ -405,9 +405,25 @@ export class Executor {
         requireCondition(spec.output(result.data), 'OUTPUT_VALIDATION_FAILED');
         data = encode(result.data, 1000 * 1024).toString();
       }
-      if (session) {await session.release({park: status === 'completed' && result.retain === true && spec.host?.reuse_idle_ms > 0, invalidate: result.invalidate === true}); session = null;}
       check();
-      this.finish(row.id, status, result.reason ?? null, data, external && status === 'completed' && !reconcile ? 'sent' : null);
+      let cleanupReason = null;
+      if (session) {
+        try {
+          await session.release({park: status === 'completed' && result.retain === true && spec.host?.reuse_idle_ms > 0, invalidate: result.invalidate === true});
+          session = null;
+        } catch (error) {
+          if (status !== 'completed') throw error;
+          // The validated business result is independent of page retirement.
+          // Host retains its failed resource/fence; no provider action is
+          // repeated and no terminal receipt is published before this attempt.
+          cleanupReason = /^[A-Z][A-Z0-9_]{0,63}$/u.test(error?.code) ? error.code : 'HOST_CLEANUP_FAILED';
+          session = null;
+        }
+      }
+      // Authorization/cancellation was checked before accepting the result.
+      // A later stop during cleanup cannot undo an already proved outcome.
+      if (status !== 'completed') check();
+      this.finish(row.id, status, result.reason ?? null, data, external && status === 'completed' && !reconcile ? 'sent' : null, cleanupReason);
     } catch (error) {
       let cleanupFailed = false;
       if (session) try { await session.release({invalidate: !active.stopReason}); } catch { cleanupFailed = true; }
@@ -422,7 +438,7 @@ export class Executor {
       this.finish(row.id, state, reason);
     } finally { clearInterval(timer); }
   }
-  finish(id, status, reason, data = null, dispatch = null) {
+  finish(id, status, reason, data = null, dispatch = null, cleanupReason = null) {
     this.ledger.transaction(() => {
       // Rollback recovery already classified this task; keep its conclusion.
       const current = this.ledger.get(id);
@@ -430,6 +446,7 @@ export class Executor {
       // A reservation that was never released is provably undispatched.
       this.ledger.voidReservation(id);
       this.ledger.update(id, {status, reason, data, ...(dispatch ? {dispatch} : {})});
+      if (cleanupReason) this.ledger.event(id, 'host_cleanup_failed', {reason: cleanupReason});
       this.ledger.event(id, 'state', {status, ...(reason ? {reason} : {})});
     });
   }

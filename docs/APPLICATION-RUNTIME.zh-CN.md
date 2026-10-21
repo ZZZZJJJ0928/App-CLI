@@ -32,6 +32,13 @@ Python Registry 是唯一公共能力目录和准入点；Node binding 只是内
 
 ## 状态与固定边界
 
+handler 的 completed 结果必须先通过输出校验，并再次检查执行授权、取消和截止时间。
+Executor 等待 Host 清理尝试结束后才发布终态回执并接受 ACK。若清理失败，保留已验证的
+业务完成结果，并在同一账本事务记录 `host_cleanup_failed` 诊断事件；Host 资源退休与
+清理围栏继续生效，不重试供应商动作。清理期间后来发生的停止不抹去已验证结果。
+无效或缺少证明的输出仍按原有失败/未知语义处理；终态提交前崩溃，仍需显式对账读取原始
+持久 journal。
+
 Python 启动器持有继承的 POSIX flock。SQLite WAL/FULL 在效果发生前持久提交主体、owner、request key、意图、task、效果围栏和事件。每次启动增加 execution_epoch；原子 `authority.json` 高水位同时记录 epoch 与提交序列，阻止缺失或旧账本（含同一 epoch 的旧快照）启动。重启将未完成读取置 blocked、有副作用任务置 uncertain，并发 gap。发送对账只读原 journal，不再次点击发送。Bridge 凭据变化后，journal 对账保留原任务资源绑定的授权，不领浏览器页。产品索引存在但 lookup 无法确认时不再次提交。ledger 2 在首次启动时把 ledger 1 原地迁入已关闭的 legacy 代次；重启时作废未放行的发送保留（任务仍可恢复），已放行的发送置为 uncertain。可选独立进度锚（部署配置 `anchor`：`none`，或经 Unix socket/URL 与 bearer token 的 `http`）确认每次发送放行并检测整组回滚。用户可为结果未知的发送结案，结案从不重新发送。后台单写者仅在请求代次关闭且交付义务满足后回收终态任务（读取结果 ACK 后 1 小时或无 ACK 1 天；已发送在 ACK 加回执保留期后；已结案发送立即）；legacy 代次行保留。准入按账本、WAL 与授权的实测占用及恢复预留判断。不声称远端 exactly-once。
 
 | 边界 | 冻结值 |

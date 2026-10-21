@@ -67,6 +67,17 @@ confirms every dispatch release and detects whole-set rollback.
 Reconciliation reads original send evidence and never clicks Send again. A user
 may resolve an uncertain send; resolution never resends.
 
+A handler's completed result is accepted only after output validation and a
+final execution-authority, cancellation and deadline check. The Executor then
+awaits the Host cleanup attempt before publishing a terminal receipt or accepting
+its ACK. If cleanup fails, the validated business result remains completed and
+a `host_cleanup_failed` event records the diagnostic reason in the same ledger
+transaction. Host resource retirement and cleanup fences remain enforced; this
+does not retry the provider action. A later stop during cleanup cannot erase
+an already validated result. Invalid or unproved output retains the existing
+failure/uncertainty behavior. A crash before the terminal commit still uses
+the original durable journal through explicit reconciliation.
+
 A background single writer reclaims terminal tasks only after their request
 epoch is sealed and their delivery obligation is met (read results one hour
 after ACK or a day without it; delivered sends after ACK plus the receipt
