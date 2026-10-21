@@ -16,7 +16,32 @@ export function providerAccountDOM(provider) {
   const result = value => ({ url: location.href, ...value });
   if (provider === 'qq_mail' && all('.login-page').length) return result({error:'email_login_required'});
   let account = "";
-  if (provider === "gmail") account = address(document.querySelector('[aria-label^="Google Account:"]')?.getAttribute("aria-label"));
+  if (provider === "gmail") {
+    const page = new URL(location.href);
+    if (page.origin !== 'https://mail.google.com' || !page.pathname.startsWith('/mail/') || page.username || page.password) return result({account_address: ''});
+    // The signed-in account trigger has a stable destination and role; its
+    // accessible label is localized. Never search message text or the account
+    // switcher, and never pick the first of several possible current accounts.
+    const triggers = all('header a[role="button"][href], [role="banner"] a[role="button"][href], #gb a[role="button"][href]').filter(node => {
+      let url;
+      try {url = new URL(node.getAttribute('href'), location.href);} catch {return false;}
+      if (url.origin !== 'https://accounts.google.com' || url.pathname !== '/SignOutOptions' || url.username || url.password) return false;
+      for (let parent = node; parent; parent = parent.parentElement) {
+        const style = getComputedStyle(parent);
+        if (parent.hidden || parent.inert || parent.getAttribute('aria-hidden') === 'true' ||
+            style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity || '1') === 0) return false;
+      }
+      return true;
+    });
+    if (triggers.length !== 1) return result({account_address: ''});
+    const identities = new Set();
+    for (const name of ['aria-label', 'title', 'data-email']) {
+      const value = triggers[0].getAttribute(name) || '';
+      if (value.length > 1024) return result({account_address: ''});
+      for (const candidate of value.match(/[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/gu) || []) identities.add(candidate.toLowerCase());
+    }
+    if (identities.size === 1) account = [...identities][0];
+  }
   if (provider === "qq_mail") account = address(text(document.querySelector('.frame-header .profile-user-info .user-email')));
   if (provider === "outlook") {
     const roots=all('[role="tree"] [role="treeitem"][aria-level="1"][data-folder-name]');

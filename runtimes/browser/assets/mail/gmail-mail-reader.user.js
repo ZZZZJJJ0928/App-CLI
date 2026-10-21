@@ -319,6 +319,57 @@ const parseQQMailList=function parseQQMailList(value) {
   }
   return {rows,total_count:value.body.total_num,unsupported_rows:value.body.list.length-rows.length};
 };
+const providerAccountDOM=function providerAccountDOM(provider) {
+  const visible = node => {
+    if (!node?.isConnected) return false;
+    const rect = node.getBoundingClientRect(), style = getComputedStyle(node);
+    return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden";
+  };
+  const all = (selector, root = document) => Array.from(root.querySelectorAll(selector)).filter(visible);
+  const text = node => (node?.innerText ?? node?.textContent ?? "").trim();
+  const address = value => String(value ?? "").match(/[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/u)?.[0] ?? "";
+  const result = value => ({ url: location.href, ...value });
+  if (provider === 'qq_mail' && all('.login-page').length) return result({error:'email_login_required'});
+  let account = "";
+  if (provider === "gmail") {
+    const page = new URL(location.href);
+    if (page.origin !== 'https://mail.google.com' || !page.pathname.startsWith('/mail/') || page.username || page.password) return result({account_address: ''});
+    // The signed-in account trigger has a stable destination and role; its
+    // accessible label is localized. Never search message text or the account
+    // switcher, and never pick the first of several possible current accounts.
+    const triggers = all('header a[role="button"][href], [role="banner"] a[role="button"][href], #gb a[role="button"][href]').filter(node => {
+      let url;
+      try {url = new URL(node.getAttribute('href'), location.href);} catch {return false;}
+      if (url.origin !== 'https://accounts.google.com' || url.pathname !== '/SignOutOptions' || url.username || url.password) return false;
+      for (let parent = node; parent; parent = parent.parentElement) {
+        const style = getComputedStyle(parent);
+        if (parent.hidden || parent.inert || parent.getAttribute('aria-hidden') === 'true' ||
+            style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity || '1') === 0) return false;
+      }
+      return true;
+    });
+    if (triggers.length !== 1) return result({account_address: ''});
+    const identities = new Set();
+    for (const name of ['aria-label', 'title', 'data-email']) {
+      const value = triggers[0].getAttribute(name) || '';
+      if (value.length > 1024) return result({account_address: ''});
+      for (const candidate of value.match(/[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/gu) || []) identities.add(candidate.toLowerCase());
+    }
+    if (identities.size === 1) account = [...identities][0];
+  }
+  if (provider === "qq_mail") account = address(text(document.querySelector('.frame-header .profile-user-info .user-email')));
+  if (provider === "outlook") {
+    const roots=all('[role="tree"] [role="treeitem"][aria-level="1"][data-folder-name]');
+    const accounts=roots.map(node=>{
+      const title=address(node.getAttribute('title'));
+      const labels=all(':scope > span',node).map(child=>address(text(child))).filter(Boolean);
+      return title && labels.length===1 && title.toLowerCase()===labels[0].toLowerCase() ? title : '';
+    }).filter(Boolean);
+    account=accounts.length===1 ? accounts[0] : address(text(document.querySelector('#mectrl_currentAccount_secondary'))) ||
+      address(document.querySelector('#O365_MainLink_MePhoto, #O365_MeFlexPane_ButtonID, [data-testid="mectrl_headerPicture"]')?.getAttribute('aria-label'));
+  }
+  return result({ account_address: account });
+};
 (function installReader(config) {
   'use strict';
   if (window.top !== window || !config.origins.includes(location.origin)) return;
@@ -859,7 +910,7 @@ const parseQQMailList=function parseQQMailList(value) {
       return Boolean(row && !row.draft && !row.sent && row.provider_selection_id===provider_selection_id && (!folder||folder==='all'||row.folder===folder) && Number.isFinite(Date.parse(row.received_at)));
     },
   })});
-})({"provider":"gmail","origins":["https://mail.google.com"],"account":()=>document.querySelector('[aria-label^="Google Account:"]')?.getAttribute('aria-label')?.match(/[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/)?.[0]||'',"listURL":u=>/^\/sync\/u\/\d+\/i\/bv$/.test(u.pathname),"search":query=>{location.hash='#search/'+encodeURIComponent(query);},"download":function gmailOriginalURL({id,row,request}) {
+})({"provider":"gmail","origins":["https://mail.google.com"],"account":()=>providerAccountDOM('gmail').account_address||'',"listURL":u=>/^\/sync\/u\/\d+\/i\/bv$/.test(u.pathname),"search":query=>{location.hash='#search/'+encodeURIComponent(query);},"download":function gmailOriginalURL({id,row,request}) {
   const source=request?.url,origin=globalThis.location?.origin;
   if(!row?.native_message_id||!source||source.origin!==origin||!/^[a-f0-9]{1,32}$/u.test(id))return null;
   const account=/^\/sync\/u\/(\d+)\/i\/bv$/u.exec(source.pathname)?.[1];

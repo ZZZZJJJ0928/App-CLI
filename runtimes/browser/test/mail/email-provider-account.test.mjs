@@ -6,7 +6,7 @@ import {providerAccountDOM,READ_PROVIDERS} from '../../applications/mail/lib/pro
 function account(provider,selectors={}) {
   const document={querySelector:selector=>selectors[selector]?.[0]??null,querySelectorAll:selector=>selectors[selector]??[]};
   return vm.runInNewContext(`(${providerAccountDOM.toString()})(${JSON.stringify(provider)})`,{
-    document,location:{href:READ_PROVIDERS[provider].url},getComputedStyle:()=>({display:'block',visibility:'visible'}),
+    URL,document,location:{href:READ_PROVIDERS[provider].url},getComputedStyle:()=>({display:'block',visibility:'visible'}),
   });
 }
 function node(text='',attrs={},children=[]) {
@@ -14,7 +14,7 @@ function node(text='',attrs={},children=[]) {
     getBoundingClientRect:()=>({width:10,height:10}),querySelectorAll:()=>children};
 }
 test('shared send account evidence preserves all provider identities without mail DOM',()=>{
-  assert.equal(account('gmail',{'[aria-label^="Google Account:"]':[node('',{'aria-label':'Google Account: Owner owner@example.test'})]}).account_address,'owner@example.test');
+  assert.equal(account('gmail',{'header a[role="button"][href], [role="banner"] a[role="button"][href], #gb a[role="button"][href]':[node('',{'href':'https://accounts.google.com/SignOutOptions','aria-label':'Google Account: Owner owner@example.test'})]}).account_address,'owner@example.test');
   assert.equal(account('qq_mail',{'.frame-header .profile-user-info .user-email':[node('owner@example.test')]}).account_address,'owner@example.test');
   const root=node('',{title:'owner@example.test'},[node('owner@example.test')]);
   assert.equal(account('outlook',{'[role="tree"] [role="treeitem"][aria-level="1"][data-folder-name]':[root]}).account_address,'owner@example.test');
