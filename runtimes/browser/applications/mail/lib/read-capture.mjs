@@ -465,6 +465,7 @@ export async function markCapturedRead(input, runtime, provider, adapter) {
     readState = await runtime.withReadTab(async tab => {
       const message = await adapter.collectUnread(tab,provider,{account_address:input.target.account_address,
         pinned_message_id:input.target.provider_message_id,pinned_selection_id:input.target.provider_selection_id,
+        pinned_received_at:input.target.received_at,
         folder:input.target.folder,capture_required:false,onSelected:async selected => {
           if (accountIdentity(provider,selected).mail_id !== identity.mail_id) throw error('email_capture_invalid');
         }});

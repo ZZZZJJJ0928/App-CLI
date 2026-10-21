@@ -4,7 +4,9 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import vm from "node:vm";
 import { captureMail as captureUnread, markCapturedRead, validateCaptureInput } from "../../applications/mail/lib/read-capture.mjs";
+import { collectUnread as collectNetworkUnread } from "../../applications/mail/read.mjs";
 
 const digest = bytes => `sha256:${crypto.createHash("sha256").update(bytes).digest("hex")}`;
 const input = () => ({ schema_version: 1, operation: "read", invocation_id: "capture-test", provider: "gmail", account: "default", owner_scope: "a".repeat(64) });
@@ -57,6 +59,36 @@ test('mark_read releases only before the native request and never marks after a 
  await assert.rejects(markCapturedRead(request,{...f.runtime,releaseDispatch:undefined},'gmail',f.adapter),{code:'email_send_configuration_error'});
  const result=await markCapturedRead(request,f.runtime,'gmail',f.adapter);
  assert.equal(result.read_state,'read'); assert.equal(f.events.filter(event=>event==='mark').length,1);
+});
+
+test('QQ mark-read reselects the committed receipt-time target before releasing one write',async t=>{
+ const f=await fixture(t,{provider:'qq_mail'});
+ const target={account_address:f.message.account_address,provider_message_id:f.message.provider_message_id,
+  provider_selection_id:f.message.provider_message_id,received_at:'2026-09-07T02:00:00.123456789Z',folder:'inbox'};
+ const captured=await captureUnread({...input(),provider:'qq_mail',operation:'capture',target},f.runtime,'qq_mail',{...f.adapter,markAfterCapture:false});
+ const queries=[];let receipt=target.received_at;
+ const reader={provider:'qq_mail',version:'0.2.0',
+  snapshot:()=>({provider:'qq_mail',account_address:target.account_address,rows:[],unsupported_rows:0,scan_complete:false}),
+  listPage:request=>{queries.push(request);return {provider:'qq_mail',account_address:target.account_address,page:0,
+   scope:'inbound_received',rows:[{...target,provider_thread_id:target.provider_message_id,received_at:receipt,unread:true}],has_next:false,unsupported_rows:0};},
+  prepareOriginal:()=>assert.fail('mark-read must not download another original')};
+ const tab={runReadCode:code=>vm.runInNewContext(`(${code})(page)`,{window:{SparkClawMailReader:reader},Date,Promise,setTimeout,page:{evaluate:(fn,arg)=>fn(arg)}})};
+ const runtime={...f.runtime,withReadTab:callback=>callback(tab)};
+ const adapter={...f.adapter,collectUnread:collectNetworkUnread};
+ const request={...input(),provider:'qq_mail',operation:'mark_read',invocation_id:'qq-receipt-mark',target,committed_capture:captured.capture};
+ // A drift is checked against the exact original evidence, before dispatch.
+ receipt='2026-09-07T02:00:00.123456788Z';
+ await assert.rejects(markCapturedRead(request,runtime,'qq_mail',adapter),{code:'email_message_identity_invalid'});
+ assert.equal(f.events.includes('release'),false);assert.equal(f.events.includes('mark'),false);
+ receipt=target.received_at;
+ const result=await markCapturedRead(request,runtime,'qq_mail',adapter);
+ assert.equal(result.read_state,'read');assert.deepEqual(result.target,target);
+ assert.equal(queries.length,2);assert.equal(queries[1].provider_mode,'time_range');
+ assert.equal(queries[1].interval_start,'2026-09-07T01:59:59.123Z');
+ assert.equal(queries[1].interval_end,'2026-09-07T02:00:01.123Z');
+ assert.deepEqual(f.events.slice(-2),['release','mark']);
+ await markCapturedRead(request,{...runtime,withReadTab:()=>assert.fail('confirmed read reopened browser')},'qq_mail',adapter);
+ assert.equal(f.events.filter(event=>event==='mark').length,1);
 });
 
 test('capture does not perform a second full MIME/body parse before publication',async t=>{
@@ -113,7 +145,7 @@ async function fixture(t, options = {}) {
     markAfterCapture: true,
     collectUnread: async (_tab, provider, selection) => {
       events.push("select");
-      assert.equal(provider, "gmail");
+      assert.equal(provider, options.provider ?? "gmail");
       if (options.empty) return { status: "empty" };
       if (options.collect) return options.collect(message, selection);
       await selection.onSelected(message);
