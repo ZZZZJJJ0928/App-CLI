@@ -4,6 +4,7 @@ import {ProviderScriptRegistry} from './runtime/provider-scripts.mjs';
 import {isManagedSend} from './lib/managed-send.mjs';
 import {createNotSentReceipt, legacyNotSentReceipt, validateNotSentBinding} from './lib/send-recovery.mjs';
 import {removeSendJournal} from './lib/send-journal.mjs';
+import {isReceiveRead, mailAccount} from './page-policy.mjs';
 
 export async function mailHandlers() {
   const registry = new ProviderScriptRegistry(); await registry.prepare();
@@ -35,8 +36,9 @@ async function prepare(entry, input, context) {
     await context.browser.call('setSecrets', page.sendSecrets);
   }
   if (!context.browser.reused) await page.navigate(entry.loginURL);
-  if (entry.operation !== 'probe') await page.prepareBackgroundPage();
-  if (entry.operation === 'collect_page') await page.prepareMailRound(input.discovery.account_address, context.browser.reused);
+  const account = mailAccount(input) || context.resource.account_address;
+  if (entry.operation !== 'probe' || account) await page.prepareBackgroundPage();
+  if (isReceiveRead(entry.operation) && account) await page.prepareMailRound(account, context.browser.reused);
   return page;
 }
 
@@ -68,14 +70,16 @@ async function execute(entry, original, context, reconcile = false) {
     // Per-message capture/coverage failures describe the result, not ownership
     // of the shared page. A successful guarded reset below proves reusability
     // and keeps the independent watch alive even when the round is partial.
-    const retain = entry.operation === 'collect_page' && ['collected', 'empty', 'partial'].includes(result?.status);
+    const account = mailAccount(input) || context.resource.account_address;
+    const retain = isReceiveRead(entry.operation) && Boolean(account) &&
+      ['ready', 'collected', 'empty', 'partial', 'listed', 'complete_for_observation'].includes(result?.status);
     if (retain) {
-      await page.parkMailRound(input.discovery.account_address);
+      await page.parkMailRound(account);
     }
-    return {data: result, retain, invalidate: entry.operation === 'collect_page' && !retain};
+    return {data: result, retain, invalidate: isReceiveRead(entry.operation) && !retain};
   } catch (error) {
     const reason = typeof error.code === 'string' && /^[A-Za-z0-9_]{1,64}$/u.test(error.code) ? error.code.toUpperCase() : 'PROVIDER_SCRIPT_FAILED';
-    if (/LOGIN_REQUIRED|ACCOUNT_IDENTITY/u.test(reason)) return {status: 'waiting_confirmation', reason, invalidate: entry.operation === 'collect_page'};
+    if (/LOGIN_REQUIRED|ACCOUNT_IDENTITY/u.test(reason)) return {status: 'waiting_confirmation', reason, invalidate: isReceiveRead(entry.operation)};
     if (reason === 'SEND_OUTCOME_UNKNOWN') return {status: 'uncertain', reason};
     throw Object.assign(new Error(reason), {code: reason});
   }

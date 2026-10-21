@@ -94,6 +94,44 @@ test('foreground idle drain preserves live watch authority but closes a parked R
   await f.host.drainIdle();
   assert.equal(f.handles.size, 0);
 });
+test('stopping a watch during a read closes the receive page when the read finishes', async t => {
+  const f = setup(t, {idleMS: 1800000}); await f.hello();
+  const read = await f.send('acquire'), watch = await f.send('acquire', 'watch');
+  await f.send('release', 'watch', {lease_id: watch.lease_id});
+  assert.equal(f.handles.size, 1);
+  assert.deepEqual(await f.send('call', 'read', {lease_id: read.lease_id, method: 'read', arguments: ['finishing']}), {result: ['finishing']});
+  await f.send('release', 'read', {lease_id: read.lease_id, park: true});
+  assert.equal(f.handles.size, 0); assert.equal(f.calls.filter(call => call === 'close').length, 1);
+});
+test('renewed receive authority keeps one page across more than the idle window', async t => {
+  const f = setup(t, {idleMS: 1800000}); await f.hello();
+  const initial = f.authorization.record(f.refs.watch);
+  f.refs.watch = f.authorization.issue({...initial.grant, execution_expires_ms: 1300000}, initial.resource);
+  const watch = await f.send('acquire', 'watch');
+  for (let index = 1; index <= 210; index++) {
+    const now = 1000000 + index * 10000; f.setNow(now);
+    f.refs.watch = f.authorization.issue({principal: 'owner', owner: 'owner', app: 'browser-fixture',
+      command: 'watch', request_key: 'watch', intent_digest: digest('watch'), side_effect: 'read_only',
+      execution_expires_ms: now + 300000, access_expires_ms: now + 600000, revision: index + 1},
+    {binding_digest: digest(f.binding), profile_id: 'default', credential_generation: 1, pool_key: 'same-account'});
+    await f.send('heartbeat', 'watch', {lease_id: watch.lease_id});
+    await f.host.expire();
+    assert.equal(f.handles.size, 1);
+  }
+  assert.equal(f.calls.filter(call => call === 'close').length, 0);
+  await f.send('release', 'watch', {lease_id: watch.lease_id});
+  assert.equal(f.handles.size, 0);
+});
+test('a replacement watch keeps a shared read page live until the replacement stops', async t => {
+  const f = setup(t, {idleMS: 1800000}); await f.hello();
+  const read = await f.send('acquire'), first = await f.send('acquire', 'watch');
+  await f.send('release', 'watch', {lease_id: first.lease_id});
+  const next = await f.send('acquire', 'watch'); assert.equal(next.reused, true);
+  await f.send('release', 'read', {lease_id: read.lease_id, park: true});
+  assert.equal(f.handles.size, 1);
+  await f.send('release', 'watch', {lease_id: next.lease_id});
+  assert.equal(f.handles.size, 0);
+});
 for (const firstCommand of ['read', 'watch']) test(`concurrent ${firstCommand} and shared peer join one creation`, async t => {
   const f = setup(t); await f.hello();
   let finish, creations = 0;

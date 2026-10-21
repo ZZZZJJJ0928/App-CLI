@@ -5,6 +5,7 @@ import {ProductClient} from '../../src/product-client.mjs';
 import {digest, requireCondition, RuntimeError} from '../../src/protocol.mjs';
 import {parseIdentity} from '../../src/identity.mjs';
 import {attachmentMessageFingerprint, validateAttachments} from './lib/workspace-attachments.mjs';
+import {isReceiveRead, mailAccount} from './page-policy.mjs';
 
 function reconciliationIntent(input) {
   // Receipt lookup compares approved bytes, not the expired upload location.
@@ -75,11 +76,20 @@ export class MailboxClient {
     const {binding, command, spec, manifest} = this.describe(provider, operation);
     requireCondition(scriptID === spec.script_id && revision === spec.revision, 'RELEASE_MISMATCH');
     const owner = this.config.owner_id;
-    const account = (input.account_address ?? input.discovery?.account_address ?? input.target?.account_address ?? '').toLowerCase();
-    const pool_key = digest({owner, provider, account, scope: input.owner_scope ?? '', credentialGeneration, binding: digest(binding)});
+    let account = mailAccount(input), scope = input.owner_scope ?? '';
+    // A probe has no account in its public input. It may join the receive page
+    // only through the current authorized watch, never an old/default account.
+    const watch = this.watches.get(provider), watched = watch?.admission;
+    if (this.sharedPages && isReceiveRead(command) && !account &&
+        ['pending', 'running'].includes(watch?.task.status) &&
+        watched?.resource?.token === token && watched.resource.credential_generation === credentialGeneration &&
+        (!scope || scope === watched.request.arguments.owner_scope)) {
+      account = mailAccount(watched.request.arguments); scope = watched.request.arguments.owner_scope;
+    }
+    const pool_key = digest({owner, provider, account, scope, credentialGeneration, binding: digest(binding)});
     const resource = {...(previousRequestKey ? {previous_request_key: previousRequestKey} : {}), ...(previousTask ? {previous_task_id: previousTask} : {}), binding_digest: digest(binding), profile_id: this.config.profile_id, credential_generation: credentialGeneration,
       token, account_address: account, workspace_root: this.config.workspace_root, host_runtime_root: this.config.host_runtime_root,
-      pool_key: ['collect_page', 'watch'].includes(command) && account ? (this.sharedPages ? pool_key : digest({pool_key, command})) : digest({taskID, command}), document_nonce: pool_key};
+      pool_key: (isReceiveRead(command) || command === 'watch') && account ? (this.sharedPages ? pool_key : digest({pool_key, command})) : digest({taskID, command}), document_nonce: pool_key};
     const args = command === 'watch' ? {schema_version: 1, owner_scope: input.owner_scope, account_address: input.account_address} : input;
     return this.client.authorize({app: binding.manifest.id, command, arguments: args,
       request_key: await this.requestKey(binding.manifest.id, command, sessionKey ?? taskID), principal: 'product-owner', owner, resource,

@@ -1555,10 +1555,10 @@
       "revision": 1,
       "source_checksum": "sha256:f7b4d609bc57686667106192cfaeeb94932b898a8871254389af347530ebab3d",
       "host": {
-        "family": "probe",
-        "activity": "exclusive",
-        "invalidate_on_failure": false,
-        "reuse_idle_ms": 0,
+        "family": "gmail.inbound",
+        "activity": "read",
+        "invalidate_on_failure": true,
+        "reuse_idle_ms": 1800000,
         "methods": [
           "currentURL",
           "count",
@@ -1599,14 +1599,21 @@
           "downloadOrigins": [],
           "loginURL": "https://mail.google.com/mail/u/0/",
           "timeoutMS": 45000,
-          "backgroundBeforeNavigation": false,
-          "codeEnabled": false,
-          "readOnlyCode": false,
+          "backgroundBeforeNavigation": true,
+          "codeEnabled": true,
+          "readOnlyCode": true,
           "downloadEnabled": false,
-          "awaitedRead": false,
+          "awaitedRead": true,
           "effectSelectors": [],
           "deniedURLs": [],
-          "beforeNavigationAssets": []
+          "beforeNavigationAssets": [],
+          "hook": {
+            "module": "applications/mail/runtime/mail-observer-runtime.cjs",
+            "provider": "gmail",
+            "origins": [
+              "https://mail.google.com"
+            ]
+          }
         }
       }
     },
@@ -1617,7 +1624,7 @@
       "script_id": "gmail.send",
       "revision": 2,
       "reconcile_requires_host": false,
-      "source_checksum": "sha256:1de315998e6860ee3a6d84884c354c9a8cbf0c7613d2b120e417c592975f08c0",
+      "source_checksum": "sha256:b14bf8ef5aa30d72090f0c731f28b7070e7d34ad9ed48b79613b271ac737b404",
       "host": {
         "family": "send",
         "activity": "exclusive",
@@ -1683,12 +1690,12 @@
       "timeout_ms": 180000,
       "script_id": "gmail.read",
       "revision": 1,
-      "source_checksum": "sha256:3e9e81c51f11da08e078cb557bd390dbc978ccfbfe1eb9bce8aa272b63c6a55b",
+      "source_checksum": "sha256:57cc80b747acdddcbd4d6d80728201d82d555e563ccfc744283456f43384f313",
       "host": {
-        "family": "read",
-        "activity": "exclusive",
-        "invalidate_on_failure": false,
-        "reuse_idle_ms": 0,
+        "family": "gmail.inbound",
+        "activity": "read",
+        "invalidate_on_failure": true,
+        "reuse_idle_ms": 1800000,
         "methods": [
           "currentURL",
           "count",
@@ -1739,7 +1746,14 @@
           "awaitedRead": true,
           "effectSelectors": [],
           "deniedURLs": [],
-          "beforeNavigationAssets": []
+          "beforeNavigationAssets": [],
+          "hook": {
+            "module": "applications/mail/runtime/mail-observer-runtime.cjs",
+            "provider": "gmail",
+            "origins": [
+              "https://mail.google.com"
+            ]
+          }
         }
       }
     },
@@ -1749,12 +1763,12 @@
       "timeout_ms": 180000,
       "script_id": "gmail.discover",
       "revision": 1,
-      "source_checksum": "sha256:3e9e81c51f11da08e078cb557bd390dbc978ccfbfe1eb9bce8aa272b63c6a55b",
+      "source_checksum": "sha256:57cc80b747acdddcbd4d6d80728201d82d555e563ccfc744283456f43384f313",
       "host": {
-        "family": "discover",
-        "activity": "exclusive",
-        "invalidate_on_failure": false,
-        "reuse_idle_ms": 0,
+        "family": "gmail.inbound",
+        "activity": "read",
+        "invalidate_on_failure": true,
+        "reuse_idle_ms": 1800000,
         "methods": [
           "currentURL",
           "count",
@@ -1805,7 +1819,14 @@
           "awaitedRead": true,
           "effectSelectors": [],
           "deniedURLs": [],
-          "beforeNavigationAssets": []
+          "beforeNavigationAssets": [],
+          "hook": {
+            "module": "applications/mail/runtime/mail-observer-runtime.cjs",
+            "provider": "gmail",
+            "origins": [
+              "https://mail.google.com"
+            ]
+          }
         }
       }
     },
@@ -1815,12 +1836,12 @@
       "timeout_ms": 180000,
       "script_id": "gmail.capture",
       "revision": 1,
-      "source_checksum": "sha256:3e9e81c51f11da08e078cb557bd390dbc978ccfbfe1eb9bce8aa272b63c6a55b",
+      "source_checksum": "sha256:57cc80b747acdddcbd4d6d80728201d82d555e563ccfc744283456f43384f313",
       "host": {
-        "family": "capture",
-        "activity": "exclusive",
-        "invalidate_on_failure": false,
-        "reuse_idle_ms": 0,
+        "family": "gmail.inbound",
+        "activity": "read",
+        "invalidate_on_failure": true,
+        "reuse_idle_ms": 1800000,
         "methods": [
           "currentURL",
           "count",
@@ -1871,7 +1892,14 @@
           "awaitedRead": true,
           "effectSelectors": [],
           "deniedURLs": [],
-          "beforeNavigationAssets": []
+          "beforeNavigationAssets": [],
+          "hook": {
+            "module": "applications/mail/runtime/mail-observer-runtime.cjs",
+            "provider": "gmail",
+            "origins": [
+              "https://mail.google.com"
+            ]
+          }
         }
       }
     },
@@ -1881,12 +1909,12 @@
       "timeout_ms": 180000,
       "script_id": "gmail.enumerate_thread",
       "revision": 1,
-      "source_checksum": "sha256:3e9e81c51f11da08e078cb557bd390dbc978ccfbfe1eb9bce8aa272b63c6a55b",
+      "source_checksum": "sha256:57cc80b747acdddcbd4d6d80728201d82d555e563ccfc744283456f43384f313",
       "host": {
-        "family": "enumerate_thread",
-        "activity": "exclusive",
-        "invalidate_on_failure": false,
-        "reuse_idle_ms": 0,
+        "family": "gmail.inbound",
+        "activity": "read",
+        "invalidate_on_failure": true,
+        "reuse_idle_ms": 1800000,
         "methods": [
           "currentURL",
           "count",
@@ -1932,12 +1960,19 @@
           "timeoutMS": 180000,
           "backgroundBeforeNavigation": true,
           "codeEnabled": true,
-          "readOnlyCode": false,
+          "readOnlyCode": true,
           "downloadEnabled": false,
-          "awaitedRead": false,
+          "awaitedRead": true,
           "effectSelectors": [],
           "deniedURLs": [],
-          "beforeNavigationAssets": []
+          "beforeNavigationAssets": [],
+          "hook": {
+            "module": "applications/mail/runtime/mail-observer-runtime.cjs",
+            "provider": "gmail",
+            "origins": [
+              "https://mail.google.com"
+            ]
+          }
         }
       }
     },
@@ -1947,7 +1982,7 @@
       "timeout_ms": 180000,
       "script_id": "gmail.mark_read",
       "revision": 1,
-      "source_checksum": "sha256:3e9e81c51f11da08e078cb557bd390dbc978ccfbfe1eb9bce8aa272b63c6a55b",
+      "source_checksum": "sha256:57cc80b747acdddcbd4d6d80728201d82d555e563ccfc744283456f43384f313",
       "host": {
         "family": "mark_read",
         "activity": "exclusive",
@@ -2013,7 +2048,7 @@
       "timeout_ms": 1800000,
       "script_id": "gmail.collect_page",
       "revision": 1,
-      "source_checksum": "sha256:3e9e81c51f11da08e078cb557bd390dbc978ccfbfe1eb9bce8aa272b63c6a55b",
+      "source_checksum": "sha256:57cc80b747acdddcbd4d6d80728201d82d555e563ccfc744283456f43384f313",
       "host": {
         "family": "gmail.inbound",
         "activity": "read",
@@ -2087,7 +2122,7 @@
       "timeout_ms": 120000,
       "script_id": "gmail.observe",
       "revision": 1,
-      "source_checksum": "sha256:27e61fc7054dbfea84c0f91e8a0a967f2ed9a14174db0893dd9e0fef598e059c",
+      "source_checksum": "sha256:3629d6906e96ca1c90452bc29840bf457252b9419fc49811fa5df8ca3ba8893f",
       "host": {
         "family": "gmail.inbound",
         "activity": "watch",

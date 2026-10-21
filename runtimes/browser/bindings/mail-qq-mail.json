@@ -1556,10 +1556,10 @@
       "revision": 1,
       "source_checksum": "sha256:765eb203d351638ac1d01b701ece270fdd5de2b0d5a149063d0f6edb40f35c9c",
       "host": {
-        "family": "probe",
-        "activity": "exclusive",
-        "invalidate_on_failure": false,
-        "reuse_idle_ms": 0,
+        "family": "qq_mail.inbound",
+        "activity": "read",
+        "invalidate_on_failure": true,
+        "reuse_idle_ms": 1800000,
         "methods": [
           "currentURL",
           "count",
@@ -1600,14 +1600,22 @@
           "downloadOrigins": [],
           "loginURL": "https://wx.mail.qq.com/",
           "timeoutMS": 90000,
-          "backgroundBeforeNavigation": false,
-          "codeEnabled": false,
-          "readOnlyCode": false,
+          "backgroundBeforeNavigation": true,
+          "codeEnabled": true,
+          "readOnlyCode": true,
           "downloadEnabled": false,
-          "awaitedRead": false,
+          "awaitedRead": true,
           "effectSelectors": [],
           "deniedURLs": [],
-          "beforeNavigationAssets": []
+          "beforeNavigationAssets": [],
+          "hook": {
+            "module": "applications/mail/runtime/mail-observer-runtime.cjs",
+            "provider": "qq_mail",
+            "origins": [
+              "https://mail.qq.com",
+              "https://wx.mail.qq.com"
+            ]
+          }
         }
       }
     },
@@ -1618,7 +1626,7 @@
       "script_id": "qqmail.send",
       "revision": 2,
       "reconcile_requires_host": false,
-      "source_checksum": "sha256:239a21111dad88a06f0770df9ff8b8c8fd49e633cd455dc4975cca5084a95f10",
+      "source_checksum": "sha256:d32d94a004b70e5dce89407e0aa21febee0efb5520bf5f7a2c7975a1ad4b7e3b",
       "host": {
         "family": "send",
         "activity": "exclusive",
@@ -1684,12 +1692,12 @@
       "timeout_ms": 180000,
       "script_id": "qqmail.read",
       "revision": 1,
-      "source_checksum": "sha256:3e9e81c51f11da08e078cb557bd390dbc978ccfbfe1eb9bce8aa272b63c6a55b",
+      "source_checksum": "sha256:57cc80b747acdddcbd4d6d80728201d82d555e563ccfc744283456f43384f313",
       "host": {
-        "family": "read",
-        "activity": "exclusive",
-        "invalidate_on_failure": false,
-        "reuse_idle_ms": 0,
+        "family": "qq_mail.inbound",
+        "activity": "read",
+        "invalidate_on_failure": true,
+        "reuse_idle_ms": 1800000,
         "methods": [
           "currentURL",
           "count",
@@ -1740,7 +1748,15 @@
           "awaitedRead": true,
           "effectSelectors": [],
           "deniedURLs": [],
-          "beforeNavigationAssets": []
+          "beforeNavigationAssets": [],
+          "hook": {
+            "module": "applications/mail/runtime/mail-observer-runtime.cjs",
+            "provider": "qq_mail",
+            "origins": [
+              "https://wx.mail.qq.com",
+              "https://mail.qq.com"
+            ]
+          }
         }
       }
     },
@@ -1750,12 +1766,12 @@
       "timeout_ms": 180000,
       "script_id": "qqmail.discover",
       "revision": 1,
-      "source_checksum": "sha256:3e9e81c51f11da08e078cb557bd390dbc978ccfbfe1eb9bce8aa272b63c6a55b",
+      "source_checksum": "sha256:57cc80b747acdddcbd4d6d80728201d82d555e563ccfc744283456f43384f313",
       "host": {
-        "family": "discover",
-        "activity": "exclusive",
-        "invalidate_on_failure": false,
-        "reuse_idle_ms": 0,
+        "family": "qq_mail.inbound",
+        "activity": "read",
+        "invalidate_on_failure": true,
+        "reuse_idle_ms": 1800000,
         "methods": [
           "currentURL",
           "count",
@@ -1806,7 +1822,15 @@
           "awaitedRead": true,
           "effectSelectors": [],
           "deniedURLs": [],
-          "beforeNavigationAssets": []
+          "beforeNavigationAssets": [],
+          "hook": {
+            "module": "applications/mail/runtime/mail-observer-runtime.cjs",
+            "provider": "qq_mail",
+            "origins": [
+              "https://wx.mail.qq.com",
+              "https://mail.qq.com"
+            ]
+          }
         }
       }
     },
@@ -1816,12 +1840,12 @@
       "timeout_ms": 180000,
       "script_id": "qqmail.capture",
       "revision": 1,
-      "source_checksum": "sha256:3e9e81c51f11da08e078cb557bd390dbc978ccfbfe1eb9bce8aa272b63c6a55b",
+      "source_checksum": "sha256:57cc80b747acdddcbd4d6d80728201d82d555e563ccfc744283456f43384f313",
       "host": {
-        "family": "capture",
-        "activity": "exclusive",
-        "invalidate_on_failure": false,
-        "reuse_idle_ms": 0,
+        "family": "qq_mail.inbound",
+        "activity": "read",
+        "invalidate_on_failure": true,
+        "reuse_idle_ms": 1800000,
         "methods": [
           "currentURL",
           "count",
@@ -1872,7 +1896,15 @@
           "awaitedRead": true,
           "effectSelectors": [],
           "deniedURLs": [],
-          "beforeNavigationAssets": []
+          "beforeNavigationAssets": [],
+          "hook": {
+            "module": "applications/mail/runtime/mail-observer-runtime.cjs",
+            "provider": "qq_mail",
+            "origins": [
+              "https://wx.mail.qq.com",
+              "https://mail.qq.com"
+            ]
+          }
         }
       }
     },
@@ -1882,12 +1914,12 @@
       "timeout_ms": 180000,
       "script_id": "qqmail.enumerate_thread",
       "revision": 1,
-      "source_checksum": "sha256:3e9e81c51f11da08e078cb557bd390dbc978ccfbfe1eb9bce8aa272b63c6a55b",
+      "source_checksum": "sha256:57cc80b747acdddcbd4d6d80728201d82d555e563ccfc744283456f43384f313",
       "host": {
-        "family": "enumerate_thread",
-        "activity": "exclusive",
-        "invalidate_on_failure": false,
-        "reuse_idle_ms": 0,
+        "family": "qq_mail.inbound",
+        "activity": "read",
+        "invalidate_on_failure": true,
+        "reuse_idle_ms": 1800000,
         "methods": [
           "currentURL",
           "count",
@@ -1933,12 +1965,20 @@
           "timeoutMS": 180000,
           "backgroundBeforeNavigation": true,
           "codeEnabled": true,
-          "readOnlyCode": false,
+          "readOnlyCode": true,
           "downloadEnabled": false,
-          "awaitedRead": false,
+          "awaitedRead": true,
           "effectSelectors": [],
           "deniedURLs": [],
-          "beforeNavigationAssets": []
+          "beforeNavigationAssets": [],
+          "hook": {
+            "module": "applications/mail/runtime/mail-observer-runtime.cjs",
+            "provider": "qq_mail",
+            "origins": [
+              "https://wx.mail.qq.com",
+              "https://mail.qq.com"
+            ]
+          }
         }
       }
     },
@@ -1948,7 +1988,7 @@
       "timeout_ms": 180000,
       "script_id": "qqmail.mark_read",
       "revision": 1,
-      "source_checksum": "sha256:3e9e81c51f11da08e078cb557bd390dbc978ccfbfe1eb9bce8aa272b63c6a55b",
+      "source_checksum": "sha256:57cc80b747acdddcbd4d6d80728201d82d555e563ccfc744283456f43384f313",
       "host": {
         "family": "mark_read",
         "activity": "exclusive",
@@ -2014,7 +2054,7 @@
       "timeout_ms": 1800000,
       "script_id": "qqmail.collect_page",
       "revision": 1,
-      "source_checksum": "sha256:3e9e81c51f11da08e078cb557bd390dbc978ccfbfe1eb9bce8aa272b63c6a55b",
+      "source_checksum": "sha256:57cc80b747acdddcbd4d6d80728201d82d555e563ccfc744283456f43384f313",
       "host": {
         "family": "qq_mail.inbound",
         "activity": "read",
@@ -2089,7 +2129,7 @@
       "timeout_ms": 120000,
       "script_id": "qq_mail.observe",
       "revision": 1,
-      "source_checksum": "sha256:27e61fc7054dbfea84c0f91e8a0a967f2ed9a14174db0893dd9e0fef598e059c",
+      "source_checksum": "sha256:3629d6906e96ca1c90452bc29840bf457252b9419fc49811fa5df8ca3ba8893f",
       "host": {
         "family": "qq_mail.inbound",
         "activity": "watch",

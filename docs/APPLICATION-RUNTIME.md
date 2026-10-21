@@ -136,12 +136,24 @@ Install all files first, drain the Executor and Host, then activate the matched
 consumer, wheel, npm runtime and Reader/preload projections. Handshake checks
 actual release and binding digests. Rollback restores the whole matching set
 with a compatible ledger version while retaining the same state directory,
-request index, journals and monotonically increasing epoch. Ledger 1 releases refuse a migrated ledger 2 directory, so rolling back
-after activation requires restoring the drained pre-upgrade state set. Unknown
+request index, journals and monotonically increasing epoch. Ledger 1 releases
+refuse a migrated ledger 2 directory; after activation, rollback must use a
+ledger-2-compatible package and must not restore older execution evidence. Unknown
 versions or missing authority evidence fail closed. SparkClaw's installer and disposable
 paired-release qualifier exercise these steps.
 
 ## Validation boundary
+
+The receive page is shared by watches and network-only discovery, capture and
+thread inventory for the exact owner, account, scope, credentials and binding.
+A connection probe may join only through a current watch with matching
+credentials; an unbound probe remains an independent task. Send and mark-read
+use independent pages. Each receive task verifies the document/account and
+resets transient reader state before and after work. Renewed watch leases keep
+the page resident; stopping the watch lets an active read finish, then closes
+the page without parking it again. Expiry, revocation and cleanup fences remain
+authoritative. Periodic authorization maintenance yields between bounded batches
+so directory growth cannot monopolize the Host event loop.
 
 Source Python (86) and optional runtime/provider (275) tests pass locally.
 A fresh installation and two compatible artifact sets verify tamper rejection,

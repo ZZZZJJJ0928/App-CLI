@@ -2,6 +2,12 @@
 
 [English](APPLICATION-RUNTIME.md) · [生命周期](LIFECYCLE.zh-CN.md) · [验证记录](VALIDATION.md)
 
+收信页由监听和纯网络查询、原文抓取、线程清单复用，严格绑定 owner、账户、范围、凭据代次和 binding。
+连接检查只能通过凭据匹配的当前监听加入；未绑定检查仍使用独立任务页。发信和标记已读始终独立。
+每次收信任务在执行前后校验文档、账户并清理 Reader 临时状态。持续续租的监听维持常驻页；
+停止监听后，已开始的读取可以完成，随后关闭页面，不再重新停泊。租约到期、撤销和清理围栏继续生效。
+周期性授权维护按有界批次让出事件循环，避免索引目录增长阻塞 Host。
+
 维护 fork 的分支为 `codex/sparkclaw-email`，发行身份为 `0.3.0-sparkclaw.1`；Python 版本为 `0.3.0+sparkclaw.1`，可选 Node 包为 `@infinimesh/app-cli-runtime@0.3.0-sparkclaw.1`。这不是上游发行。邮件是首批应用，公共 Registry 不依赖 Node、邮件或浏览器。
 
 ## 调用与维护边界
@@ -58,7 +64,7 @@ npm test --prefix runtimes/browser
 
 `python -m app_cli.executor_service /absolute/private/config.json` 启动 owner-local 服务。配置固定 Node/assembly/socket、binding 摘要与私有 key/grants 路径。可信产品签发不可变 `{grant, resource, mac}`，Python、Executor、Host 分别校验；key、登录态、用户内容不进入发行。
 
-准备全部产物后排空 Executor 和 Host，再切换匹配的消费者、wheel、npm 与 Reader/preload 投影；握手核对实际发行和 binding。回退恢复整组兼容当前 ledger 版本的产物；ledger 1 发行拒绝已迁移的 ledger 2 目录，激活后回退需恢复排空后的升级前状态集，保留原 state、请求索引、journal，epoch 继续递增。未知状态版本或缺失权威记录阻止启动。SparkClaw 安装器与隔离发行验证脚本覆盖这些步骤。
+准备全部产物后排空 Executor 和 Host，再切换匹配的消费者、wheel、npm 与 Reader/preload 投影；握手核对实际发行和 binding。回退恢复整组兼容当前 ledger 版本的产物；ledger 1 发行拒绝已迁移的 ledger 2 目录，激活后只能使用兼容 ledger 2 的包，禁止恢复旧执行证据。保留原 state、请求索引、journal，epoch 继续递增。未知状态版本或缺失权威记录阻止启动。SparkClaw 安装器与隔离发行验证脚本覆盖这些步骤。
 
 ## 验证边界
 

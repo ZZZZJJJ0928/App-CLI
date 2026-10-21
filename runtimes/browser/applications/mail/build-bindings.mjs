@@ -4,6 +4,7 @@ import {outputSchema} from './output-schema.mjs';
 import {inputSchema} from './input-schema.mjs';
 import {digest} from '../../src/protocol.mjs';
 import {installOutlookEarlyBridge} from './userscripts/lib/outlook-early-bridge.mjs';
+import {isReceiveRead} from './page-policy.mjs';
 
 const registry = new ProviderScriptRegistry(); await registry.prepare();
 const root = new URL('../../', import.meta.url), check = process.argv.includes('--check');
@@ -28,26 +29,26 @@ for (const provider of ['gmail', 'outlook', 'qq_mail']) {
   const commands = Object.fromEntries(entries.map(entry => {
     const name = entry.operation === 'observe' ? 'watch' : entry.operation;
     const read = ['read', 'discover', 'capture', 'enumerate_thread', 'mark_read', 'collect_page', 'watch'].includes(name);
-    const shared = ['collect_page', 'watch'].includes(name);
+    const shared = isReceiveRead(name) || name === 'watch';
     // The persistent watch has an independent execution lane. Its shared
     // Host family serializes initial page preparation with Reader work.
     return [name, {handler: `${provider}.${name}`, resource: name === 'watch' ? `${provider}.watch` : provider,
       ...(name === 'watch' ? {renewable: true} : {}), timeout_ms: entry.timeoutMS, script_id: entry.scriptID,
       revision: entry.revision, ...(name === 'send' ? {reconcile_requires_host: false} : {}), source_checksum: entry.sourceChecksum,
       host: {family: shared ? `${provider}.inbound` : name, activity: shared ? name === 'watch' ? 'watch' : 'read' : 'exclusive',
-        invalidate_on_failure: name === 'collect_page', reuse_idle_ms: shared ? 1800000 : 0,
+        invalidate_on_failure: isReceiveRead(name), reuse_idle_ms: shared ? 1800000 : 0,
         methods: ['currentURL', 'count', 'attribute', 'value', 'text', 'lines', 'readMany', 'visible', 'enabled', 'evaluate',
           'click', 'runReadCode', 'download', 'fill', 'focus', 'press', 'waitFor', 'waitMilliseconds', 'navigate',
           'prepareBackgroundPage', 'inspect', 'act', 'probeReads', 'setSecrets', 'hookActivate', 'hookEvents'],
         page: {secretReadback: name === 'send', trustedDownloadSelectors: ['#sparkclaw-mail-original'], origins: entry.origins, downloadOrigins: entry.downloadOrigins ?? [], loginURL: entry.loginURL,
-          timeoutMS: name === 'watch' ? 300000 : entry.timeoutMS, backgroundBeforeNavigation: read,
-          codeEnabled: name !== 'probe', readOnlyCode: ['read', 'discover', 'capture', 'collect_page', 'watch'].includes(name),
+          timeoutMS: name === 'watch' ? 300000 : entry.timeoutMS, backgroundBeforeNavigation: read || shared,
+          codeEnabled: true, readOnlyCode: shared,
           downloadEnabled: ['read', 'capture', 'collect_page'].includes(name),
-          awaitedRead: name === 'send' || ['gmail', 'qq_mail'].includes(provider) && ['read', 'discover', 'capture', 'collect_page', 'watch'].includes(name),
+          awaitedRead: name === 'send' || ['gmail', 'qq_mail'].includes(provider) && shared,
           effectSelectors: [entry.effectSelector, ...entry.effectSelectors ?? []].filter(Boolean),
           deniedURLs: provider === 'outlook' ? [{origin: 'https://www.microsoft.com',
             path: '^/[a-z]{2}-[a-z]{2}/microsoft-365/outlook/email-and-calendar-software-microsoft-outlook/?$', query: {deeplink: '/mail/'}}] : [],
-          beforeNavigationAssets: read && provider === 'outlook' ? ['assets/mail/outlook-before-navigation.js'] : [],
+          beforeNavigationAssets: (read || shared) && provider === 'outlook' ? ['assets/mail/outlook-before-navigation.js'] : [],
           ...(shared ? {hook: {module: 'applications/mail/runtime/mail-observer-runtime.cjs', provider,
             origins: entry.origins.filter(origin => !/login|accounts|www\.microsoft/u.test(origin))}} : {})}}}];
   }));

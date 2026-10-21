@@ -169,6 +169,7 @@ export class BrowserHostPort {
         !this.closed && !this.changing && request.epoch === this.epoch &&
         this.resources.get(key) === slot && !slot.fenced && !slot.disposing, 'HOST_LEASE_EXPIRED');
       lease.pending = false; slot.idleUntil = 0; slot.idleDeadline = 0;
+      if (kind === 'watch') slot.watchRetired = false;
       lease.expires = Math.min(this.clock() + LEASE_MS, grant.execution_expires_ms);
       lease.monotonicDeadline = this.monotonic() + Math.max(0, lease.expires - this.clock());
       await this.driver.updateLease(slot.handle, this.stamp(slot));
@@ -197,11 +198,17 @@ export class BrowserHostPort {
             await this.dispose(slot);
           } else {
             slot.leases.delete(lease.id);
+            // Once the watch is stopped/expired, finish any admitted Reader
+            // but do not let its later release keep the receive page parked.
+            // A newly admitted watch can establish a fresh bounded lifetime.
+            if (lease.kind === 'watch' && !lease.pending) {
+              slot.watchRetired = true; slot.idleUntil = 0; slot.idleDeadline = 0;
+            }
             const active = [...slot.leases].some(id => {
               const other = this.leases.get(id);
               return other && !other.retired && !other.pending;
             });
-            if (park && !lease.pending && !active && slot.idleMS) {
+            if (park && !lease.pending && !active && slot.idleMS && !slot.watchRetired) {
               slot.idleUntil = this.clock() + slot.idleMS;
               slot.idleDeadline = this.monotonic() + slot.idleMS;
             }
