@@ -283,14 +283,29 @@ export class MailboxClient {
   }
   async poll(provider, renew) {
     const watch = this.watches.get(provider); if (!watch) return null;
+    // Read the executor's current state before renewing: a subscription may
+    // have failed since our last event poll. Renewing that cached running task
+    // first would hide its terminal state behind INVALID_TASK_STATE forever.
+    await this.readWatchEvents(watch);
     if (renew && watch.expires - Date.now() < 60000 && watch.task.status === 'running') {
-      if (!watch.pendingRenewal) {
-        const renewal = this.client.renew(watch.admission, watch.task.id);
-        watch.admission = renewal.admission; watch.pendingRenewal = true;
-        await renewal.acknowledged;
-      } else await this.client.control(watch.admission, 'renew', watch.task.id);
-      watch.expires = watch.admission.grant.execution_expires_ms; watch.pendingRenewal = false;
+      try {
+        if (!watch.pendingRenewal) {
+          const renewal = this.client.renew(watch.admission, watch.task.id);
+          watch.admission = renewal.admission; watch.pendingRenewal = true;
+          await renewal.acknowledged;
+        } else await this.client.control(watch.admission, 'renew', watch.task.id);
+        watch.expires = watch.admission.grant.execution_expires_ms; watch.pendingRenewal = false;
+      } catch (error) {
+        if (!['INVALID_TASK_STATE', 'AUTHORIZATION_DENIED'].includes(error.code)) throw error;
+        // A task can finish between the read and renewal. Query that same task;
+        // this does not admit a replacement or repeat any browser operation.
+        await this.readWatchEvents(watch);
+        if (watch.task.status === 'running') throw error;
+      }
     }
+    return watch;
+  }
+  async readWatchEvents(watch) {
     const response = await this.client.control(watch.admission, 'events', watch.task.id, {cursor: watch.cursor, limit: 100});
     watch.task = response.task;
     if (response.gap) watch.onEvent(watch, 'resync_required');
@@ -303,6 +318,7 @@ export class MailboxClient {
     if (response.task.status === 'waiting_confirmation') watch.state = 'login_required';
     else if (['blocked', 'failed', 'uncertain'].includes(response.task.status)) watch.state = 'degraded';
     else if (response.task.status === 'cancelled') watch.state = 'stopped';
+    if (response.task.status !== 'running') watch.pendingRenewal = false;
     watch.onEvent(watch, 'state'); return watch;
   }
   async stopWatch(provider) {

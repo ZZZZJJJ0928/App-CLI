@@ -284,31 +284,42 @@ export class ProductClient {
   // epoch is sealed and whose current grant the executor already reclaimed.
   // Only identities that the fence now retires are eligible.
   prune({limit = 1000} = {}) {
-    const state = this.epochState;
-    if (!state) return 0;
-    const retired = key => {
-      let identity;
-      try {identity = parseIdentity(key);} catch {return false;}
-      return identity.kind === 'operation' && (identity.generation < state.generation || identity.epoch <= state.sealed_through);
-    };
-    let removed = 0;
-    for (const name of fs.readdirSync(this.index)) {
-      if (removed >= limit) break;
-      const file = path.join(this.index, name);
-      if (name.endsWith('.head.json')) {
-        let head;
-        try {head = decode(privateRead(file, 2 * 1024 * 1024));} catch {continue;}
-        if (!retired(head.request?.request_key) || fs.existsSync(path.join(this.config.grants_directory, head.current + '.json'))) continue;
-        for (const reference of [head.previous, head.candidate].filter(Boolean)) this.authorization.remove(reference);
-        fs.unlinkSync(file); removed++;
-      } else if (name.startsWith('alias-') && name.endsWith('.json')) {
-        let alias;
-        try {alias = JSON.parse(fs.readFileSync(file, 'utf8'));} catch {continue;}
-        const owner = this.config.owner_id;
-        if (!retired(alias.request_key) || fs.existsSync(this.headFile({principal: 'product-owner', owner, request_key: alias.request_key}))) continue;
-        fs.unlinkSync(file); removed++;
+    if (this.pruneRunning) return this.pruneRunning;
+    const run = async () => {
+      const state = this.epochState;
+      if (!state) return 0;
+      const retired = key => {
+        let identity;
+        try {identity = parseIdentity(key);} catch {return false;}
+        return identity.kind === 'operation' && (identity.generation < state.generation || identity.epoch <= state.sealed_through);
+      };
+      let removed = 0, scanned = 0;
+      // Stream the directory and yield between bounded batches even when no
+      // entry can be reclaimed. A deletion limit alone does not bound a scan
+      // of live authorization heads and must not stall Host heartbeats/HTTP.
+      const directory = await fs.promises.opendir(this.index);
+      for await (const entry of directory) {
+        if (removed >= limit) break;
+        if (++scanned % 32 === 0) await new Promise(setImmediate);
+        const name = entry.name, file = path.join(this.index, name);
+        if (name.endsWith('.head.json')) {
+          let head;
+          try {head = decode(privateRead(file, 2 * 1024 * 1024));} catch {continue;}
+          if (!retired(head.request?.request_key) || fs.existsSync(path.join(this.config.grants_directory, head.current + '.json'))) continue;
+          for (const reference of [head.previous, head.candidate].filter(Boolean)) this.authorization.remove(reference);
+          fs.unlinkSync(file); removed++;
+        } else if (name.startsWith('alias-') && name.endsWith('.json')) {
+          let alias;
+          try {alias = JSON.parse(fs.readFileSync(file, 'utf8'));} catch {continue;}
+          const owner = this.config.owner_id;
+          if (!retired(alias.request_key) || fs.existsSync(this.headFile({principal: 'product-owner', owner, request_key: alias.request_key}))) continue;
+          fs.unlinkSync(file); removed++;
+        }
       }
-    }
-    return removed;
+      return removed;
+    };
+    const running = run().finally(() => {if (this.pruneRunning === running) this.pruneRunning = null;});
+    this.pruneRunning = running;
+    return running;
   }
 }

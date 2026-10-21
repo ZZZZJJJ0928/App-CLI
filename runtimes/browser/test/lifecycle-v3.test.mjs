@@ -541,9 +541,9 @@ test('product heads and aliases of reclaimed requests are pruned', async t => {
     resource: {binding_digest: digest(binding)}, side_effect: 'local_mutation', timeout_ms: 60000};
   const kept = product.authorize({...base, request_key: keep}), dropped = product.authorize({...base, request_key: drop});
   product.observe({generation: 1, open_epoch: 2, draining_epoch: null, sealed_through: 1, authorization_generation: 1});
-  assert.equal(product.prune(), 0, 'a live grant keeps its head');
+  assert.equal(await product.prune(), 0, 'a live grant keeps its head');
   f.authorization.remove(dropped.request.authorization_ref);
-  assert.equal(product.prune(), 1);
+  assert.equal(await product.prune(), 1);
   assert.throws(() => product.restore({principal: 'fixture-principal', owner: 'fixture-owner', request_key: drop}), {code: 'ADMISSION_UNRESOLVED'});
   assert.equal(product.restore({principal: 'fixture-principal', owner: 'fixture-owner', request_key: keep}).request.authorization_ref, kept.request.authorization_ref);
 });
