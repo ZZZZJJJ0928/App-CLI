@@ -32,8 +32,14 @@ def configured_registry():
             if wire.digest(binding) != installed["digest"] or wire.digest(binding["manifest"]) != binding["manifest_digest"]:
                 raise ValueError("Release binding mismatch")
             manifest = binding["manifest"]
+            # "process" keeps the reviewed client program in the loop; the
+            # default exchanges the same message with the socket directly.
+            transport = config.get("executor_transport", "socket")
+            if transport not in ("socket", "process"):
+                raise ValueError("Unknown executor transport")
             adapters.append(RuntimeAdapter(manifest, [str(node), str(runtime / "src/client.mjs"), config["socket"]],
-                                           protocol_version="3.0", timeout_seconds=20))
+                                           protocol_version="3.0", timeout_seconds=20,
+                                           socket_path=config["socket"] if transport == "socket" else None))
             registrations.append(LifecycleRegistration(manifest["id"], binding["manifest_digest"],
                 "owner-local-executor-v3", "owner-local-lifecycle-v3", operations=wire.OPERATIONS,
                 renewable_commands=frozenset(name for name, spec in binding["commands"].items() if spec.get("renewable"))))

@@ -17,7 +17,7 @@ class RuntimeAdapter:
     polls, grants approval or changes backend selection automatically.
     """
 
-    def __init__(self, manifest, argv, *, timeout_seconds=30, protocol_version="1.0"):
+    def __init__(self, manifest, argv, *, timeout_seconds=30, protocol_version="1.0", socket_path=None):
         self.manifest = _json_copy(manifest, "MANIFEST_INVALID", "Runtime manifest must be JSON.")
         Registry([self])  # Validate the same public manifest as other adapters.
         if self.manifest["adapter"]["kind"] != "runtime":
@@ -32,6 +32,12 @@ class RuntimeAdapter:
         if type(protocol_version) is not str or protocol_version not in {"1.0", "3.0"} or (protocol_version == "3.0" and timeout_seconds > 30):
             raise AppCLIError("MANIFEST_INVALID", "Select runtime 1.0 or bounded runtime 3.0 explicitly.", 2)
         self._protocol_version = protocol_version
+        # Runtime 3.0 may reach its executor socket directly; the exchange is
+        # identical to the reviewed client program named by argv.
+        if socket_path is not None and (protocol_version != "3.0" or type(socket_path) is not str
+                                        or not Path(socket_path).is_absolute() or "\x00" in socket_path):
+            raise AppCLIError("MANIFEST_INVALID", "A runtime socket must be an absolute path for runtime 3.0.", 2)
+        self._socket = socket_path
         # Keep virtualenv interpreter symlinks intact; never resolve them to the
         # base interpreter. argv is supplied during trusted registration only.
         self._argv = tuple(argv)
@@ -76,7 +82,7 @@ class RuntimeAdapter:
     def invoke_lifecycle(self, request, context):
         from ..lifecycle import ExecutionContext
         from .. import lifecycle_protocol as wire
-        from ..runtime_transport import exchange
+        from ..runtime_transport import exchange, socket_exchange
 
         if self._protocol_version != wire.VERSION:
             raise AppCLIError("CAPABILITY_NOT_SUPPORTED", "Runtime 1.0 does not support lifecycle operations.")
@@ -86,7 +92,11 @@ class RuntimeAdapter:
                 or context.grant.app != self._app_id or context.grant.command != request["command"]):
             raise AppCLIError("AUTHORIZATION_DENIED", "Runtime admission context does not match the request.")
         # The executor must resolve this reference again; caller context is not a wire grant.
-        raw = exchange(self._argv, wire.encode(request), timeout=self._timeout,
-                       max_response=wire.MAX_RESPONSE_BYTES)
+        if self._socket:
+            raw = socket_exchange(self._socket, wire.encode(request), timeout=self._timeout,
+                                  max_response=wire.MAX_RESPONSE_BYTES)
+        else:
+            raw = exchange(self._argv, wire.encode(request), timeout=self._timeout,
+                           max_response=wire.MAX_RESPONSE_BYTES)
         return wire.validate_response(request, wire.decode(raw, wire.MAX_RESPONSE_BYTES,
                                                           code="BACKEND_PROTOCOL_INVALID"))

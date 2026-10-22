@@ -82,3 +82,48 @@ def exchange(argv, request, *, timeout, max_response):
         writer.join(timeout=1)
         process.stdout.close()
         process.stdin.close()
+
+
+def socket_exchange(path, request, *, timeout, max_response, idle_timeout=15):
+    """Exchange one EOF-delimited message with the executor socket directly.
+
+    This is byte-for-byte the exchange the bundled ``client.mjs`` performs, so a
+    configured socket path removes one process per control message without
+    changing the wire. Transport failures map to the same code the client's
+    nonzero exit produced.
+    """
+    import socket
+
+    if os.name != "posix":
+        raise AppCLIError("CAPABILITY_NOT_SUPPORTED", "Runtime socket transport is not qualified on this platform.")
+    deadline = time.monotonic() + timeout
+    connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        def remaining():
+            left = deadline - time.monotonic()
+            if left <= 0:
+                raise AppCLIError("BACKEND_TIMEOUT", "The execution service did not respond in time.")
+            return min(left, idle_timeout)
+        try:
+            connection.settimeout(remaining())
+            connection.connect(path)
+            connection.sendall(request)
+            connection.shutdown(socket.SHUT_WR)
+            chunks = []
+            size = 0
+            while True:
+                connection.settimeout(remaining())
+                chunk = connection.recv(min(65536, max_response + 1 - size))
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                size += len(chunk)
+                if size > max_response:
+                    raise AppCLIError("BACKEND_PROTOCOL_INVALID", "The execution service exceeded its output contract.")
+            return b"".join(chunks)
+        except socket.timeout:
+            raise AppCLIError("BACKEND_TIMEOUT", "The execution service did not respond in time.") from None
+        except OSError:
+            raise AppCLIError("BACKEND_EXECUTION_FAILED", "The execution service exchange failed.") from None
+    finally:
+        connection.close()

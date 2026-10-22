@@ -347,5 +347,8 @@ export class MailboxClient {
     await this.client.epoch(this.control([...this.bindings.keys()][0]));
     return this.client.prune();
   }
-  async close() {await Promise.all([...this.watches.keys()].map(provider => this.stopWatch(provider)));}
+  async close() {
+    try {await Promise.all([...this.watches.keys()].map(provider => this.stopWatch(provider)));}
+    finally {this.client.close?.();}
+  }
 }

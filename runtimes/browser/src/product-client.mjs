@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {randomUUID} from 'node:crypto';
 import {spawn} from 'node:child_process';
+import {MachineSessionPool} from './machine-session.mjs';
 import {setTimeout as delay} from 'node:timers/promises';
 import {SignedFileAuthorization, privateDirectory, privateRead} from './authorization.mjs';
 import {operationIdentity, parseIdentity} from './identity.mjs';
@@ -28,16 +29,32 @@ function durableWrite(directory, filename, value, {exclusive = false} = {}) {
 // This is deliberately not a wire operation and cannot turn an `approved` field
 // into authority. Every operation still crosses Python Registry.control.
 export class ProductClient {
-  constructor({configFile, python}) {
+  constructor({configFile, python, sessions = true}) {
     requireCondition(path.isAbsolute(configFile) && path.isAbsolute(python), 'CONFIGURATION_INVALID');
     this.configFile = configFile; this.python = python; this.config = decode(privateRead(configFile));
+    // Resident machine sessions amortize interpreter start and release
+    // verification; every request still crosses Registry.control.
+    this.sessions = sessions ? new MachineSessionPool({python, env: {...process.env, APP_CLI_CONFIG: configFile},
+      ...(typeof sessions === 'object' ? sessions : {})}) : null;
     if (this.config.release_digest) verifyRelease(this.config);
     this.authorization = new SignedFileAuthorization(this.config.grants_directory, this.config.issuer_key_file);
     this.index = path.join(this.config.grants_directory, 'index'); privateDirectory(this.index);
     this.epochFile = path.join(this.index, 'epoch-state.json');
     this.epochState = fs.existsSync(this.epochFile) ? decode(privateRead(this.epochFile)) : null;
   }
-  machine(request) {
+  async machine(request) {
+    const value = this.sessions ? await this.sessions.exchange(request) : null;
+    if (value === null) return this.machineOnce(request);
+    return this.accept(value);
+  }
+  accept(value) {
+    requireCondition(value.protocol_version === PROTOCOL_VERSION, 'BACKEND_PROTOCOL_INVALID');
+    if (value.kind === 'error') throw new RuntimeError(value.error.code, value.error.reason);
+    this.observe(value.epoch_state);
+    return value;
+  }
+  close() {this.sessions?.close();}
+  machineOnce(request) {
     const payload = encode(request, 2 * 1024 * 1024);
     return new Promise((resolve, reject) => {
       const child = spawn(this.python, ['-m', 'app_cli', '--machine'], {shell: false,
@@ -54,11 +71,7 @@ export class ProductClient {
       child.stdout.on('data', chunk => {size += chunk.length; if (size > RESPONSE_LIMIT) finish(new RuntimeError('OUTPUT_VALIDATION_FAILED')); else chunks.push(chunk);});
       child.on('close', () => {
         try {
-          const value = decode(Buffer.concat(chunks), RESPONSE_LIMIT);
-          requireCondition(value.protocol_version === PROTOCOL_VERSION, 'BACKEND_PROTOCOL_INVALID');
-          if (value.kind === 'error') throw new RuntimeError(value.error.code, value.error.reason);
-          this.observe(value.epoch_state);
-          finish(null, value);
+          finish(null, this.accept(decode(Buffer.concat(chunks), RESPONSE_LIMIT)));
         } catch (error) {finish(error);}
       });
       child.stdin.end(payload);
@@ -209,12 +222,13 @@ export class ProductClient {
     return this.control(admission, 'invoke', prepared.task.id);
   }
   async wait(admission, response, {signal, interval = 250} = {}) {
-    while (response.kind === 'task' && ['prepared', 'pending', 'running'].includes(response.task.status)) {
+    // Short tasks finish within a few status reads; long ones settle at the cap.
+    for (let reads = 1; response.kind === 'task' && ['prepared', 'pending', 'running'].includes(response.task.status); reads++) {
       if (signal?.aborted) {
         await this.control(admission, 'cancel', response.task.id);
         return this.control(admission, 'status', response.task.id);
       }
-      await delay(interval);
+      await delay(Math.min(interval, 50 * reads));
       response = await this.control(admission, 'status', response.task.id);
     }
     return response;

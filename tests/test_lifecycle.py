@@ -20,7 +20,8 @@ from app_cli.core import AppCLIError, Registry
 from app_cli.lifecycle import AuthorizationGrant, LifecycleRegistration
 from app_cli import lifecycle_protocol as wire
 from app_cli.adapters.runtime import RuntimeAdapter
-from app_cli.runtime_transport import exchange
+from app_cli.runtime_transport import exchange, socket_exchange
+from app_cli.machine import SESSION_HELLO
 from app_cli.tasks import TASK_STATUSES
 from lifecycle_fixture import CounterAdapter, GrantProvider, manifest, write_grants
 
@@ -186,6 +187,41 @@ class LifecycleTests(LifecycleCase):
         self.assertEqual(code,2)
         self.assertEqual(result['error']['code'],'INVALID_ARGUMENT')
 
+    def test_machine_session_answers_each_line_like_one_shot_calls(self):
+        prepared=self.registry.control(self.request)
+        lines=[json.dumps(self.control('status',prepared['task']['id'])),'{not json',
+               json.dumps(self.control('cancel',prepared['task']['id'])),json.dumps(self.control('status',prepared['task']['id']))]
+        output=io.StringIO()
+        with patch('sys.stdin',io.StringIO('\n'.join(lines)+'\n')),redirect_stdout(output):
+            code=main(['--machine','--session'],registry=self.registry)
+        self.assertEqual(code,0)
+        replies=[json.loads(line) for line in output.getvalue().splitlines()]
+        self.assertEqual(replies[0],SESSION_HELLO)
+        self.assertEqual(replies[1]['task']['status'],'prepared')
+        self.assertEqual(replies[2]['error']['code'],'INPUT_VALIDATION_FAILED')
+        self.assertEqual(replies[3]['kind'],'ack')
+        self.assertEqual(replies[4]['task'],self.registry.control(self.control('status',prepared['task']['id']))['task'])
+        self.assertEqual(len(replies),5)
+
+    def test_machine_session_ends_on_an_unterminated_frame(self):
+        output=io.StringIO()
+        with patch('sys.stdin',io.StringIO(json.dumps(self.request))),redirect_stdout(output):
+            code=main(['--machine','--session'],registry=self.registry)
+        self.assertEqual(code,2)
+        replies=[json.loads(line) for line in output.getvalue().splitlines()]
+        self.assertEqual(replies[0],SESSION_HELLO)
+        self.assertEqual(replies[1]['error']['code'],'INPUT_VALIDATION_FAILED')
+        self.assertNotIn('task',self.registry.control(self.control('lookup')))
+
+    def test_machine_session_without_a_registry_reports_instead_of_greeting(self):
+        output=io.StringIO()
+        def broken():
+            raise AppCLIError('DEPLOYMENT_INVALID','The configured application release could not be verified.')
+        with patch('app_cli.deployment.configured_registry',broken),patch('sys.stdin',io.StringIO('')),redirect_stdout(output):
+            code=main(['--machine','--session'])
+        self.assertEqual(code,1)
+        self.assertEqual(json.loads(output.getvalue())['error']['code'],'DEPLOYMENT_INVALID')
+
     def test_bad_outputs_and_adapter_exceptions_are_sanitized(self):
         original=self.adapter.invoke_lifecycle
         def invalid(request,context):
@@ -308,6 +344,34 @@ class RuntimeV2Tests(LifecycleCase):
             started=time.monotonic()
             self.fails(code,lambda:exchange([sys.executable,'-I','-c',program],b'{}',timeout=0.3,max_response=1048576))
             self.assertLess(time.monotonic()-started,3)
+
+    def test_socket_transport_matches_the_client_exchange_and_bounds(self):
+        import socket, threading
+        path=str(self.path/'executor.sock')
+        server=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM);server.bind(path);server.listen(4)
+        self.addCleanup(server.close)
+        replies=[b'{"echo":true}',b'x'*2048,None]
+        def serve():
+            for reply in replies:
+                connection,_=server.accept()
+                with connection:
+                    received=b''
+                    while chunk:=connection.recv(4096): received+=chunk
+                    if reply is None: time.sleep(1); continue
+                    connection.sendall(reply if reply!=b'{"echo":true}' else received)
+        thread=threading.Thread(target=serve,daemon=True);thread.start()
+        self.assertEqual(socket_exchange(path,b'{"ping":1}',timeout=2,max_response=1024),b'{"ping":1}')
+        self.fails('BACKEND_PROTOCOL_INVALID',lambda:socket_exchange(path,b'{}',timeout=2,max_response=1024))
+        started=time.monotonic()
+        self.fails('BACKEND_TIMEOUT',lambda:socket_exchange(path,b'{}',timeout=0.3,max_response=1024))
+        self.assertLess(time.monotonic()-started,1)
+        self.fails('BACKEND_EXECUTION_FAILED',lambda:socket_exchange(str(self.path/'absent.sock'),b'{}',timeout=1,max_response=1024))
+        for bad in ['relative.sock',123]:
+            with self.assertRaises(AppCLIError) as caught:
+                RuntimeAdapter(manifest('runtime'),self.argv,protocol_version='3.0',timeout_seconds=5,socket_path=bad)
+            self.assertEqual(caught.exception.code,'MANIFEST_INVALID')
+        with self.assertRaises(AppCLIError):
+            RuntimeAdapter(manifest('runtime'),self.argv,socket_path=path)
 
     def test_runtime_v1_still_refuses_lifecycle_calls(self):
         adapter=RuntimeAdapter(manifest('runtime'),self.argv)
