@@ -40,6 +40,7 @@ async function prepare(entry, input, context) {
   const account = mailAccount(input) || context.resource.account_address;
   if (entry.operation !== 'probe' || account) await page.prepareBackgroundPage();
   if (isReceiveRead(entry.operation) && account) await page.prepareMailRound(account, context.browser.reused);
+  if (entry.provider === 'qq_mail' && entry.operation === 'send' && context.browser.reused) await page.prepareMailRound(account, true);
   return page;
 }
 
@@ -72,10 +73,16 @@ async function execute(entry, original, context, reconcile = false) {
     // of the shared page. A successful guarded reset below proves reusability
     // and keeps the independent watch alive even when the round is partial.
     const account = mailAccount(input) || context.resource.account_address;
-    const retain = isReceiveRead(entry.operation) && Boolean(account) &&
+    let retain = isReceiveRead(entry.operation) && Boolean(account) &&
       ['ready', 'collected', 'empty', 'partial', 'listed', 'complete_for_observation'].includes(result?.status);
     if (retain) {
       await page.parkMailRound(account);
+    }
+    if (entry.provider === 'qq_mail' && entry.operation === 'send' && result?.status === 'sent' &&
+        process.env.APP_CLI_MAIL_NATIVE_SEND === 'qq_mail') {
+      // This is after the durable sent receipt. Failure to park only closes the
+      // page; it must not discard a proved send or invite another dispatch.
+      try { retain = await page.parkSendTemplate(account); } catch { retain = false; }
     }
     return {data: result, retain, invalidate: isReceiveRead(entry.operation) && !retain};
   } catch (error) {

@@ -94,6 +94,19 @@ export class MailPage {
     this.signal = undefined;
   }
 
+  async parkSendTemplate(account) {
+    if (this.registration.provider !== 'qq_mail' || this.registration.operation !== 'send') return false;
+    // A DOM send may have replaced the document. Establish its current nonce
+    // only after success, then require the same nonce on the next admission.
+    await this.prepareMailRound(account, false);
+    const ready = await this.runReadCode(`async page=>page.evaluate(account=>{
+      try{return window.SparkClawMailReader?.sendNativeReady?.({account_address:account})??null}catch{return null}
+    },${JSON.stringify(account)})`);
+    await this.browser.call('setSecrets', {});
+    this.sendSecrets = {};
+    return ready?.provider === 'qq_mail' && ready.account_address === account.toLowerCase() && ready.ready === true;
+  }
+
 }
 function isContextDestroyed(error) {
   return error &&

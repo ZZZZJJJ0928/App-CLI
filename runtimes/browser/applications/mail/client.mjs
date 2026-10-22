@@ -87,9 +87,12 @@ export class MailboxClient {
       account = mailAccount(watched.request.arguments); scope = watched.request.arguments.owner_scope;
     }
     const pool_key = digest({owner, provider, account, scope, credentialGeneration, binding: digest(binding)});
+    // Only QQ's bounded, one-use send template can outlive a successful send.
+    // The separate command pool never borrows a receive or mark-read page.
+    const sendPool = provider === 'qq_mail' && command === 'send' && account;
     const resource = {...(previousRequestKey ? {previous_request_key: previousRequestKey} : {}), ...(previousTask ? {previous_task_id: previousTask} : {}), binding_digest: digest(binding), profile_id: this.config.profile_id, credential_generation: credentialGeneration,
       token, account_address: account, workspace_root: this.config.workspace_root, host_runtime_root: this.config.host_runtime_root,
-      pool_key: (isReceiveRead(command) || command === 'watch') && account ? (this.sharedPages ? pool_key : digest({pool_key, command})) : digest({taskID, command}), document_nonce: pool_key};
+      pool_key: sendPool ? digest({pool_key, command}) : (isReceiveRead(command) || command === 'watch') && account ? (this.sharedPages ? pool_key : digest({pool_key, command})) : digest({taskID, command}), document_nonce: pool_key};
     const args = command === 'watch' ? {schema_version: 1, owner_scope: input.owner_scope, account_address: input.account_address} : input;
     return this.client.authorize({app: binding.manifest.id, command, arguments: args,
       request_key: await this.requestKey(binding.manifest.id, command, sessionKey ?? taskID), principal: 'product-owner', owner, resource,
