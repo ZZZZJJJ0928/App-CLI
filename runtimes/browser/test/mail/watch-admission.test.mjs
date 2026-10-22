@@ -66,7 +66,9 @@ for (const rotate of [false, true]) test(`expired refused watch recovers with or
         if (method !== 'hookEvents') return;
         const next = () => ({document: 'fixture-document', sequence: ++sequence, account_ok: true});
         return {cursor: sequence + 2, events: sequence === 0
-          ? [{value: {...next(), kind: 'document'}}, {value: {...next(), kind: 'mailbox_changed', reason: 'outlook_delivery_change'}}]
+          ? [{value: {...next(), kind: 'document'}}, {value: {...next(), kind: 'mailbox_changed', reason: 'outlook_delivery_change',
+              targets: [{provider_item_id: 'item-1', received_at: '2026-09-24T09:00:00Z'}]}},
+            {value: {...next(), kind: 'mailbox_changed', reason: 'outlook_delivery_change', targets: [{subject: 'private'}]}}]
           : [{value: {...next(), kind: 'heartbeat'}}]};
       }};
     }}});
@@ -77,7 +79,7 @@ for (const rotate of [false, true]) test(`expired refused watch recovers with or
   let request = {provider: 'outlook', operation: 'observe', taskID: 'observer', token: 'fixture-token', credentialGeneration: 1,
     scriptID: spec.script_id, revision: spec.revision,
     input: {action: 'start', account_address: 'owner@example.test', owner_scope: 'a'.repeat(64)},
-    onEvent(watch, type, reason) {events.push({type, reason, state: watch.state});}};
+    onEvent(watch, type, reason, targets) {events.push({type, reason, state: watch.state, ...(type === 'mailbox_changed' ? {targets} : {})});}};
   const first = (await mailbox.startWatch(request)).result.watch_epoch;
   await mailbox.pollWatch('outlook'); await mailbox.stopWatch('outlook');
   const originalRow = ledger.get(first);
@@ -116,6 +118,11 @@ for (const rotate of [false, true]) test(`expired refused watch recovers with or
   assert.equal(mailbox.watchStatus('outlook').result.status, 'watching');
   assert.ok(events.some(event => event.type === 'resync_required' && event.state === 'watching'));
   assert.ok(events.some(event => event.type === 'mailbox_changed' && event.reason === 'outlook_delivery_change'));
+  // Candidate targets cross the executor; malformed page candidates are dropped, never the hint.
+  const hints = events.filter(event => event.type === 'mailbox_changed');
+  assert.ok(hints.some(event => JSON.stringify(event.targets) === JSON.stringify([{provider_item_id: 'item-1', received_at: '2026-09-24T09:00:00Z'}])));
+  assert.ok(hints.some(event => Array.isArray(event.targets) && event.targets.length === 0));
+  assert.equal(JSON.stringify(events).includes('private'), false);
   const response = await mailbox.client.control(current.admission, 'events', current.task.id, {cursor: 0, limit: 100});
   assert.ok(response.events.some(event => event.type === 'gap' && event.payload.reason === 'watch_admission_unresolved' && event.payload.previous_request_key === key));
   await mailbox.pollWatch('outlook', {renew: true});

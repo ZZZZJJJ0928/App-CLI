@@ -24,7 +24,7 @@ export function installMailObserverPage(options, classify) {
     if (result.decision !== 'change') return;
     if (result.key && seenHints.has(result.key)) return;
     if (result.key) { seenHints.add(result.key); if (seenHints.size > 512) seenHints.delete(seenHints.values().next().value); }
-    report('mailbox_changed', {reason: result.reason});
+    report('mailbox_changed', {reason: result.reason, ...(Array.isArray(result.targets) && result.targets.length ? {targets: result.targets} : {})});
   };
   let shapeNodes = 0;
   const shape = (value, depth = 0, key = '') => {

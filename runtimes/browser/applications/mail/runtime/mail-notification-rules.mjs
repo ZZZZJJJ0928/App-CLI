@@ -1,7 +1,28 @@
 // Pure classification of native notification envelopes. A change is a hint to
 // reconcile with Reader, never an acquired mail or a coverage watermark.
-// No subject, address, body, credential or provider ID is returned to the host.
+// No subject, address, body or credential is returned to the host. A change may
+// carry up to 16 candidate targets: the provider's own identifiers for the
+// arrival (QQ `mid`, Outlook ItemId with its receipt time). Candidates are
+// qualification evidence until a run proves they name the Reader's targets.
+// Both functions are serialized into the page, so each keeps its own helpers.
+export function validCandidateTargets(targets) {
+  const CANDIDATE_ID = /^[A-Za-z0-9_+=:.\/~\-]{1,512}$/u;
+  const receiptTime = value => typeof value === 'string' && value.length <= 40 &&
+    /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,9})?(?:Z|[+-]\d\d:\d\d)$/u.test(value) && Number.isFinite(Date.parse(value));
+  return Array.isArray(targets) && targets.length <= 16 && targets.every(target => {
+    if (!target || typeof target !== 'object' || Array.isArray(target)) return false;
+    const keys = Object.keys(target);
+    if (!keys.length || keys.some(key => !['provider_message_id', 'provider_item_id', 'received_at'].includes(key))) return false;
+    if (target.provider_message_id === undefined && target.provider_item_id === undefined) return false;
+    return [target.provider_message_id, target.provider_item_id].every(id => id === undefined || typeof id === 'string' && CANDIDATE_ID.test(id)) &&
+      (target.received_at === undefined || receiptTime(target.received_at));
+  });
+}
 export function classifyMailNotification(provider, channel, value, state = new Map()) {
+  const CANDIDATE_ID = /^[A-Za-z0-9_+=:.\/~\-]{1,512}$/u;
+  const MAX_CANDIDATES = 16;
+  const receiptTime = value => typeof value === 'string' && value.length <= 40 &&
+    /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,9})?(?:Z|[+-]\d\d:\d\d)$/u.test(value) && Number.isFinite(Date.parse(value));
   const ignore = {decision: 'ignore'};
   const unknown = {decision: 'unknown'};
   if (provider === 'qq_mail' && channel === 'qq') {
@@ -10,7 +31,8 @@ export function classifyMailNotification(provider, channel, value, state = new M
     let data;
     try { data = JSON.parse(atob(value.content)); } catch { return unknown; }
     if (data?.type === '0' && typeof data.mid === 'string' && /^[A-Za-z0-9_+=:.\/~\-]{1,1024}$/.test(data.mid)) {
-      return {decision: 'change', reason: 'qq_inbound_envelope', key: data.mid};
+      return {decision: 'change', reason: 'qq_inbound_envelope', key: data.mid,
+        targets: CANDIDATE_ID.test(data.mid) ? [{provider_message_id: data.mid}] : []};
     }
     return unknown;
   }
@@ -66,21 +88,29 @@ export function classifyMailNotification(provider, channel, value, state = new M
     if (!row) return unknown;
     if (row.EventType === 'Reload' || row.EventType === 'RowDeleted') return ignore;
     if (!['RowAdded', 'RowModified'].includes(row.EventType)) return unknown;
-    let entry = signature(row.Conversation);
-    if (!entry && row.Item) {
+    let entry = signature(row.Conversation), targets = [];
+    if (entry) {
+      // Item IDs new to this conversation since its last known signature.
+      const previous = state.get(entry[0]);
+      let known = [];
+      try { known = previous === undefined ? [] : JSON.parse(previous)[2]; } catch {}
+      targets = row.Conversation.ItemIds.map(item => item.Id).filter(id => !known.includes(id) && CANDIDATE_ID.test(id))
+        .slice(0, MAX_CANDIDATES).map(id => ({provider_item_id: id}));
+    } else if (row.Item) {
       const item = row.Item;
       if (item.IsDraft === true || item.MessageToMe === false && item.MessageCcMe === false) return ignore;
       if (typeof item.ItemId?.Id === 'string' && item.ItemId.Id.length < 2048 &&
           typeof item.DateTimeReceived === 'string' && Number.isFinite(Date.parse(item.DateTimeReceived)) &&
           (item.MessageToMe === true || item.MessageCcMe === true)) {
         entry = ['item:' + item.ItemId.Id, item.DateTimeReceived];
+        if (CANDIDATE_ID.test(item.ItemId.Id)) targets = [{provider_item_id: item.ItemId.Id, ...(receiptTime(item.DateTimeReceived) ? {received_at: item.DateTimeReceived} : {})}];
       }
     }
     if (!entry) return unknown;
     const before = state.get(entry[0]); remember(entry);
     if (before === entry[1]) return ignore;
     if (row.EventType === 'RowModified' && before === undefined) return unknown;
-    return {decision: 'change', reason: 'outlook_delivery_change'};
+    return {decision: 'change', reason: 'outlook_delivery_change', targets};
   }
   return unknown;
 }

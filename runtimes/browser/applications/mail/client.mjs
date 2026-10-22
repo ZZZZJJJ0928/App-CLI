@@ -322,7 +322,7 @@ export class MailboxClient {
     for (const event of response.events) {
       if (event.type === 'watch_ready') {watch.ready = true; watch.state = 'watching'; watch.onEvent(watch, 'resync_required');}
       if (event.type === 'gap') watch.onEvent(watch, 'resync_required');
-      if (event.type === 'mailbox_changed') watch.onEvent(watch, 'mailbox_changed', event.payload.reason);
+      if (event.type === 'mailbox_changed') watch.onEvent(watch, 'mailbox_changed', event.payload.reason, event.payload.targets ?? []);
     }
     watch.cursor = response.cursor;
     if (response.task.status === 'waiting_confirmation') watch.state = 'login_required';

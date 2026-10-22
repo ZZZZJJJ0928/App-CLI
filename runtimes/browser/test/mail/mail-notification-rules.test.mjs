@@ -54,3 +54,30 @@ test('Outlook single-item notification covers received mail and ignores read sta
   assert.equal(check('RowAdded',{...item,ItemId:{Id:'draft-test'},IsDraft:true}).decision,'ignore');
   assert.notEqual(check('RowAdded',{...item,ItemId:{Id:'outgoing-test'},MessageToMe:false}).decision,'change');
 });
+
+test('arrival hints carry bounded candidate targets from the provider envelope itself', async () => {
+  const {validCandidateTargets} = await import('../../applications/mail/runtime/mail-notification-rules.mjs');
+  const packet={cmd:1,scene:'notify',encoding:'base64',content:btoa(JSON.stringify({type:'0',mid:'ZC0001-fixture',t:'fixture'}))};
+  assert.deepEqual(classify('qq_mail','qq',packet).targets,[{provider_message_id:'ZC0001-fixture'}]);
+  const long={...packet,content:btoa(JSON.stringify({type:'0',mid:'x'.repeat(600)}))};
+  assert.equal(classify('qq_mail','qq',long).decision,'change');
+  assert.deepEqual(classify('qq_mail','qq',long).targets,[]);
+  const state=new Map();
+  const item={ItemId:{Id:'item-new'},DateTimeReceived:'2026-09-24T09:00:00Z',MessageToMe:true,IsDraft:false,IsRead:false};
+  const single={operation:'subscribeToRowNotifications',message:{type:'APPLY',argumentList:[{value:1},{value:{data:{subscribeToRowNotifications:{EventType:'RowAdded',Conversation:null,Item:item}}}}]}};
+  assert.deepEqual(classify('outlook','outlook_subscription',single,state).targets,[{provider_item_id:'item-new',received_at:'2026-09-24T09:00:00Z'}]);
+  const row={ConversationId:{Id:'conversation'},LastDeliveryTime:'2026-09-24T09:00:00Z',MessageCount:1,ItemIds:[{Id:'first'}]};
+  const conversation=(EventType,Conversation)=>({operation:'subscribeToRowNotifications',message:{type:'APPLY',argumentList:[{value:2},{value:{data:{subscribeToRowNotifications:{EventType,Conversation}}}}]}});
+  assert.deepEqual(classify('outlook','outlook_subscription',conversation('RowAdded',row),state).targets,[{provider_item_id:'first'}]);
+  const reply={...row,LastDeliveryTime:'2026-09-24T09:05:00Z',MessageCount:2,ItemIds:[{Id:'first'},{Id:'reply'}]};
+  assert.deepEqual(classify('outlook','outlook_subscription',conversation('RowModified',reply),state).targets,[{provider_item_id:'reply'}]);
+  assert.equal(validCandidateTargets([{provider_message_id:'a'},{provider_item_id:'b',received_at:'2026-09-24T09:00:00.5Z'}]),true);
+  for (const bad of [{},[{}],[{provider_message_id:'a',subject:'x'}],[{provider_message_id:'a b'}],[{received_at:'2026-09-24T09:00:00Z'}],
+    [{provider_item_id:'a',received_at:'yesterday'}],Array.from({length:17},()=>({provider_message_id:'a'}))]) assert.equal(validCandidateTargets(bad),false);
+});
+
+test('the serialized page classifier is self-contained', () => {
+  const isolated=new Function(`return (${classify.toString()})`)();
+  const packet={cmd:1,scene:'notify',encoding:'base64',content:btoa(JSON.stringify({type:'0',mid:'isolated'}))};
+  assert.deepEqual(isolated('qq_mail','qq',packet).targets,[{provider_message_id:'isolated'}]);
+});

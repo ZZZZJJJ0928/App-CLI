@@ -76,6 +76,7 @@ test('Outlook native Worker callbacks pass through unchanged and emit metadata w
   assert.equal(forwarded,message);
   const hint=f.events.find(event=>event.kind==='mailbox_changed');
   assert.equal(hint.reason,'outlook_delivery_change');
+  assert.deepEqual(JSON.parse(JSON.stringify(hint.targets)),[{provider_item_id:'item-test'}]);
   assert.equal(JSON.stringify(f.events).includes('private subject'),false);
   f.context.__sparkclawMailObserver.dispose();
   assert.equal(f.context.Worker,f.Worker);assert.equal(f.context.MessageChannel,f.Channel);

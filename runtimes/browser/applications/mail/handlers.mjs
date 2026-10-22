@@ -5,6 +5,7 @@ import {isManagedSend} from './lib/managed-send.mjs';
 import {createNotSentReceipt, legacyNotSentReceipt, validateNotSentBinding} from './lib/send-recovery.mjs';
 import {removeSendJournal} from './lib/send-journal.mjs';
 import {isReceiveRead, mailAccount} from './page-policy.mjs';
+import {validCandidateTargets} from './runtime/mail-notification-rules.mjs';
 
 export async function mailHandlers() {
   const registry = new ProviderScriptRegistry(); await registry.prepare();
@@ -116,7 +117,9 @@ async function watch(entry, input, context) {
       if (!value.account_ok) return {status: 'waiting_confirmation', reason: 'EMAIL_ACCOUNT_IDENTITY_UNAVAILABLE'};
       if (value.kind === 'degraded') context.emit('gap', {reason: 'observer_degraded'});
       if (value.kind === 'mailbox_changed' && ['qq_inbound_envelope', 'gmail_topic_invalidation', 'outlook_delivery_change'].includes(value.reason)) {
-        context.emit('mailbox_changed', {provider: entry.provider, reason: value.reason});
+        // Page output is untrusted: malformed candidates are dropped, never the hint.
+        const targets = value.targets !== undefined && validCandidateTargets(value.targets) ? value.targets : [];
+        context.emit('mailbox_changed', {provider: entry.provider, reason: value.reason, ...(targets.length ? {targets} : {})});
       }
     }
     if (Date.now() - lastEvent > 60000) return {status: 'blocked', reason: 'OBSERVER_DISCONNECTED'};
