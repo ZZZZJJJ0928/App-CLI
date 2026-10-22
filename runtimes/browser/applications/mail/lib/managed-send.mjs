@@ -29,16 +29,31 @@ export function validateManagedSend(input,provider){
  return {...input,account_address:normalize(input.account_address),mode,message:{to:[...m.to],cc:[...m.cc??[]],subject:m.subject??'',body:{format:'text',content:m.body.content},...(attachments.length?{attachments}:{})},recipientDigest:`sha256:${crypto.createHash('sha256').update(JSON.stringify({to:m.to,cc:m.cc??[]})).digest('hex')}`};
 }
 
+// One page turn per read, without an in-page wait: the host's eval budget
+// also covers process start and the post-eval network settle (up to 6 s
+// while a freshly navigated mailbox is still loading), so waiting inside it
+// turned a not-yet-hydrated identity into browser_script_timeout.
 async function sendAccountHash(tab,provider){
- const evidence=await tab.inspect(`async()=>{if(!${JSON.stringify(READ_PROVIDERS[provider].origins)}.includes(location.origin))return {error:'email_provider_origin_invalid'};let observed;const deadline=Date.now()+5000;do{const reader=window.SparkClawMailReader;if(reader){if(reader.provider!==${JSON.stringify(provider)}||reader.version!=='0.2.0')return {url:location.href,account_hash:null};try{observed=reader.snapshot({interval_start:"1970-01-01T00:00:00Z",interval_end:"1970-01-01T00:00:01Z"});}catch(error){if(error.code!=='email_account_identity_unavailable')return {url:location.href,account_hash:null};}}else{observed=(${providerAccountDOM.toString()})(${JSON.stringify(provider)});}if(observed?.account_address)break;await new Promise(r=>setTimeout(r,100))}while(Date.now()<deadline);if(!observed?.account_address)return {url:location.href,account_hash:null};const value=observed.account_address.toLowerCase();return {url:location.href,account_hash:Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value))),v=>v.toString(16).padStart(2,'0')).join('')};}`);
+ const evidence=await tab.inspect(`async()=>{if(!${JSON.stringify(READ_PROVIDERS[provider].origins)}.includes(location.origin))return {error:'email_provider_origin_invalid'};let observed;const reader=window.SparkClawMailReader;if(reader){if(reader.provider!==${JSON.stringify(provider)}||reader.version!=='0.2.0')return {url:location.href,account_hash:null,final:true};try{observed=reader.snapshot({interval_start:"1970-01-01T00:00:00Z",interval_end:"1970-01-01T00:00:01Z"});}catch(error){if(error.code!=='email_account_identity_unavailable')return {url:location.href,account_hash:null,final:true};}}else{observed=(${providerAccountDOM.toString()})(${JSON.stringify(provider)});}if(!observed?.account_address)return {url:location.href,account_hash:null};const value=observed.account_address.toLowerCase();return {url:location.href,account_hash:Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value))),v=>v.toString(16).padStart(2,'0')).join('')};}`);
  if(evidence?.result?.url!==evidence?.origin||!READ_PROVIDERS[provider].origins.includes(new URL(evidence.origin).origin))throw fail('email_provider_origin_invalid');
- return evidence.result.account_hash;
+ return evidence.result;
+}
+export const SEND_ACCOUNT_READS=12;
+const SEND_ACCOUNT_WAIT_MS=12000;
+// Each read is a separate host call (about one second each), so hydration is
+// awaited between calls rather than inside one bounded evaluation.
+async function awaitSendAccountHash(tab,provider){
+ const deadline=Date.now()+SEND_ACCOUNT_WAIT_MS;
+ for(let read=1;;read++){
+  const observed=await sendAccountHash(tab,provider);
+  if(observed.account_hash||observed.final||read>=SEND_ACCOUNT_READS||Date.now()>=deadline)return observed.account_hash;
+ }
 }
 export async function verifySendAccount(tab,provider,expected){
- let accountHash=await sendAccountHash(tab,provider);
+ let accountHash=await awaitSendAccountHash(tab,provider);
  if(!accountHash&&provider==='outlook'){
   await tab.click('#O365_MainLink_MePhoto, #O365_MeFlexPane_ButtonID, [data-testid="mectrl_headerPicture"]');
-  accountHash=await sendAccountHash(tab,provider);await tab.press('Escape');
+  try{accountHash=await awaitSendAccountHash(tab,provider);}finally{await tab.press('Escape');}
  }
  // Account bindings use the Reader's case-insensitive provider identity. An
  // Outlook login alias in the account menu is not necessarily its mailbox.
