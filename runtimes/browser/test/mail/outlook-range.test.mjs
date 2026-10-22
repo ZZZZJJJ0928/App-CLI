@@ -20,12 +20,12 @@ function response(value,{url=endpoint,status=200}={}) {
 
 function fixture(t) {
   const f={currentAccount:owner,inbox:{qualified:true,account:owner,folders:[{id:'inbox-id',inbox:true},{id:'archive-id',inbox:false}]},requests:[],received:[]};
-  const context=vm.createContext({URL,Date,JSON,Object,Number,Error,Map,Set,Uint8Array,TextEncoder,TextDecoder,AbortController,structuredClone,crypto:webcrypto,setTimeout,clearTimeout,
+  const context=vm.createContext({URL,Date,JSON,Object,Number,Error,Map,Set,Uint8Array,TextEncoder,TextDecoder,AbortController,AbortSignal,structuredClone,crypto:webcrypto,setTimeout,clearTimeout,
     location:{origin:'https://outlook.live.com',href:'https://outlook.live.com/mail/0/'},
     dependencies:{account(expected){if(expected!==f.currentAccount)throw Object.assign(new Error('email_account_mismatch'),{code:'email_account_mismatch'});return f.currentAccount;},getInbox:()=>f.inbox,receiveRows:rows=>f.received.push(plain(rows))},
   });
   f.transport=vm.runInContext(`(${installOutlookRangeTransport.toString()})(dependencies)`,context);
-  f.next=async(...args)=>{f.requests.push(args);return response(Object.hasOwn(f,'value')?f.value:result());};
+  f.next=async function next(...args){if(next.override)return next.override(...args);f.requests.push(args);return response(Object.hasOwn(f,'value')?f.value:result());};
   f.nativeArgs=query=>[endpoint,{method:'POST',headers:{'X-Fixture':'page-only'},body:JSON.stringify({EntityRequests:[{EntityType:'Conversation',ContentSources:['Exchange'],Query:{QueryString:query},From:99,Size:200,Filter:{Term:{FolderId:'wrong-folder'}},RefiningQueries:['old-filter'],EnableTopResults:true,TopResultsCount:3}],QueryAlterationOptions:{EnableSuggestion:true,EnableAlteration:true,OtherOption:'preserved'}})}];
   f.start=(value,request=interval)=>{f.value=value;const arm=f.transport.arm(request);return f.transport.fetchSearch(f.nativeArgs(arm.query),f.next);};
   t.after(()=>f.transport.dispose());
@@ -241,4 +241,56 @@ test('Outlook reset fences a late response even when its fetch ignores cancellat
   release();await assert.rejects(pending,{code:'email_network_read_failed'});
   assert.deepEqual(plain((await f.transport.listPage(interval)).rows).map(row=>row.provider_message_id),['fresh']);
   assert.equal(f.received.length,1);
+});
+
+test('Outlook replays the learned native search without UI arming and refreshes per-search identifiers',async t=>{
+  const f=fixture(t);
+  const native=f.nativeArgs;
+  f.nativeArgs=query=>{const args=native(query);const body=JSON.parse(args[1].body);body.Cvid='0f8fad5b-d9cb-469f-a165-70867728950e';args[1].body=JSON.stringify(body);return args;};
+  await f.start(result([message('first')]));
+  assert.equal((await f.transport.listPage(interval)).rows.length,1);
+  assert.equal(f.transport.learned(),true);
+  f.transport.resetRound();
+  const next={...interval,interval_start:'2026-09-12T00:00:00Z',interval_end:'2026-09-13T00:00:00Z'};
+  f.value=result([message('second',{DateTimeReceived:'2026-09-12T08:00:00Z'})]);
+  const page=await f.transport.listPage(next);
+  assert.deepEqual(plain(page.rows).map(row=>row.provider_message_id),['second']);
+  assert.equal(f.requests.length,2);
+  const [url,options]=f.requests[1],body=JSON.parse(options.body),entity=body.EntityRequests[0];
+  assert.equal(url,endpoint);assert.equal(options.method,'POST');assert.equal(options.headers['X-Fixture'],'page-only');
+  assert.equal(options.redirect,'error');assert.ok(options.signal instanceof AbortSignal);
+  assert.equal(entity.Query.QueryString,'received>=2026-09-12T00:00:00Z AND received<2026-09-13T00:00:00Z');
+  assert.equal(entity.EntityType,'Message');assert.equal(entity.Size,50);assert.equal(entity.From,0);
+  assert.deepEqual(entity.Filter,{Or:[{Term:{FolderId:'inbox-id'}},{Term:{FolderId:'archive-id'}}]});
+  assert.match(body.Cvid,/^[0-9a-f-]{36}$/);assert.notEqual(body.Cvid,'0f8fad5b-d9cb-469f-a165-70867728950e');
+});
+
+test('Outlook without a learned search reports unlearned and issues no request',async t=>{
+  const f=fixture(t);
+  await assert.rejects(f.transport.listPage(interval),{code:'email_network_template_unlearned'});
+  assert.equal(f.requests.length,0);assert.equal(f.transport.learned(),false);
+});
+
+test('Outlook drops a learned search on 401 or a changed response shape so the UI relearns once',async t=>{
+  for(const [name,change] of [['unauthorized',f=>{f.next=async(...args)=>{f.requests.push(args);return response({},{status:401});};}],
+    ['shape',f=>{f.value=result([message()]);f.value.EntitySets[0].IsPartial=true;}]])await t.test(name,async t=>{
+    const f=fixture(t);
+    await f.start(result([message()]));await f.transport.listPage(interval);f.transport.resetRound();
+    const learnedNext=f.next;change(f);
+    if(f.next!==learnedNext){
+      // The template holds the page's own fetch binding; swap its behavior.
+      const swapped=f.next;f.next=learnedNext;learnedNext.override=swapped;
+    }
+    await assert.rejects(f.transport.listPage(interval),{code:'email_network_template_stale'});
+    assert.equal(f.transport.learned(),false);
+    await assert.rejects(f.transport.listPage(interval),{code:'email_network_template_unlearned'});
+  });
+});
+
+test('Outlook never replays a search learned for another account',async t=>{
+  const f=fixture(t);
+  await f.start(result([message()]));await f.transport.listPage(interval);f.transport.resetRound();
+  f.currentAccount='other@example.test';f.inbox.account='other@example.test';
+  await assert.rejects(f.transport.listPage({...interval,account_address:'other@example.test'}),{code:'email_network_template_unlearned'});
+  assert.equal(f.requests.length,1);
 });

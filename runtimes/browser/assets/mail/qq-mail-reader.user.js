@@ -111,7 +111,7 @@ const installOutlookRangeTransport=function installOutlookRangeTransport({accoun
     const suffix=fraction.toString().padStart(9,'0').replace(/0+$/,'');
     return new Date(Number(seconds)*1000).toISOString().slice(0,19)+(suffix?'.'+suffix:'')+'Z';
   }
-  let armed=null,active=true;
+  let armed=null,active=true,learned=null;
   function validate(request) {
     const owner=account(request.account_address),inbox=getInbox();
     const start=timestamp(request.interval_start),end=timestamp(request.interval_end);
@@ -158,15 +158,40 @@ const installOutlookRangeTransport=function installOutlookRangeTransport({accoun
       const response=await next(args[0],{...args[1],body:JSON.stringify(body),signal:state.abort.signal,redirect:'error'});
       const value=await decode(response.clone());account(state.owner);
       if(!active||armed!==state||state.abort.signal.aborted)fail('email_network_read_failed');
+      const {body:_body,signal:_signal,...init}=args[1];
+      state.learn={next,url:url.href,init,body:structuredClone(body),owner:state.owner};
       state.resolve(value);clearTimeout(state.timer);return response;
     })().catch(cause=>{clearTimeout(state.timer);state.reject(cause);throw cause;});
     return state.network.then(r=>r.clone());
   }
+  async function replay(request) {
+    const state=validate(request),template=learned;
+    if(!template||template.owner!==state.owner)fail('email_network_template_unlearned');
+    const body=structuredClone(template.body),entity=body?.EntityRequests?.[0];
+    if(!entity?.Query||typeof entity.Query!=='object'){learned=null;fail('email_network_template_stale');}
+    entity.Query.QueryString=state.query;entity.From=0;entity.Size=50;
+    entity.Filter={Or:state.folders.map(f=>({Term:{FolderId:f.id}}))};
+    // Correlation identifiers are per search in the native client.
+    for(const key of ['Cvid','LogicalId'])if(typeof body[key]==='string'&&/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu.test(body[key]))body[key]=crypto.randomUUID();
+    const response=await template.next(template.url,{...template.init,body:JSON.stringify(body),signal:AbortSignal.timeout(20000),redirect:'error'});
+    if(!active||learned!==template)fail('email_network_read_failed');
+    if([401,403].includes(response.status)){learned=null;fail('email_network_template_stale');}
+    const value=await decode(response);account(state.owner);
+    if(!active||learned!==template)fail('email_network_read_failed');
+    try {return await rows(state,value);}
+    catch(cause){if(cause.code==='email_network_list_unqualified'){learned=null;fail('email_network_template_stale');}throw cause;}
+  }
   async function listPage(request) {
     const expected=validate(request),state=armed;
-    if(!state||state.query!==expected.query||state.owner!==expected.owner||JSON.stringify(state.folders)!==JSON.stringify(expected.folders))fail('email_network_list_unqualified');
+    if(!state)return replay(request);
+    if(state.query!==expected.query||state.owner!==expected.owner||JSON.stringify(state.folders)!==JSON.stringify(expected.folders))fail('email_network_list_unqualified');
     const value=await state.promise;account(state.owner);
     if(!active||armed!==state||state.abort.signal.aborted)fail('email_network_read_failed');
+    const result=await rows(state,value);
+    if(state.learn)learned=state.learn;
+    return result;
+  }
+  async function rows(state,value) {
     if(!value||typeof value!=='object'||Array.isArray(value))fail('email_network_list_unqualified');
     const entity=value?.EntitySets?.[0],result=entity?.ResultSets?.[0];
     if(value.EntitySets?.length!==1||entity.EntityType!=='Message'||entity.IsPartial!==false||entity.Properties?.HasParseException!==false||entity.ResultSets?.length!==1||
@@ -185,12 +210,13 @@ const installOutlookRangeTransport=function installOutlookRangeTransport({accoun
     }
     receiveRows(rows);
     const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(state.folders.map(f=>f.id))));
-    if(!active||armed!==state||state.abort.signal.aborted)fail('email_network_read_failed');
+    if(!active||state.abort&&(armed!==state||state.abort.signal.aborted))fail('email_network_read_failed');
     return {provider:'outlook',account_address:state.owner,rows,unsupported_rows:unsupported,has_next:result.MoreResultsAvailable,page:0,scope:'inbound_received',folder_scope_id:Array.from(new Uint8Array(digest),v=>v.toString(16).padStart(2,'0')).join('')};
   }
   function resetRound(){if(armed){clearTimeout(armed.timer);armed.abort.abort();armed.reject(Object.assign(new Error('email_network_read_failed'),{code:'email_network_read_failed'}));}armed=null;}
-  function dispose(){active=false;resetRound();}
-  return {arm,listPage,fetchSearch,resetRound,dispose};
+  // Rounds keep the learned template; only disposal (or staleness) drops it.
+  function dispose(){active=false;learned=null;resetRound();}
+  return {arm,listPage,fetchSearch,resetRound,dispose,learned:()=>Boolean(learned)};
 };
 const installOutlookEarlyBridge=function installOutlookEarlyBridge() {
   if(window.top!==window || !['https://outlook.live.com','https://outlook.office.com','https://outlook.office365.com'].includes(location.origin))return null;

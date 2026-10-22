@@ -4,21 +4,21 @@
     {
       "file": "qq-mail-reader.user.js",
       "version": "0.2.0",
-      "sha256": "1215330b0f115251b571f015e3f0e260c9e4115309699a7e105fb30cbe217ad7",
+      "sha256": "27a2583f7bd190e083a2f452e97bed7e9c6dc79ad5893ca0bf485eb835c4b756",
       "requires": [],
       "uuid": "5b4323dc-326f-4fbb-a1a0-4ac8c00631c0"
     },
     {
       "file": "gmail-mail-reader.user.js",
       "version": "0.2.0",
-      "sha256": "26aff1480bcfc75a1228bd3f317b9db9cb076149b7326f1dc4a1e580641f7f2e",
+      "sha256": "31764541bf8b53b051c70fe54b08b7db37a7d8ada1ce57c360a993b4871f5093",
       "requires": [],
       "uuid": "1b57e83c-a914-48c1-a490-77d4bca191d5"
     },
     {
       "file": "outlook-mail-reader.user.js",
       "version": "0.2.0",
-      "sha256": "63b5a956814f6d95bcd10ea86a68c3682a5a1339acfeee696026a5fc3f91f278",
+      "sha256": "caf5c3d1d275061ee002df4266be465449ab0daad254ec4d9433144f52472162",
       "requires": [],
       "uuid": "c2b90f5c-629d-41bd-8fc8-179729ad70b4"
     }

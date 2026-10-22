@@ -103,9 +103,17 @@ export async function networkListPage(tab, provider, options, observedListed) {
   }
   const requestPage=async index=>{
     const request={account_address:options.account_address,interval_start:options.interval_start,interval_end:options.interval_end,page:index,folder:options.folder ?? 'inbox',...(options.provider_mode?{provider_mode:options.provider_mode}:{})};
+    // Outlook replays its learned native search request; the UI search box is
+    // used only to (re)learn that request when none is held or it went stale.
     const value=provider==='outlook'&&options.provider_mode==='time_range'
       ?await tab.runReadCode(`async page=>{
         const request=${JSON.stringify(request)};
+        const replayed=await page.evaluate(async request=>{
+          const reader=window.SparkClawMailReader;
+          if(reader?.provider!=='outlook'||reader.version!==${JSON.stringify(NETWORK_READER_VERSION)})return {error:'email_network_capability_unavailable'};
+          try{return await reader.listPage(request);}catch(error){return {error:error.code||'email_network_read_failed'};}
+        },request);
+        if(!['email_network_template_unlearned','email_network_template_stale'].includes(replayed?.error))return replayed;
         const armed=await page.evaluate(request=>{
           const reader=window.SparkClawMailReader;
           if(reader?.provider!=='outlook'||reader.version!==${JSON.stringify(NETWORK_READER_VERSION)}||!reader.armRangeSearch)return {error:'email_network_capability_unavailable'};
