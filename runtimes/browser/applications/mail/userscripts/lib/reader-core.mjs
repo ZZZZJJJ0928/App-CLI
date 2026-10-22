@@ -17,6 +17,8 @@ export function installReader(config) {
   let qqOriginalReadyAt = 0;
   let listStage = 'idle';
   let nativeQueryReply = null;
+  // Outlook startup conversation inventory (identifiers/counts only).
+  let startupConversations = null;
   let active = true, account = '', binding = null, anchor = null;
   let pendingOperations = 0;
   const idPattern = /^[A-Za-z0-9_+=:.\/~\-]{1,1024}$/;
@@ -263,6 +265,7 @@ export function installReader(config) {
       if(config.provider==='outlook' && u.pathname.endsWith('/startupdata.ashx')) {
         const owner=value.owaUserConfig?.SessionSettings?.UserEmailAddress, id=value.findConversation?.Body?.FolderId?.Id;
         if(typeof owner==='string' && typeof id==='string')inbox=config.parseFolders?.(value)||{account:owner.toLowerCase(),id,qualified:false};
+        startupConversations=config.parseConversations?.(value)??startupConversations;
       }
       const rows = config.parse(value);
       if (!rows) return;
@@ -713,7 +716,7 @@ export function installReader(config) {
     delete window.SparkClawMailReader;
   }
   nativeSend = config.installNativeSend?.({account: checkedAccount, fetch: originalFetch, readText: learningText, responseShape});
-  transport=config.installTransport?.({learn:learnWorker,learning:learningSession,account:checkedAccount,getInbox:()=>inbox,receiveStartup(value){inbox=config.parseFolders?.(value)||null;},receiveRows(rows){
+  transport=config.installTransport?.({learn:learnWorker,learning:learningSession,account:checkedAccount,getInbox:()=>inbox,receiveStartup(value){inbox=config.parseFolders?.(value)||null;startupConversations=config.parseConversations?.(value)??startupConversations;},receiveRows(rows){
     checkedAccount();for(const row of rows){if(row && row.provider_selection_id===undefined)row.provider_selection_id=row.provider_thread_id||row.provider_message_id;if(idPattern.test(row.provider_message_id||''))records.set(row.provider_message_id,row);}
     while(records.size>2000)records.delete(records.keys().next().value);
   }});
@@ -731,6 +734,20 @@ export function installReader(config) {
       return {...value,...accountMetadata()};
     },request), prepareOriginal:request=>inRound(prepareOriginal,request), prepareRetainedOriginal:request=>inRound(prepareRetainedOriginal,request),
     markRead:request=>inRound(markRead,request), confirmRead:request=>inRound(value=>markRead(value,true),request), dispose,
+    // A conversation-level reply acts on its only message. Prove that from the
+    // web client's own startup inventory; never infer it from an item list.
+    replyTarget({account_address,provider_message_id,provider_selection_id} = {}) {
+      checkedAccount(account_address);
+      if(config.provider!=='outlook'||!idPattern.test(provider_message_id||'')||!idPattern.test(provider_selection_id||''))failure('invalid_request');
+      const result=reason=>({provider:config.provider,account_address:account,provider_message_id,provider_selection_id,single:!reason,...(reason?{reason}:{})});
+      if(!Array.isArray(startupConversations))return result('inventory_unobserved');
+      const rows=startupConversations.filter(row=>row.provider_selection_id===provider_selection_id);
+      if(rows.length!==1)return result(rows.length?'conversation_ambiguous':'conversation_unobserved');
+      const row=rows[0],members=row.inventory_complete===true?row.members:null;
+      const single=members?members.length===1&&members[0].provider_message_id===provider_message_id&&members[0].local===true&&members[0].draft===false
+        :row.provider_message_id===provider_message_id;
+      return result(single?null:'conversation_not_single');
+    },
     verifyTarget({account_address,provider_message_id,provider_selection_id,folder}) {
       checkedAccount(account_address);
       const row=records.get(provider_message_id);

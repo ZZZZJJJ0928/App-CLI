@@ -21,7 +21,14 @@ export function managedSendDOM(provider,phase,expected={}){
    let root;
    if(provider==='gmail')root=all('.adn[data-legacy-message-id]').find(n=>n.getAttribute('data-legacy-message-id')===expected.provider_message_id);
    if(provider==='qq_mail')root=all('.mail-list-page-toolbar')[0];
-   if(provider==='outlook')root=all('#focused')[0]||all('[role="main"]')[0];
+   if(provider==='outlook'){
+    // The send page was opened on the target conversation's own route; a
+    // different selected row means the reading pane shows something else.
+    const routed=decodeURIComponent(location.pathname.split('/id/')[1]??'')===expected.provider_selection_id;
+    const selected=all('[role="option"][data-convid][aria-selected="true"]');
+    if(!expected.single_message_proven||!routed||selected.length>1||selected.some(n=>n.getAttribute('data-convid')!==expected.provider_selection_id))return error('email_reply_target_unverified');
+    root=all('#focused')[0]||all('[role="main"]')[0];
+   }
    if(!root)return error('email_reply_target_unverified');
    buttons=exactControl(expected.mode==='reply_all'?/^(Reply all|Reply All|回复全部|全部回复|全部答复)$/u:/^(Reply|回复|答复)$/u,root);
    if(buttons.length===0&&provider==='gmail'&&expected.mode==='reply_all'){
@@ -30,7 +37,7 @@ export function managedSendDOM(provider,phase,expected={}){
    }
   }
   if(buttons?.length!==1)return error('email_reply_control_unavailable');
-  globalThis.__sparkclawManagedMail={provider,mode:expected.mode,target:expected.provider_message_id??'',selection:expected.provider_selection_id??'',individual:expected.individual_message_proven===true,single:expected.single_message_proven===true,evidenceKey:expected.evidence_key,sourceRoot:provider==='gmail'?all('.adn[data-legacy-message-id]').find(n=>n.getAttribute('data-legacy-message-id')===expected.provider_message_id):null};
+  globalThis.__sparkclawManagedMail={provider,mode:expected.mode,target:expected.provider_message_id??'',selection:expected.provider_selection_id??'',single:expected.single_message_proven===true,replyRoot:provider==='outlook'&&expected.mode!=='compose'?buttons[0].closest('#focused,[role="main"]'):null,sourceRoot:provider==='gmail'?all('.adn[data-legacy-message-id]').find(n=>n.getAttribute('data-legacy-message-id')===expected.provider_message_id):null};
   const st=globalThis.__sparkclawManagedMail;st.priorComposeDialogs=new Set(document.querySelectorAll('[role="dialog"]'));st.priorDrafts=[...document.querySelectorAll('input[name="draft"]')].map(n=>n.value).filter(Boolean);st.sourceNativeId=st.sourceRoot?.getAttribute('data-message-id')?.replace(/^#/u,'');return action(buttons[0],{opened:true});
  }
  if(phase==='reply_menu'){
@@ -107,10 +114,12 @@ export function managedSendDOM(provider,phase,expected={}){
    }else if(provider==='qq_mail'){
     for(let n=root;n&&!linked;n=n.parentElement){for(const k of Object.keys(n).filter(k=>/^__react(?:Fiber|InternalInstance)\$/u.test(k))){const nativeProps=n[k]?.return?.memoizedProps;const props=nativeProps?.value??nativeProps;for(const name of ['replyMail','originMail','sourceMail','referenceMail']){const m=props?.[name];if(m&&String(m.id)===state.target)linked=true}if(props?.replyMailId===state.target||props?.originMailId===state.target)linked=true}if(n===document.body)break}
    }else{
-    const source=all('[role="option"][data-convid][aria-selected="true"]');
+    // The Reader proved the requested item is the conversation's only
+    // message; the editor must open inside the pane whose Reply was used,
+    // while the route (and any selected row) still names that conversation.
+    const selected=all('[role="option"][data-convid][aria-selected="true"]');
     const target=decodeURIComponent(location.pathname.split('/id/')[1]??'');
-    const records=globalThis[state.evidenceKey]?.records;const proved=records?.filter(r=>r.provider_selection_id===state.selection&&(state.single&&r.provider_message_id===state.target||state.individual&&r.inventory_complete&&r.members?.some(m=>m.provider_message_id===state.target&&!m.draft)));const item=document.getElementById(state.target);
-    linked=proved?.length===1&&source.length===1&&source[0].getAttribute('data-convid')===state.selection&&target===state.selection&&!!body.closest('#focused')&&(!state.individual||!!item&&all('[role="checkbox"][aria-checked="true"]',item).length===1);
+    linked=state.single&&!!state.selection&&target===state.selection&&selected.length<=1&&selected.every(n=>n.getAttribute('data-convid')===state.selection)&&!!state.replyRoot?.isConnected&&state.replyRoot.contains(body);
    }
    if(!linked)return error('email_reply_editor_unverified');
   }

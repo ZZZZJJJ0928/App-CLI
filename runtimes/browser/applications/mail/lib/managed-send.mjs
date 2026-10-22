@@ -60,8 +60,30 @@ export async function verifySendAccount(tab,provider,expected){
  if(!accountHash||accountHash!==digest(expected.toLowerCase()))throw fail('email_account_identity_mismatch');
 }
 
+// Outlook's reply acts on the conversation opened by its own route. Join the
+// requested item to that conversation through the Reader's startup inventory
+// and require it to be the conversation's only, local, non-draft message.
+export const outlookReplyRoute=target=>'https://outlook.live.com/mail/0/inbox/id/'+encodeURIComponent(target.provider_selection_id);
+const OUTLOOK_REPLY_PROOF_READS=5;
+async function openOutlookReplyTarget(tab,request){
+ const target=request.reply_target;
+ if(target.folder!=='inbox'||typeof tab.runReadCode!=='function')throw fail('email_reply_target_unverified');
+ const proofRequest={account_address:request.account_address,provider_message_id:target.provider_message_id,provider_selection_id:target.provider_selection_id};
+ let proof;
+ for(let read=1;read<=OUTLOOK_REPLY_PROOF_READS;read++){
+  proof=await tab.runReadCode(`async page=>page.evaluate(request=>{const r=window.SparkClawMailReader;if(r?.provider!=='outlook'||r.version!=='0.2.0'||typeof r.replyTarget!=='function')return null;try{return r.replyTarget(request)}catch(error){return {error:String(error?.code||'email_network_read_failed').slice(0,64)}}},${JSON.stringify(proofRequest)})`);
+  if(!['inventory_unobserved','conversation_unobserved'].includes(proof?.reason))break;
+ }
+ if(proof?.error==='email_account_identity_mismatch')throw fail('email_account_identity_mismatch');
+ if(proof?.provider!=='outlook'||proof.account_address!==request.account_address.toLowerCase()||proof.provider_message_id!==target.provider_message_id||proof.provider_selection_id!==target.provider_selection_id||proof.single!==true){
+  process.stderr.write(JSON.stringify({event:'mail_reply_target_unverified',provider:'outlook',reason:/^[a-z_]{1,64}$/.test(proof?.reason??proof?.error??'')?proof.reason??proof.error:'unavailable'})+'\n');
+  throw fail('email_reply_target_unverified');
+ }
+ return {account_address:request.account_address,folder:'inbox',provider_message_id:target.provider_message_id,provider_selection_id:target.provider_selection_id,single_message_proven:true};
+}
 export async function openNativeReplyTarget(tab,provider,request){
  const target=request.reply_target;
+ if(provider==='outlook')return openOutlookReplyTarget(tab,request);
  // Reuse individual-message selection proofs and account checks from capture,
  // but never export/download or create a new message as a reply fallback.
  const message=await collectUnread(tab,provider,{account_address:request.account_address,folder:target.folder,pinned_message_id:target.provider_message_id,pinned_selection_id:target.provider_selection_id,capture_required:false,onSelected:async selected=>{if(selected.members?.some(member=>member.draft))throw fail('email_existing_draft')}});
@@ -88,7 +110,7 @@ export async function prepareManagedDraft(tab,provider,request){
  await verifySendAccount(tab,provider,request.account_address);
  let target;
  if(request.mode!=='compose')target=await openNativeReplyTarget(tab,provider,request);
- const expected={mode:request.mode,needs_cc:request.message.cc.length>0,provider_message_id:target?.provider_message_id,provider_selection_id:target?.provider_selection_id,individual_message_proven:target?.individual_message_proven===true,single_message_proven:target?.single_message_proven===true,evidence_key:target?.evidence_key};
+ const expected={mode:request.mode,needs_cc:request.message.cc.length>0,provider_message_id:target?.provider_message_id,provider_selection_id:target?.provider_selection_id,single_message_proven:target?.single_message_proven===true};
  let opened=await native(tab,provider,'open',expected);
  if(opened.menu_opened)opened=await native(tab,provider,'reply_menu',expected);
  if(!opened.opened)throw fail('email_reply_editor_unverified');
@@ -219,7 +241,8 @@ export async function sendManagedMail(raw,provider,runtime){
    if(!await journal.write('sent',result,{proof:value.proof,timings:timing.native}))throw fail('send_outcome_unknown');
    return result;
   }
-  await tab.runReadCode(`async page=>{await page.goto(${JSON.stringify(outlookFolderProof?'https://outlook.live.com/mail/0/sentitems':READ_PROVIDERS[provider].url)});return true}`);
+  const outlookReply=provider==='outlook'&&request.mode!=='compose'&&request.reply_target.folder==='inbox';
+  await tab.runReadCode(`async page=>{await page.goto(${JSON.stringify(outlookFolderProof?'https://outlook.live.com/mail/0/sentitems':outlookReply?outlookReplyRoute(request.reply_target):READ_PROVIDERS[provider].url)});return true}`);
   if(runtime.prepareSendPage)await runtime.prepareSendPage();
   let claimed, sentBaseline, prepared;
   phase='sent_baseline';
