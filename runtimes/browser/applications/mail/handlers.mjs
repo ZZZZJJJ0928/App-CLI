@@ -40,7 +40,15 @@ async function prepare(entry, input, context) {
   const account = mailAccount(input) || context.resource.account_address;
   if (entry.operation !== 'probe' || account) await page.prepareBackgroundPage();
   if (isReceiveRead(entry.operation) && account) await page.prepareMailRound(account, context.browser.reused);
-  if (entry.provider === 'qq_mail' && entry.operation === 'send' && context.browser.reused) await page.prepareMailRound(account, true);
+  if (entry.provider === 'qq_mail' && entry.operation === 'send' && context.browser.reused) {
+    try { await page.prepareMailRound(account, true); }
+    catch (error) {
+      // A reloaded or replaced document lost its page-memory template, and its
+      // Reader is never relabeled. Nothing was dispatched: send as a cold page.
+      if (error.code !== 'browser_page_stale') throw error;
+      await page.navigate(entry.loginURL);
+    }
+  }
   return page;
 }
 

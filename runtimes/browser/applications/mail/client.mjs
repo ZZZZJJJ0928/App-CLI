@@ -87,7 +87,7 @@ export class MailboxClient {
       account = mailAccount(watched.request.arguments); scope = watched.request.arguments.owner_scope;
     }
     const pool_key = digest({owner, provider, account, scope, credentialGeneration, binding: digest(binding)});
-    // Only QQ's bounded, one-use send template can outlive a successful send.
+    // Only QQ's bounded, proof-renewed send template can outlive a successful send.
     // The separate command pool never borrows a receive or mark-read page.
     const sendPool = provider === 'qq_mail' && command === 'send' && account;
     const resource = {...(previousRequestKey ? {previous_request_key: previousRequestKey} : {}), ...(previousTask ? {previous_task_id: previousTask} : {}), binding_digest: digest(binding), profile_id: this.config.profile_id, credential_generation: credentialGeneration,

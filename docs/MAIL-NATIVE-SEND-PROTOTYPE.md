@@ -31,7 +31,7 @@ Mail text, addresses, tokens, request IDs and response values are not evidence.
 It requires a still-open QQ page with a previously learned and independently
 confirmed DOM send from the same account. A cold page uses the existing DOM
 flow. A successful QQ send can retain its separate account/credential/binding
-pool for at most 120 seconds, only while a confirmed one-use template is ready.
+pool for at most 15 minutes, only while a confirmed template is ready.
 Message secret slots, Reader records and application-owned DOM references are
 cleared before parking. The next lease must prove the same document and account;
 its active authority replaces the previous lease before reloading secrets.
@@ -52,16 +52,36 @@ before `confirmSendTemplate` promotes it. Confirmation also checks the observed
 recipient and subject, then independently queries Sent to join the response
 `body.messageid` to the DOM-proved `emailid`. Session fields remain only in page memory; the old
 recipient, subject, content and draft ID are removed. Expiry, account changes and
-disposal clear the template. Each confirmed template can dispatch only once.
+disposal clear the template.
+
+A ready template lives 15 minutes from its DOM confirmation, and each replay
+proven `sent` (below) renews it for another 15 minutes on the same page. It is
+retired by expiry, an account change, page reload or disposal (it exists only in
+page memory; a reused send page whose document nonce changed is navigated afresh
+and sends through the DOM), a failed pre-dispatch Sent read, and every replay that
+is not proven sent, including a provider rejection. Learning windows, including
+QQ mark-read's, do not clear it. A newly observed DOM send replaces it.
+
+Before the authority release and the journal claim, a preflight requires the
+ready template, validates the new message and reads a fresh Sent baseline on the
+page's session. It returns a single-use ticket bound to that message (valid for
+five minutes; an expiry of the template during the release does not void it).
+Any refusal, including a failed or rejected Sent read, is `not_sent` for the
+native path: nothing was dispatched, no dispatch is claimed, and the same send
+continues through the DOM flow. Only a ticket can dispatch.
 
 The replay substitutes the new recipient, subject and escaped content, clears
-the old draft ID, and uses the page's same-origin fetch with a 30-second timeout
-and redirects disabled. Dispatch still follows the existing authority release
-and durable create-only send journal. After dispatch there is no DOM fallback
-or automatic retry, including after a lost response, restart or reconciliation.
+the old draft ID, and uses the page's same-origin fetch with redirects disabled;
+request and verification together stay within 28 seconds, below the host's
+30-second page-call budget. Dispatch still follows the existing authority
+release and durable create-only send journal. After dispatch there is no DOM
+fallback or automatic retry, including after a lost response, restart or
+reconciliation.
 
-A replay first reads a fresh Sent baseline, sends once, then performs up to five
-independent read-only Sent polls. A successful `head.ret=0` and bounded
+After sending once, the replay polls Sent independently and read-only: first
+after 1 second, then every 750 ms, the last read landing at 12 seconds; it
+returns on the first qualifying row. QQ listed a replayed send 4.2 seconds after
+accepting it, so only absence after 12 seconds is `unknown`. A successful `head.ret=0` and bounded
 `body.messageid` are necessary but insufficient. Exactly one fresh row must have
 that `messageid`, `dirid=3`, a valid new `emailid`, and the exact expected subject,
 single sender and single recipient. The observed Sent request is POST
@@ -72,7 +92,9 @@ change is needed. Missing, ambiguous, stale, redirected or mismatched evidence
 remains `unknown`. Reconciliation reads the original receipt, never sends again.
 
 `APP_CLI_MAIL_SEND_EVIDENCE=1` logs bounded total/send-request/Sent-verification
-milliseconds and the selected DOM/native path, without message values or IDs.
+milliseconds, per-method host-call counts and time, the selected DOM/native path,
+and a `not_sent` preflight refusal reason with its DOM fallback, without message
+values or IDs.
 
 ## Local validation and next gate
 

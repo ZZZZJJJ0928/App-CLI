@@ -24,23 +24,38 @@ function pageFixture({reused, documentNonce, failClear = false}) {
       if (failClear) throw Object.assign(new Error('private slots failed to clear'), {code: 'browser_extension_unavailable'});
     }
   }};
-  return {browser, counters, calls};
+  return {browser, counters, calls, window};
 }
 
-test('same-account ready template cannot survive a changed owned document nonce', async t => {
+test('a reloaded send page loses its template and sends as a cold page', async t => {
   let sends = 0;
   t.mock.method(ProviderScriptRegistry.prototype, 'prepare', async function () {
-    this.entries = new Map([['fixture', {provider: 'qq_mail', operation: 'send', validate() {},
-      async handler() {sends++; return {status: 'sent'};}}]]);
+    this.entries = new Map([['fixture', {provider: 'qq_mail', operation: 'send', loginURL: 'https://wx.mail.qq.com/', validate() {},
+      async handler() {sends++; return {status: 'not_sent'};}}]]);
   });
   const handlers = await mailHandlers();
   const f = pageFixture({reused: true, documentNonce: 'replaced-document'});
-  await assert.rejects(handlers['qq_mail.send'].run(input, {browser: f.browser,
-    resource: {document_nonce: 'authorized-document'}, beforeEffect() {assert.fail('must not release dispatch');}}),
-  {code: 'BROWSER_PAGE_STALE'});
-  assert.equal(sends, 0);
+  const result = await handlers['qq_mail.send'].run(input, {browser: f.browser,
+    resource: {document_nonce: 'authorized-document'}, beforeEffect() {assert.fail('must not release dispatch');}});
+  assert.equal(result.data.status, 'not_sent');
+  assert.equal(sends, 1, 'the managed DOM flow runs on a freshly navigated page');
+  assert.ok(f.calls.indexOf('navigate') > f.calls.indexOf('runReadCode'), 'navigation follows the stale document check');
   assert.equal(f.counters.reset, 0, 'stale document must not be relabeled through resetRound');
   assert.equal(f.counters.ready, 0);
+});
+
+test('a reused send page with a different account still waits for confirmation', async t => {
+  t.mock.method(ProviderScriptRegistry.prototype, 'prepare', async function () {
+    this.entries = new Map([['fixture', {provider: 'qq_mail', operation: 'send', loginURL: 'https://wx.mail.qq.com/', validate() {},
+      async handler() {assert.fail('must not run');}}]]);
+  });
+  const handlers = await mailHandlers();
+  const f = pageFixture({reused: true, documentNonce: 'authorized-document'});
+  f.window.SparkClawMailReader.resetRound = () => {throw Object.assign(new Error('mismatch'), {code: 'email_account_identity_mismatch'});};
+  const result = await handlers['qq_mail.send'].run(input, {browser: f.browser,
+    resource: {document_nonce: 'authorized-document'}, beforeEffect() {assert.fail('must not release dispatch');}});
+  assert.equal(result.status, 'waiting_confirmation');
+  assert.ok(!f.calls.includes('navigate'));
 });
 
 test('private-slot clearing failure preserves a proved send and forbids page retention', async t => {

@@ -1076,7 +1076,7 @@ const parseQQMailList=function parseQQMailList(value) {
       return true;
     }, diagnostics:()=>({original:{state:originalState,responseOrigin,response:originalResponse?{...originalResponse}:null},list:{stage:listStage,template:Boolean(listRequest),body:Array.isArray(listRequest?.body),paging:Array.isArray(listRequest?.body?.[0]?.[15])},inbox:Boolean(inbox),records:records.size,transport:transport?.diagnostics?.(),
       learning:JSON.parse(JSON.stringify(learning.entries))}), armLearning, snapshot, resetRound,
-    ...(nativeSend ? {sendNativeReady: nativeSend.ready, confirmSendTemplate: request=>inRound(nativeSend.confirm, request), sendNative: request=>inRound(nativeSend.send, request)} : {}),
+    ...(nativeSend ? {sendNativeReady: nativeSend.ready, confirmSendTemplate: request=>inRound(nativeSend.confirm, request), prepareNativeSend: request=>inRound(nativeSend.prepare, request), sendNative: request=>inRound(nativeSend.send, request)} : {}),
     listPage:request=>inRound(async request=>{
       const value=await listPage(request);checkedAccount(request.account_address);
       return {...value,...accountMetadata()};

@@ -13,7 +13,10 @@ export class MailPage {
     this.reserveDispatch=context.reserveDispatch; this.releaseDispatch=context.releaseDispatch;
     this.mailDocumentNonce=context.resource.document_nonce;
     this.emailWorkspaceRoot=context.resource.workspace_root;
+    // Opt-in send evidence: per-method count and wall time of host calls.
+    this.callTimings = process.env.APP_CLI_MAIL_SEND_EVIDENCE === '1' ? {} : null;
     for (const method of METHODS) this[method]=async (...args)=>{
+      const started = this.callTimings ? performance.now() : 0;
       try {return await browser.call(method,...args.map(value=>value===undefined?null:value));}
       catch (error) {
         const code = typeof error.code === 'string' ? error.code.toLowerCase() : '';
@@ -23,6 +26,12 @@ export class MailPage {
         if (code === 'application_origin_invalid') throw Object.assign(new Error('Email origin invalid'), {code:'email_provider_origin_invalid'});
         if (code) error.code = code;
         throw error;
+      }
+      finally {
+        if (this.callTimings) {
+          const entry = this.callTimings[method] ??= {n: 0, ms: 0};
+          entry.n++; entry.ms += Math.round(performance.now() - started);
+        }
       }
     };
   }
@@ -197,6 +206,7 @@ export function createProviderRuntime(client, registration) {
       });
     },
     emailWorkspaceRoot: client.emailWorkspaceRoot,
+    callTimings: client.callTimings,
     captureTimingDiagnostic: client.captureTimingDiagnostic,
     capturePhaseEvidence: client.capturePhaseEvidence,
   };
