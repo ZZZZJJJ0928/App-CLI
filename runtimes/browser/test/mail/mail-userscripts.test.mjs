@@ -640,3 +640,29 @@ test('Outlook original transport delegates exclusively to its native resolver ev
   assert.equal(workerMessages.length,0);assert.equal(calls.length,2);
   context.transport.dispose();assert.equal(disposed,1);assert.equal(detached,1);
 });
+
+test('learning window records only the shape of the web client own requests while armed',async()=>{
+  const f=fixture();
+  const xhr=(method,url,body,response)=>{const x=new f.XHR();x.open(method,url);x.send(body);x.status=200;x.responseText=response;x.callback();};
+  xhr('POST','https://mail.google.com/compose/send/123456?sid=SECRET-SID','to=private%40example.test&subject=private-subject','{"head":{"ret":0}}');
+  assert.equal(f.reader.diagnostics().learning.length,0);
+  assert.throws(()=>f.reader.armLearning({kind:'Send now'}),{code:'invalid_request'});
+  assert.equal(f.reader.armLearning({kind:'send',window_ms:5000}),true);
+  xhr('POST','https://mail.google.com/compose/send/123456?sid=SECRET-SID&mailid=PRIVATE-ID','to=private%40example.test&subject=private-subject','{"head":{"ret":-20003}}');
+  xhr('GET','https://mail.google.com/list?sid=SECRET-SID','', '{"rows":[]}');
+  xhr('POST','https://other.example.test/collect','x=1','');
+  f.context.responseURL='https://mail.google.com/mail/set_flag';
+  f.context.originalBytes='{"code":7,"private":"response-value"}';
+  await f.context.fetch('https://mail.google.com/mail/set_flag',{method:'POST',body:JSON.stringify({mailid:'PRIVATE-ID',flag:'read'})});
+  await new Promise(resolve=>setTimeout(resolve,10));
+  const learned=JSON.parse(JSON.stringify(f.reader.diagnostics().learning));
+  assert.deepEqual(learned,[
+    {kind:'send',method:'POST',path:'/compose/send/:id',query_keys:['mailid','sid'],body_keys:['subject','to'],status:200,provider_code:-20003},
+    {kind:'send',method:'POST',path:'/mail/set_flag',query_keys:[],body_keys:['flag','mailid'],status:200,provider_code:7},
+  ]);
+  for(const value of ['SECRET','PRIVATE','private','response-value','123456'])assert.equal(JSON.stringify(learned).includes(value),false,value);
+  f.reader.armLearning({kind:'send',window_ms:5000});
+  for(let i=0;i<30;i++)xhr('POST','https://mail.google.com/compose/draft','a=1','{}');
+  assert.equal(f.reader.diagnostics().learning.length,24);
+  f.reader.dispose();
+});

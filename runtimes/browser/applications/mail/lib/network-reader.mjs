@@ -57,8 +57,19 @@ export async function networkSnapshot(tab, provider, options, { required = false
   return { ...value, network_reader: true };
 }
 
+// Opt-in qualification evidence: the bounded request shapes the page recorded
+// while a mutation was armed. Never affects the outcome; never logs values.
+export async function reportLearnedRequests(tab,provider,kind){
+ if(process.env.APP_CLI_MAIL_LEARNING_EVIDENCE!=='1')return;
+ try{
+  const requests=await tab.runReadCode(`async page=>page.evaluate(()=>{try{return window.SparkClawMailReader?.diagnostics?.().learning??[]}catch{return []}})`);
+  if(Array.isArray(requests))process.stderr.write(JSON.stringify({event:'mail_native_request_shapes',provider,kind,requests:requests.slice(0,24)})+'\n');
+ }catch{}
+}
 export async function networkMarkRead(tab, provider, target, {confirmOnly = false} = {}) {
-  const value = await callReader(tab, provider, confirmOnly ? 'confirmRead' : 'markRead', target, { required: true });
+  let value;
+  try {value = await callReader(tab, provider, confirmOnly ? 'confirmRead' : 'markRead', target, { required: true });}
+  finally {if (!confirmOnly) await reportLearnedRequests(tab, provider, 'mark_read');}
   if (!value || value.provider !== provider || value.account_address !== target.account_address.toLowerCase() ||
       value.provider_message_id !== target.provider_message_id || !['read', 'unknown'].includes(value.read_state)) {
     throw networkError('email_network_mark_read_unqualified');

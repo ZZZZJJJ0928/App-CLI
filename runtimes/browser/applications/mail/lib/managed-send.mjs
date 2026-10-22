@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 import {QQMAIL_SENT_FOLDER_SELECTOR,QQMAIL_SENT_BASELINE_EXPRESSION,QQMAIL_SENT_VERIFICATION_EXPRESSION} from './qqmail-send-proof.mjs';
 import {managedSendDOM} from './managed-send-dom.mjs';
 import {openSendJournal} from './send-journal.mjs';
+import {reportLearnedRequests} from './network-reader.mjs';
 import {collectUnread} from '../read.mjs';
 import {providerAccountDOM,READ_PROVIDERS} from './provider-account.mjs';
 
@@ -172,6 +173,8 @@ export async function sendManagedMail(raw,provider,runtime){
   if(!claimed){try{await discardManagedDraft(tab,provider)}catch{}return unknown;}
   attempted=true;
   await tab.inspect('()=>{if(globalThis.__sparkclawManagedMail)globalThis.__sparkclawManagedMail.sendAttempted=true;return {marked:true}}');
+  // Evidence only: record the shape of the provider's own send request.
+  await tab.runReadCode(`async page=>page.evaluate(()=>{try{return window.SparkClawMailReader?.armLearning?.({kind:'send',window_ms:60000})??false}catch{return false}})`).catch(()=>{});
   phase='send_click';await tab.click(MANAGED_SEND_SELECTOR);
   let proof;
   if(provider==='qq_mail'){
@@ -188,6 +191,7 @@ export async function sendManagedMail(raw,provider,runtime){
    proof=(await tab.inspect(`async()=>{await new Promise(r=>setTimeout(r,250));return (${sentDOM.toString()})(${JSON.stringify(provider)})}`)).result;
    if(proof?.confirmed)break;
   }
+  await reportLearnedRequests(tab,provider,'send');
   phase='confirm_result';if(!proof?.confirmed)throw fail('send_outcome_unknown');
   const result={schema_version:1,status:'sent',provider,recipient_digest:request.recipientDigest};
   await journal.write('sent',result);return result;

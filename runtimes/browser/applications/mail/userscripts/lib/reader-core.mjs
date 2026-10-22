@@ -21,6 +21,48 @@ export function installReader(config) {
   let pendingOperations = 0;
   const idPattern = /^[A-Za-z0-9_+=:.\/~\-]{1,1024}$/;
   const failure = code => { throw Object.assign(new Error(code), {code}); };
+  // Learning window: while a DOM-triggered mutation is armed, record the shape
+  // of the web client's own requests (method, redacted path, parameter and
+  // body key names, status, provider result code) so a later release can name
+  // the native request. Values, query strings and bodies are never retained.
+  const learning = {armed: null, entries: []};
+  const keyName = key => /^[A-Za-z_][A-Za-z0-9_.\-\[\]]{0,63}$/.test(key) ? key : 'other';
+  const redactPath = pathname => pathname.split('/').slice(0, 12).map(segment =>
+    segment === '' || /^[A-Za-z_][A-Za-z_.\-]{0,40}$/.test(segment) ? segment : ':id').join('/');
+  function bodyKeys(body) {
+    try {
+      if (body instanceof URLSearchParams || typeof FormData !== 'undefined' && body instanceof FormData) return [...new Set([...body.keys()].map(keyName))].sort().slice(0, 32);
+      if (typeof body !== 'string' || !body) return [];
+      try {
+        const value = JSON.parse(body);
+        if (Array.isArray(value)) return ['array:' + Math.min(value.length, 999)];
+        if (value && typeof value === 'object') return Object.keys(value).map(keyName).sort().slice(0, 32);
+        return [];
+      } catch { return [...new Set([...new URLSearchParams(body).keys()].map(keyName))].sort().slice(0, 32); }
+    } catch { return []; }
+  }
+  function providerCode(text) {
+    try {
+      const value = JSON.parse(typeof text === 'string' && text.length <= 1 << 20 ? text : 'null');
+      const code = value?.head?.ret ?? value?.code ?? value?.error?.code;
+      return Number.isSafeInteger(code) && Math.abs(code) <= 1000000 ? code : undefined;
+    } catch { return undefined; }
+  }
+  function learn(method, url, body, status, text) {
+    const armed = learning.armed;
+    if (!armed || performance.now() > armed.until || learning.entries.length >= 24) return;
+    let u; try { u = new URL(url, location.href); } catch { return; }
+    if (u.origin !== location.origin || config.listURL(u)) return;
+    const code = providerCode(text);
+    learning.entries.push({kind: armed.kind, method: String(method || 'GET').toUpperCase().slice(0, 8), path: redactPath(u.pathname),
+      query_keys: [...new Set([...u.searchParams.keys()].map(keyName))].sort().slice(0, 32), body_keys: bodyKeys(body),
+      status: Number.isSafeInteger(status) ? status : 0, ...(code === undefined ? {} : {provider_code: code})});
+  }
+  function armLearning({kind, window_ms = 30000} = {}) {
+    if (typeof kind !== 'string' || !/^[a-z_]{1,32}$/.test(kind) || !Number.isSafeInteger(window_ms) || window_ms < 1 || window_ms > 120000) failure('invalid_request');
+    learning.armed = {kind, until: performance.now() + window_ms}; learning.entries = [];
+    return true;
+  }
   async function inRound(operation, request) {
     if (!active) failure('email_network_capability_unavailable');
     pendingOperations++;
@@ -161,13 +203,27 @@ export function installReader(config) {
     const url = this.__sparkclawMailURL;
     let requestQuery;
     try { requestQuery=JSON.parse(args[0])?.[0]?.[3]; } catch {}
+    const learnedMethod = this.__sparkclawMailRequest?.method, learnedBody = args[0];
     this.addEventListener('load', () => {
       if (this.status === 200 && (!this.responseType || this.responseType === 'text')) observe(url, this.responseText, requestQuery);
+      try { learn(learnedMethod, url, learnedBody, this.status, !this.responseType || this.responseType === 'text' ? this.responseText : ''); } catch {}
     }, {once:true});
     return originalSend.apply(this, args);
   };
   const fetch = async function(...args) {
     const response = await originalFetch.apply(this, args);
+    if (learning.armed && learning.entries.length < 24 && performance.now() <= learning.armed.until) {
+      try {
+        const request = args[0], init = args[1] || {};
+        const url = new URL(response.url || (typeof request === 'string' ? request : request?.url), location.href);
+        const method = init.method || (typeof request === 'object' && request?.method) || 'GET';
+        if (url.origin === location.origin && !config.listURL(url)) {
+          const length = Number(response.headers.get('content-length'));
+          const text = Number.isFinite(length) && length <= 1 << 20 ? response.clone().text() : Promise.resolve('');
+          void text.then(value => learn(method, url.href, init.body, response.status, value), () => {});
+        }
+      } catch {}
+    }
     try {
       const u = new URL(response.url);
       if (u.origin === location.origin && config.listURL(u)) {
@@ -495,7 +551,7 @@ export function installReader(config) {
         return current;
       };
       confirmOnly ||= readAttempts.has(provider_message_id);
-      if(!confirmOnly)readAttempts.add(provider_message_id);
+      if(!confirmOnly){readAttempts.add(provider_message_id);armLearning({kind:'mark_read',window_ms:10000});}
     } else {
       // Other providers do not expose an independent read confirmation yet.
       if(confirmOnly)return {provider:config.provider,account_address:account,provider_message_id,read_state:'unknown'};
@@ -528,7 +584,8 @@ export function installReader(config) {
       if(typeof account_address !== 'string' || !account_address)failure('email_account_identity_mismatch');
       checkedAccount(account_address);
       return true;
-    }, diagnostics:()=>({original:{state:originalState,responseOrigin,response:originalResponse?{...originalResponse}:null},list:{stage:listStage,template:Boolean(listRequest),body:Array.isArray(listRequest?.body),paging:Array.isArray(listRequest?.body?.[0]?.[15])},inbox:Boolean(inbox),records:records.size,transport:transport?.diagnostics?.()}), snapshot, resetRound,
+    }, diagnostics:()=>({original:{state:originalState,responseOrigin,response:originalResponse?{...originalResponse}:null},list:{stage:listStage,template:Boolean(listRequest),body:Array.isArray(listRequest?.body),paging:Array.isArray(listRequest?.body?.[0]?.[15])},inbox:Boolean(inbox),records:records.size,transport:transport?.diagnostics?.(),
+      learning:learning.entries.map(entry=>({...entry,query_keys:[...entry.query_keys],body_keys:[...entry.body_keys]}))}), armLearning, snapshot, resetRound,
     listPage:request=>inRound(async request=>{
       const value=await listPage(request);checkedAccount(request.account_address);
       return {...value,...accountMetadata()};
