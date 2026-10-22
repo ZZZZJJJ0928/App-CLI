@@ -91,8 +91,11 @@ by the concrete backend, not inferred from schema acceptance.
 The core implements machine parsing, reviewed lifecycle registration, trusted
 provider admission and response/output validation. RuntimeAdapter 3.0 sends one
 request to a fixed executable with bounded stdout and a maximum 30-second client
-budget, killing its POSIX process group on completion/failure. This transport is
-currently enabled only on POSIX; v1 and native adapters retain their portability.
+budget, killing its POSIX process group on completion/failure. A deployment may
+instead give it the executor socket path; it then exchanges the identical
+EOF-delimited message on that socket within the same budget, without a client
+process. This transport is currently enabled only on POSIX; v1 and native
+adapters retain their portability.
 The transport is for reviewed clients, not a sandbox for escaping executables.
 
 The default installed CLI has no lifecycle registrations or grant resolver and

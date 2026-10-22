@@ -2,9 +2,9 @@
 
 [简体中文](APPLICATION-RUNTIME.zh-CN.md) · [Lifecycle](LIFECYCLE.md) · [Validation](VALIDATION.md)
 
-The maintenance fork implements `0.3.0-sparkclaw.31`.
-Python is packaged as `0.3.0+sparkclaw.31`; the optional Node runtime is
-`@infinimesh/app-cli-runtime@0.3.0-sparkclaw.31`. This is a fork release, not an
+The maintenance fork implements `0.3.0-sparkclaw.32`.
+Python is packaged as `0.3.0+sparkclaw.32`; the optional Node runtime is
+`@infinimesh/app-cli-runtime@0.3.0-sparkclaw.32`. This is a fork release, not an
 upstream release. Mail is the first application; the public Registry remains
 independent of Node, mail and browsers.
 
@@ -16,6 +16,15 @@ SparkClaw product admission → ProductClient → app-cli --machine
  → owner-local Executor → registered application handler
  → signed BrowserHostPort → SparkClaw task page / Bridge / Desktop
 ```
+
+`app-cli --machine --session` keeps that entry resident: it verifies the
+release and builds the Registry once, then answers one compact JSON request per
+line exactly as the one-shot entry would. ProductClient keeps a small pool of
+such sessions (one request in flight each) and falls back to one-shot calls for
+an entry that does not greet with the session hello. The runtime adapter
+exchanges the unchanged EOF-delimited message with the executor socket directly
+(`"executor_transport": "process"` restores the bundled client program); status
+waits poll adaptively. Wire messages, grants and admission are unchanged.
 
 The existing Python Registry alone owns public discovery and admission. The
 Node binding table maps reviewed commands to internal handlers; it is not an
@@ -166,6 +175,18 @@ the page without parking it again. Expiry, revocation and cleanup fences remain
 authoritative. Periodic authorization maintenance yields between bounded batches
 so directory growth cannot monopolize the Host event loop.
 
+Outlook keeps the first native search request it consumes (URL, init with
+headers, rewritten body) inside the page and replays it with the page's own
+fetch binding for later receipt intervals; a 401/403 or changed response shape
+drops it and the next round relearns it through the search box exactly once.
+Watch notifications may carry up to 16 candidate targets taken from the
+provider envelope (QQ `mid`, Outlook ItemId and receipt time); the handler
+re-validates them and they are qualification evidence only. While a send or QQ
+mark-read is armed, the Reader records the shape of the web client's own
+same-origin requests (method, redacted path, parameter/body key names, status,
+provider result code; never values); `APP_CLI_MAIL_LEARNING_EVIDENCE=1` writes
+these shapes to stderr after the operation.
+
 QQ read confirmation rechecks the exact account, message, selection, folder and
 receipt timestamp through a fresh bounded native search. It never relies on a
 cached read flag or the page's incidental list URL. A visible exact row may be
@@ -175,8 +196,9 @@ confirmation on later invocations, without releasing another write. Preparation
 and released attempts are recorded separately, and neither recovery path alters
 the captured original or its manifest.
 
-Source Python (86) and optional runtime/provider (457 passed, 2 skipped) tests
-pass locally on macOS with Python 3.11 and Node 26.
+Source Python (90) and optional runtime/provider (477 passed with
+`APP_CLI_RECOVERY_PYTHON` set; otherwise 475 passed, 2 skipped) tests pass
+locally on macOS with Python 3.11 and Node 26.
 A fresh installation and two compatible artifact sets verify tamper rejection,
 mixed-version rejection, stopped-service activation and state-preserving
 rollback. SparkClaw additionally qualifies a non-mail command through the

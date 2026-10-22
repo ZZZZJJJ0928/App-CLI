@@ -8,16 +8,20 @@
 停止监听后，已开始的读取可以完成，随后关闭页面，不再重新停泊。租约到期、撤销和清理围栏继续生效。
 周期性授权维护按有界批次让出事件循环，避免索引目录增长阻塞 Host。
 
+Outlook 在页面内保留首次消费的原生搜索请求（URL、含请求头的 init、改写后的请求体），之后的收信区间用页面自身的 fetch 绑定重放；401/403 或响应形状变化时丢弃模板，下一轮只通过搜索框重新学习一次。监听通知可携带最多 16 个取自服务商信封的候选目标（QQ `mid`、Outlook ItemId 与收信时间），handler 重新校验，且只作为合格证据。发送或 QQ 标记已读布置期间，Reader 记录网页客户端自身同源请求的形状（方法、脱敏路径、参数与请求体键名、状态、服务商结果码，绝不记录值）；`APP_CLI_MAIL_LEARNING_EVIDENCE=1` 时在操作后把形状写到 stderr。
+
 QQ 已读确认通过新鲜、有界的原生搜索，精确绑定账户、邮件、选择标识、文件夹及收信时间，
 不使用缓存已读标志或页面偶然出现的列表 URL。最多点击一次精确可见的邮件行，随后只有独立的
 服务端元数据才能确认已读。中断或结果未知的已读 journal，在后续调用中只允许只读确认，
 不再放行写入；准备和已放行尝试分别记录，恢复不改动已抓取原文或清单。
 
-维护 fork 的发行身份为 `0.3.0-sparkclaw.31`；Python 版本为 `0.3.0+sparkclaw.31`，可选 Node 包为 `@infinimesh/app-cli-runtime@0.3.0-sparkclaw.31`。这不是上游发行。邮件是首批应用，公共 Registry 不依赖 Node、邮件或浏览器。
+维护 fork 的发行身份为 `0.3.0-sparkclaw.32`；Python 版本为 `0.3.0+sparkclaw.32`，可选 Node 包为 `@infinimesh/app-cli-runtime@0.3.0-sparkclaw.32`。这不是上游发行。邮件是首批应用，公共 Registry 不依赖 Node、邮件或浏览器。
 
 ## 调用与维护边界
 
 SparkClaw 产品准入 → ProductClient → `app-cli --machine` → `Registry.control` → RuntimeAdapter 3.0 → 固定传输客户端 → owner-local Executor → 应用 handler → 签名 BrowserHostPort → SparkClaw 任务页 / Bridge / Desktop。
+
+`app-cli --machine --session` 让入口常驻：只校验一次发行并构建一次 Registry，之后每行一个紧凑 JSON 请求，按一次性入口的方式逐行应答。ProductClient 维持小型会话池（每个进程同时只有一个请求），入口未返回会话问候时退回一次性调用。runtime adapter 直接与 executor socket 交换原有的 EOF 分隔消息（`"executor_transport": "process"` 恢复随包客户端程序）；状态等待自适应轮询。线上消息、授权与准入不变。
 
 Python Registry 是唯一公共能力目录和准入点；Node binding 只是内部执行映射。`APP_CLI_CONFIG` 指向 owner-private 的可信部署配置，不接受业务参数指定模块、程序或服务。未配置时原生/CLI/Runtime v1 计算器独立可用，默认拒绝写操作。
 
