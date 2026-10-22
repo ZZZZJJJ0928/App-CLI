@@ -135,6 +135,58 @@ export function installReader(config) {
       return new TextDecoder().decode(out);
     } finally { clearTimeout(timer); reader.releaseLock(); }
   }
+  function xhrLearningText(xhr) {
+    // responseText throws for responseType=json. QQ uses the browser-decoded
+    // response object, so normalize plain JSON data for both shape learning
+    // and native-send observation without reading or changing the site's XHR.
+    const type = xhr.responseType;
+    if (!type || type === 'text') {const text = xhr.responseText; return typeof text === 'string' ? text : '';}
+    if (type !== 'json') return '';
+    const response = xhr.response;
+    if (response == null) return '';
+    const limit = 1 << 20, large = {}, invalid = {}, chunks = [], ancestors = new Set();
+    let bytes = 0, nodes = 0;
+    const append = text => {
+      if (text.length > limit - bytes) throw large;
+      for (const character of text) {
+        const code = character.codePointAt(0);
+        bytes += code <= 0x7f ? 1 : code <= 0x7ff ? 2 : code <= 0xffff ? 3 : 4;
+        if (bytes > limit) throw large;
+      }
+      chunks.push(text);
+    };
+    const string = value => {if (value.length > limit - bytes) throw large; append(JSON.stringify(value));};
+    const walk = (value, depth) => {
+      if (++nodes > 4096 || depth > 32) throw large;
+      if (value === null) {append('null'); return;}
+      if (typeof value === 'string') {string(value); return;}
+      if (typeof value === 'boolean' || typeof value === 'number' && Number.isFinite(value)) {append(String(value)); return;}
+      if (typeof value !== 'object' || ancestors.has(value)) throw invalid;
+      ancestors.add(value);
+      const field = key => {
+        const descriptor = Object.getOwnPropertyDescriptor(value, key);
+        // JSON responses have only data fields. Never invoke page-added
+        // getters/toJSON hooks while passively observing a response.
+        if (!descriptor || !Object.hasOwn(descriptor, 'value')) throw invalid;
+        walk(descriptor.value, depth + 1);
+      };
+      if (Array.isArray(value)) {
+        if (value.length > 4096) throw large;
+        append('[');
+        for (let index = 0; index < value.length; index++) {if (index) append(','); field(String(index));}
+        append(']');
+      } else {
+        append('{'); let count = 0;
+        for (const key in value) if (Object.hasOwn(value, key)) {
+          if (count++) append(','); string(key); append(':'); field(key);
+        }
+        append('}');
+      }
+      ancestors.delete(value);
+    };
+    try {walk(response, 0); return chunks.join('');}
+    catch (error) {return error === large ? ' '.repeat(limit + 1) : '';}
+  }
   function armLearning({kind, window_ms = 30000, capture_send_template = false} = {}) {
     if (typeof kind !== 'string' || !/^[a-z_]{1,32}$/.test(kind) || !Number.isSafeInteger(window_ms) || window_ms < 1 || window_ms > 120000 || typeof capture_send_template !== 'boolean') failure('invalid_request');
     learning.armed = {kind, until: performance.now() + window_ms}; learning.entries = [];
@@ -285,8 +337,10 @@ export function installReader(config) {
     const learnedHeaders = {...this.__sparkclawMailRequest?.headers};
     this.addEventListener('load', () => {
       if (this.status === 200 && (!this.responseType || this.responseType === 'text')) observe(url, this.responseText, requestQuery);
-      try { learn(learnedMethod, url, learnedBody, this.status, !this.responseType || this.responseType === 'text' ? this.responseText : '', session); } catch {}
-      try { nativeSend?.observe({session, method: learnedMethod, url, headers: learnedHeaders, body: learnedBody, status: this.status, responseURL: this.responseURL || url, responseText: !this.responseType || this.responseType === 'text' ? this.responseText : ''}); } catch {}
+      if (!session || session !== learningSession()) return;
+      let responseText = ''; try {responseText = xhrLearningText(this);} catch {}
+      try { learn(learnedMethod, url, learnedBody, this.status, responseText, session); } catch {}
+      try { nativeSend?.observe({session, method: learnedMethod, url, headers: learnedHeaders, body: learnedBody, status: this.status, responseURL: this.responseURL || url, responseText}); } catch {}
     }, {once:true});
     return originalSend.apply(this, args);
   };
