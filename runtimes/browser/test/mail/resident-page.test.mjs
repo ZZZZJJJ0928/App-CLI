@@ -99,10 +99,16 @@ test('generated bindings keep receive families separate from effectful tasks', a
       assert.equal(host.family, shared.family); assert.equal(host.activity, 'read');
       assert.equal(host.page.readOnlyCode, true); assert.ok(host.page.hook);
     }
+    const name = provider.replace('-', '_');
     for (const operation of ['send', 'mark_read']) {
-      const host = binding.commands[operation].host;
-      assert.notEqual(host.family, shared.family); assert.equal(host.activity, 'exclusive');
-      assert.equal(host.reuse_idle_ms, 0); assert.equal(host.page.hook, undefined);
+      const command = binding.commands[operation], host = command.host;
+      // Mutations share one per-provider lane, never the inbound page's lane
+      // or another provider's (whole-profile exclusivity is not requested).
+      assert.equal(command.resource, `${name}.mutation`); assert.equal(host.family, `${name}.mutation`);
+      assert.notEqual(command.resource, binding.commands.collect_page.resource);
+      assert.notEqual(host.family, shared.family); assert.equal(host.activity, 'mutation');
+      assert.equal(host.reuse_idle_ms, name === 'qq_mail' && operation === 'send' ? 120000 : 0);
+      assert.equal(host.page.hook, undefined);
     }
   }
 });

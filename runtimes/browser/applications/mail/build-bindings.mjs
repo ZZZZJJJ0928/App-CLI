@@ -30,13 +30,16 @@ for (const provider of ['gmail', 'outlook', 'qq_mail']) {
     const name = entry.operation === 'observe' ? 'watch' : entry.operation;
     const read = ['read', 'discover', 'capture', 'enumerate_thread', 'mark_read', 'collect_page', 'watch'].includes(name);
     const shared = isReceiveRead(name) || name === 'watch';
+    const mutation = ['send', 'mark_read'].includes(name);
     // The persistent watch has an independent execution lane. Its shared
     // Host family serializes initial page preparation with Reader work.
-    return [name, {handler: `${provider}.${name}`, resource: name === 'watch' ? `${provider}.watch` : provider,
+    // Mutations own a separate page in the provider's mutation lane: they
+    // queue behind each other, never behind inbound work or other providers.
+    return [name, {handler: `${provider}.${name}`, resource: name === 'watch' ? `${provider}.watch` : mutation ? `${provider}.mutation` : provider,
       ...(name === 'watch' ? {renewable: true} : {}), timeout_ms: entry.timeoutMS, script_id: entry.scriptID,
       revision: entry.revision, ...(name === 'send' ? {reconcile_requires_host: false} : {}), source_checksum: entry.sourceChecksum,
-      host: {family: shared ? `${provider}.inbound` : name, activity: shared ? name === 'watch' ? 'watch' : 'read' : 'exclusive',
-        invalidate_on_failure: isReceiveRead(name), reuse_idle_ms: shared ? 1800000 : 0,
+      host: {family: shared ? `${provider}.inbound` : mutation ? `${provider}.mutation` : name, activity: shared ? name === 'watch' ? 'watch' : 'read' : mutation ? 'mutation' : 'exclusive',
+        invalidate_on_failure: isReceiveRead(name), reuse_idle_ms: shared ? 1800000 : provider === 'qq_mail' && name === 'send' ? 120000 : 0,
         methods: ['currentURL', 'count', 'attribute', 'value', 'text', 'lines', 'readMany', 'visible', 'enabled', 'evaluate',
           'click', 'runReadCode', 'download', 'fill', 'focus', 'press', 'waitFor', 'waitMilliseconds', 'navigate',
           'prepareBackgroundPage', 'inspect', 'act', 'probeReads', 'setSecrets', 'hookActivate', 'hookEvents'],

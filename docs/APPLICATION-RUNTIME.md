@@ -119,7 +119,13 @@ the ledger or authorization index to resume service; capacity expansion/archival
 requires a reviewed maintenance change preserving key history.
 
 Host generation and epoch fence stale calls. Read and watch have separate
-activities on the same resource. The actual CLI daemon watches its lease and
+activities on the same resource. A `mutation` activity (mail send and mark-read)
+owns a separate page in a per-provider mutation family and executor lane: it
+queues behind other mutations of that provider only, never behind inbound pages
+or other providers; `exclusive` remains the whole-profile activity. The QQ send
+binding permits at most two minutes of idle reuse in a separate account-bound
+send pool; the application must explicitly retain a successful send page with a
+confirmed one-use template and cleared per-message secrets. The actual CLI daemon watches its lease and
 uses monotonic expiry even when Controller is lost. Stale Reader/account
 preparation invalidates the page; cleanup failure fences reuse. Revoking watch
 preserves a valid read activity. Private artifacts enforce ownership, path,

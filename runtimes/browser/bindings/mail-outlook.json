@@ -1677,15 +1677,15 @@
     },
     "send": {
       "handler": "outlook.send",
-      "resource": "outlook",
+      "resource": "outlook.mutation",
       "timeout_ms": 180000,
       "script_id": "outlook.send",
       "revision": 2,
       "reconcile_requires_host": false,
       "source_checksum": "sha256:015fb314b9aed6b99c7ed035c32357e879e7d78cea07e44e454b1c219ae8df5c",
       "host": {
-        "family": "send",
-        "activity": "exclusive",
+        "family": "outlook.mutation",
+        "activity": "mutation",
         "invalidate_on_failure": false,
         "reuse_idle_ms": 0,
         "methods": [
@@ -2122,14 +2122,14 @@
     },
     "mark_read": {
       "handler": "outlook.mark_read",
-      "resource": "outlook",
+      "resource": "outlook.mutation",
       "timeout_ms": 180000,
       "script_id": "outlook.mark_read",
       "revision": 1,
       "source_checksum": "sha256:09cf40f2cb867ba70838b45a9843d4c25be3d47af93de3b2839132ed18620497",
       "host": {
-        "family": "mark_read",
-        "activity": "exclusive",
+        "family": "outlook.mutation",
+        "activity": "mutation",
         "invalidate_on_failure": false,
         "reuse_idle_ms": 0,
         "methods": [

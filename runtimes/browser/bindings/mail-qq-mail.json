@@ -1663,17 +1663,17 @@
     },
     "send": {
       "handler": "qq_mail.send",
-      "resource": "qq_mail",
+      "resource": "qq_mail.mutation",
       "timeout_ms": 180000,
       "script_id": "qqmail.send",
       "revision": 2,
       "reconcile_requires_host": false,
       "source_checksum": "sha256:8768977a0870aeb7256d874e666ce2117f6229d9d91f5c82732265cb40e942d2",
       "host": {
-        "family": "send",
-        "activity": "exclusive",
+        "family": "qq_mail.mutation",
+        "activity": "mutation",
         "invalidate_on_failure": false,
-        "reuse_idle_ms": 0,
+        "reuse_idle_ms": 120000,
         "methods": [
           "currentURL",
           "count",
@@ -2026,14 +2026,14 @@
     },
     "mark_read": {
       "handler": "qq_mail.mark_read",
-      "resource": "qq_mail",
+      "resource": "qq_mail.mutation",
       "timeout_ms": 180000,
       "script_id": "qqmail.mark_read",
       "revision": 1,
       "source_checksum": "sha256:09cf40f2cb867ba70838b45a9843d4c25be3d47af93de3b2839132ed18620497",
       "host": {
-        "family": "mark_read",
-        "activity": "exclusive",
+        "family": "qq_mail.mutation",
+        "activity": "mutation",
         "invalidate_on_failure": false,
         "reuse_idle_ms": 0,
         "methods": [

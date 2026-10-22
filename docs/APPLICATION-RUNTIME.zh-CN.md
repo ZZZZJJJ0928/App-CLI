@@ -63,7 +63,7 @@ Python 启动器持有继承的 POSIX flock。SQLite WAL/FULL 在效果发生前
 
 容量达到门槛后拒绝新任务并返回 `LEDGER_CAPACITY_EXCEEDED`，保留既有查询、防重和冲突检测。该门槛不是硬文件系统配额：活跃结果、事件、WAL、授权与邮件文件仍需额外磁盘空间。不得通过删除账本/授权索引恢复服务；扩容或归档需维护变更且保留请求历史。
 
-Host generation 与 epoch 隔离旧调用。共享页的 read/watch 各有活动租约；实际 CLI daemon 监视租约并使用单调时钟到期，Controller 丢失后仍可停用。Reader/账户校验失败使页面失效，清理失败禁止复用。撤销 watch 不关闭有效 read。私有结果引用校验 owner、路径、大小和哈希。[Host 消息 Schema](../schemas/browser-host-v1.schema.json)固定签名结构。
+Host generation 与 epoch 隔离旧调用。共享页的 read/watch 各有活动租约；`mutation` 活动（邮件发送与标记已读）在按供应商划分的 mutation family 与执行通道中使用独立页面，只排在同一供应商的其他 mutation 之后，不等待收件页或其他供应商；`exclusive` 仍表示独占整个浏览器配置。QQ send binding 允许在独立账号绑定的 send pool 中最多停驻两分钟；应用必须显式保留成功发信且具备已确认单次模板、已清空逐封秘密字段的页面。实际 CLI daemon 监视租约并使用单调时钟到期，Controller 丢失后仍可停用。Reader/账户校验失败使页面失效，清理失败禁止复用。撤销 watch 不关闭有效 read。私有结果引用校验 owner、路径、大小和哈希。[Host 消息 Schema](../schemas/browser-host-v1.schema.json)固定签名结构。
 
 ## 构建与成套切换
 

@@ -1661,15 +1661,15 @@
     },
     "send": {
       "handler": "gmail.send",
-      "resource": "gmail",
+      "resource": "gmail.mutation",
       "timeout_ms": 180000,
       "script_id": "gmail.send",
       "revision": 2,
       "reconcile_requires_host": false,
       "source_checksum": "sha256:68805cdb11418e70bcc3903f766233e1412f6f6ebdeebd8d633fceb2a048ff21",
       "host": {
-        "family": "send",
-        "activity": "exclusive",
+        "family": "gmail.mutation",
+        "activity": "mutation",
         "invalidate_on_failure": false,
         "reuse_idle_ms": 0,
         "methods": [
@@ -2020,14 +2020,14 @@
     },
     "mark_read": {
       "handler": "gmail.mark_read",
-      "resource": "gmail",
+      "resource": "gmail.mutation",
       "timeout_ms": 180000,
       "script_id": "gmail.mark_read",
       "revision": 1,
       "source_checksum": "sha256:09cf40f2cb867ba70838b45a9843d4c25be3d47af93de3b2839132ed18620497",
       "host": {
-        "family": "mark_read",
-        "activity": "exclusive",
+        "family": "gmail.mutation",
+        "activity": "mutation",
         "invalidate_on_failure": false,
         "reuse_idle_ms": 0,
         "methods": [
