@@ -32,8 +32,13 @@ export function installOutlookEarlyBridge() {
         finally{reader.releaseLock();}
         const bytes=new Uint8Array(size);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}
         const value=JSON.parse(new TextDecoder().decode(bytes));if(!active)return;
-        // Retain hierarchy evidence only, never session secrets or mail bodies.
-        startup={owaUserConfig:{SessionSettings:{UserEmailAddress:value?.owaUserConfig?.SessionSettings?.UserEmailAddress}},findFolders:value.findFolders,findConversation:{Body:{FolderId:value?.findConversation?.Body?.FolderId}}};
+        // Retain hierarchy evidence and conversation identifiers/counts only
+        // (reply-target proof), never session secrets, subjects or bodies.
+        const ids=list=>Array.isArray(list)?list.slice(0,1000).map(entry=>({Id:entry?.Id})):list;
+        const conversations=value?.findConversation?.Body?.Conversations;
+        startup={owaUserConfig:{SessionSettings:{UserEmailAddress:value?.owaUserConfig?.SessionSettings?.UserEmailAddress}},findFolders:value.findFolders,findConversation:{Body:{FolderId:value?.findConversation?.Body?.FolderId,
+          ...(Array.isArray(conversations)?{Conversations:conversations.slice(0,100).map(item=>({ConversationId:{Id:item?.ConversationId?.Id},ItemIds:ids(item?.ItemIds),GlobalItemIds:ids(item?.GlobalItemIds),DraftItemIds:ids(item?.DraftItemIds),
+            MessageCount:item?.MessageCount,GlobalMessageCount:item?.GlobalMessageCount,UnreadCount:item?.UnreadCount,GlobalUnreadCount:item?.GlobalUnreadCount,LastDeliveryTime:item?.LastDeliveryTime}))}:{})}}};
         consumer?.startup?.(startup);
       })().catch(()=>{});
     }catch{}

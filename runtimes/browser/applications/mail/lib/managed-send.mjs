@@ -29,24 +29,61 @@ export function validateManagedSend(input,provider){
  return {...input,account_address:normalize(input.account_address),mode,message:{to:[...m.to],cc:[...m.cc??[]],subject:m.subject??'',body:{format:'text',content:m.body.content},...(attachments.length?{attachments}:{})},recipientDigest:`sha256:${crypto.createHash('sha256').update(JSON.stringify({to:m.to,cc:m.cc??[]})).digest('hex')}`};
 }
 
+// One page turn per read, without an in-page wait: the host's eval budget
+// also covers process start and the post-eval network settle (up to 6 s
+// while a freshly navigated mailbox is still loading), so waiting inside it
+// turned a not-yet-hydrated identity into browser_script_timeout.
 async function sendAccountHash(tab,provider){
- const evidence=await tab.inspect(`async()=>{if(!${JSON.stringify(READ_PROVIDERS[provider].origins)}.includes(location.origin))return {error:'email_provider_origin_invalid'};let observed;const deadline=Date.now()+5000;do{const reader=window.SparkClawMailReader;if(reader){if(reader.provider!==${JSON.stringify(provider)}||reader.version!=='0.2.0')return {url:location.href,account_hash:null};try{observed=reader.snapshot({interval_start:"1970-01-01T00:00:00Z",interval_end:"1970-01-01T00:00:01Z"});}catch(error){if(error.code!=='email_account_identity_unavailable')return {url:location.href,account_hash:null};}}else{observed=(${providerAccountDOM.toString()})(${JSON.stringify(provider)});}if(observed?.account_address)break;await new Promise(r=>setTimeout(r,100))}while(Date.now()<deadline);if(!observed?.account_address)return {url:location.href,account_hash:null};const value=observed.account_address.toLowerCase();return {url:location.href,account_hash:Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value))),v=>v.toString(16).padStart(2,'0')).join('')};}`);
+ const evidence=await tab.inspect(`async()=>{if(!${JSON.stringify(READ_PROVIDERS[provider].origins)}.includes(location.origin))return {error:'email_provider_origin_invalid'};let observed;const reader=window.SparkClawMailReader;if(reader){if(reader.provider!==${JSON.stringify(provider)}||reader.version!=='0.2.0')return {url:location.href,account_hash:null,final:true};try{observed=reader.snapshot({interval_start:"1970-01-01T00:00:00Z",interval_end:"1970-01-01T00:00:01Z"});}catch(error){if(error.code!=='email_account_identity_unavailable')return {url:location.href,account_hash:null,final:true};}}else{observed=(${providerAccountDOM.toString()})(${JSON.stringify(provider)});}if(!observed?.account_address)return {url:location.href,account_hash:null};const value=observed.account_address.toLowerCase();return {url:location.href,account_hash:Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value))),v=>v.toString(16).padStart(2,'0')).join('')};}`);
  if(evidence?.result?.url!==evidence?.origin||!READ_PROVIDERS[provider].origins.includes(new URL(evidence.origin).origin))throw fail('email_provider_origin_invalid');
- return evidence.result.account_hash;
+ return evidence.result;
+}
+export const SEND_ACCOUNT_READS=12;
+const SEND_ACCOUNT_WAIT_MS=12000;
+// Each read is a separate host call (about one second each), so hydration is
+// awaited between calls rather than inside one bounded evaluation.
+async function awaitSendAccountHash(tab,provider){
+ const deadline=Date.now()+SEND_ACCOUNT_WAIT_MS;
+ for(let read=1;;read++){
+  const observed=await sendAccountHash(tab,provider);
+  if(observed.account_hash||observed.final||read>=SEND_ACCOUNT_READS||Date.now()>=deadline)return observed.account_hash;
+ }
 }
 export async function verifySendAccount(tab,provider,expected){
- let accountHash=await sendAccountHash(tab,provider);
+ let accountHash=await awaitSendAccountHash(tab,provider);
  if(!accountHash&&provider==='outlook'){
   await tab.click('#O365_MainLink_MePhoto, #O365_MeFlexPane_ButtonID, [data-testid="mectrl_headerPicture"]');
-  accountHash=await sendAccountHash(tab,provider);await tab.press('Escape');
+  try{accountHash=await awaitSendAccountHash(tab,provider);}finally{await tab.press('Escape');}
  }
  // Account bindings use the Reader's case-insensitive provider identity. An
  // Outlook login alias in the account menu is not necessarily its mailbox.
  if(!accountHash||accountHash!==digest(expected.toLowerCase()))throw fail('email_account_identity_mismatch');
 }
 
+// Outlook's reply acts on the conversation opened by its own route. Join the
+// requested item to that conversation through the Reader's startup inventory
+// and require it to be the conversation's only, local, non-draft message.
+export const outlookReplyRoute=target=>'https://outlook.live.com/mail/0/inbox/id/'+encodeURIComponent(target.provider_selection_id);
+const OUTLOOK_REPLY_PROOF_READS=5;
+async function openOutlookReplyTarget(tab,request){
+ const target=request.reply_target;
+ if(target.folder!=='inbox'||typeof tab.runReadCode!=='function')throw fail('email_reply_target_unverified');
+ const proofRequest={account_address:request.account_address,provider_message_id:target.provider_message_id,provider_selection_id:target.provider_selection_id};
+ let proof;
+ for(let read=1;read<=OUTLOOK_REPLY_PROOF_READS;read++){
+  proof=await tab.runReadCode(`async page=>page.evaluate(request=>{const r=window.SparkClawMailReader;if(r?.provider!=='outlook'||r.version!=='0.2.0'||typeof r.replyTarget!=='function')return null;try{return r.replyTarget(request)}catch(error){return {error:String(error?.code||'email_network_read_failed').slice(0,64)}}},${JSON.stringify(proofRequest)})`);
+  if(!['inventory_unobserved','conversation_unobserved'].includes(proof?.reason))break;
+ }
+ if(proof?.error==='email_account_identity_mismatch')throw fail('email_account_identity_mismatch');
+ if(proof?.provider!=='outlook'||proof.account_address!==request.account_address.toLowerCase()||proof.provider_message_id!==target.provider_message_id||proof.provider_selection_id!==target.provider_selection_id||proof.single!==true){
+  process.stderr.write(JSON.stringify({event:'mail_reply_target_unverified',provider:'outlook',reason:/^[a-z_]{1,64}$/.test(proof?.reason??proof?.error??'')?proof.reason??proof.error:'unavailable'})+'\n');
+  throw fail('email_reply_target_unverified');
+ }
+ return {account_address:request.account_address,folder:'inbox',provider_message_id:target.provider_message_id,provider_selection_id:target.provider_selection_id,single_message_proven:true};
+}
 export async function openNativeReplyTarget(tab,provider,request){
  const target=request.reply_target;
+ if(provider==='outlook')return openOutlookReplyTarget(tab,request);
  // Reuse individual-message selection proofs and account checks from capture,
  // but never export/download or create a new message as a reply fallback.
  const message=await collectUnread(tab,provider,{account_address:request.account_address,folder:target.folder,pinned_message_id:target.provider_message_id,pinned_selection_id:target.provider_selection_id,capture_required:false,onSelected:async selected=>{if(selected.members?.some(member=>member.draft))throw fail('email_existing_draft')}});
@@ -73,7 +110,7 @@ export async function prepareManagedDraft(tab,provider,request){
  await verifySendAccount(tab,provider,request.account_address);
  let target;
  if(request.mode!=='compose')target=await openNativeReplyTarget(tab,provider,request);
- const expected={mode:request.mode,needs_cc:request.message.cc.length>0,provider_message_id:target?.provider_message_id,provider_selection_id:target?.provider_selection_id,individual_message_proven:target?.individual_message_proven===true,single_message_proven:target?.single_message_proven===true,evidence_key:target?.evidence_key};
+ const expected={mode:request.mode,needs_cc:request.message.cc.length>0,provider_message_id:target?.provider_message_id,provider_selection_id:target?.provider_selection_id,single_message_proven:target?.single_message_proven===true};
  let opened=await native(tab,provider,'open',expected);
  if(opened.menu_opened)opened=await native(tab,provider,'reply_menu',expected);
  if(!opened.opened)throw fail('email_reply_editor_unverified');
@@ -215,7 +252,8 @@ export async function sendManagedMail(raw,provider,runtime){
    return result;
   }
   phase='open';
-  await tab.runReadCode(`async page=>{await page.goto(${JSON.stringify(outlookFolderProof?'https://outlook.live.com/mail/0/sentitems':READ_PROVIDERS[provider].url)});return true}`);
+  const outlookReply=provider==='outlook'&&request.mode!=='compose'&&request.reply_target.folder==='inbox';
+  await tab.runReadCode(`async page=>{await page.goto(${JSON.stringify(outlookFolderProof?'https://outlook.live.com/mail/0/sentitems':outlookReply?outlookReplyRoute(request.reply_target):READ_PROVIDERS[provider].url)});return true}`);
   if(runtime.prepareSendPage)await runtime.prepareSendPage();
   let claimed, sentBaseline, prepared;
   phase='sent_baseline';

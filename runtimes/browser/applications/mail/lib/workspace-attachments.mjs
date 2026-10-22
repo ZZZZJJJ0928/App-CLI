@@ -269,7 +269,18 @@ export function attachmentDOM(provider, phase, expected) {
         const names=titles.filter(node=>remaining.some(item=>node.getAttribute('title')===item.name&&node.textContent.trim()===item.name));
         if(names.length!==1)return {ready:false};
         const index=remaining.findIndex(item=>item.name===names[0].getAttribute('title')),item=remaining[index];
-        const sizes=titles.filter(node=>node!==names[0]&&new RegExp('^'+item.size_bytes+' (?:字节|bytes?)$','u').test(node.getAttribute('title'))&&node.textContent.trim()===node.getAttribute('title'));
+        // Outlook shows exact bytes only below 1 KiB ("158 字节"); larger files
+        // get a rounded KB/MB label. Byte identity is the verified manifest of
+        // the input's actual Files; the card only binds this name to its size.
+        const sizeMatches=(text,bytes)=>{
+          const match=/^(\d{1,10}(?:[.,]\d{1,2})?) ?(字节|bytes?|B|KB|千字节|MB|兆字节|GB)$/u.exec(text||'');
+          if(!match)return false;
+          const number=match[1].replace(',','.'),value=Number(number),step=10**-((number.split('.')[1]||'').length);
+          if(/^(字节|bytes?|B)$/u.test(match[2]))return step===1&&value===bytes;
+          const units={KB:[1024,1000],千字节:[1024,1000],MB:[1048576,1e6],兆字节:[1048576,1e6],GB:[1073741824,1e9]}[match[2]];
+          return units.some(unit=>bytes>=(value-step)*unit&&bytes<=(value+step)*unit);
+        };
+        const sizes=titles.filter(node=>node!==names[0]&&sizeMatches(node.getAttribute('title'),item.size_bytes)&&node.textContent.trim()===node.getAttribute('title'));
         if(sizes.length!==1||sizes[0].parentElement!==names[0].parentElement)return {ready:false};
         const size=sizes[0].getAttribute('title'),summary=card.getAttribute('aria-label').trim();
         if(summary!==item.name+' 打开 '+size&&summary!==item.name+' Open '+size)return {ready:false};

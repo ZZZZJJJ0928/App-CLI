@@ -11,7 +11,7 @@ const startup=()=>({
   accessToken:'test-access-token-must-not-be-retained',
   owaUserConfig:{SessionSettings:{UserEmailAddress:'Owner@example.test',Canary:'canary-must-not-be-retained',Token:'session-token-must-not-be-retained'},SessionSecret:'config-secret-must-not-be-retained'},
   findFolders:{Body:{ResponseMessages:{Items:[{RootFolder:{IncludesLastItemInRange:true,TotalItemsInView:1,Folders:[{FolderId:{Id:'inbox-id'},ParentFolderId:{Id:'root-id'},DisplayName:'Inbox',FolderClass:'IPF.Note'}]}}]}}},
-  findConversation:{Body:{FolderId:{Id:'inbox-id'},Conversations:[{Subject:'mail-subject-must-not-be-retained',Body:'mail-body-must-not-be-retained'}]},ResponseToken:'conversation-token-must-not-be-retained'},
+  findConversation:{Body:{FolderId:{Id:'inbox-id'},Conversations:[{ConversationId:{Id:'conv-a',ChangeKey:'change-key-must-not-be-retained'},ItemIds:[{Id:'item-a',ChangeKey:'item-key-must-not-be-retained'}],GlobalItemIds:[{Id:'item-a'}],DraftItemIds:[],MessageCount:1,GlobalMessageCount:1,UnreadCount:1,GlobalUnreadCount:1,LastDeliveryTime:'2026-10-21T10:00:00Z',Subject:'mail-subject-must-not-be-retained',Preview:'mail-preview-must-not-be-retained',From:{Mailbox:{EmailAddress:'sender-must-not-be-retained@example.test'}},Body:'mail-body-must-not-be-retained'}]},ResponseToken:'conversation-token-must-not-be-retained'},
   unrelated:{body:'unrelated-body-must-not-be-retained'},
 });
 function response(value,url=startupURL,status=200) {
@@ -54,7 +54,9 @@ test('Outlook early bridge retains sanitized startup evidence for a late attach 
   const retained=consumer.startupValues[0];
   assert.deepEqual(Object.keys(retained).sort(),['findConversation','findFolders','owaUserConfig']);
   assert.deepEqual(retained.owaUserConfig,{SessionSettings:{UserEmailAddress:'Owner@example.test'}});
-  assert.deepEqual(retained.findConversation,{Body:{FolderId:{Id:'inbox-id'}}});
+  // Reply-target proof keeps conversation identifiers and counts only.
+  assert.deepEqual(retained.findConversation,{Body:{FolderId:{Id:'inbox-id'},Conversations:[{ConversationId:{Id:'conv-a'},ItemIds:[{Id:'item-a'}],GlobalItemIds:[{Id:'item-a'}],DraftItemIds:[],
+    MessageCount:1,GlobalMessageCount:1,UnreadCount:1,GlobalUnreadCount:1,LastDeliveryTime:'2026-10-21T10:00:00Z'}]}});
   assert.deepEqual(retained.findFolders,value.findFolders);
   assert.doesNotMatch(JSON.stringify(retained),/must-not-be-retained|page-only-token|Authorization|Canary/);
 });
