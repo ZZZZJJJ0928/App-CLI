@@ -12,17 +12,21 @@
 
 ## QQ 重放
 
-`APP_CLI_MAIL_NATIVE_SEND=qq_mail` 开启单收件人、无抄送/附件的新纯文本 compose 原型。原生消息输入的 JSON 上限 48 KiB，更大消息仍走 DOM。冷页面先正常发信学习；成功且模板确认后，同账户、owner、scope、凭据代次和 binding 的独立发送页最多保留 120 秒。停驻前清空消息私密槽位、Reader 记录及应用自己的 DOM 引用。下次租约必须验证同一 document nonce 和账户，并在加载新私密槽位前更新租约权限。
+`APP_CLI_MAIL_NATIVE_SEND=qq_mail` 开启单收件人、无抄送/附件的新纯文本 compose 原型。原生消息输入的 JSON 上限 48 KiB，更大消息仍走 DOM。冷页面先正常发信学习；成功且模板确认后，同账户、owner、scope、凭据代次和 binding 的独立发送页最多保留 15 分钟。停驻前清空消息私密槽位、Reader 记录及应用自己的 DOM 引用。下次租约必须验证同一 document nonce 和账户，并在加载新私密槽位前更新租约权限。
 
 真实发送为 POST `/send/sendmail`、`func=1`、恰好 18 个字段；五个可选模式值为字符串 false，save_to_send=true。同路径 func=2 是自动存草稿，不能学习成发送模板。未知/重复字段、bcc、附件、回复、续草稿、日历、回执、发送人不符或重定向均拒绝。
 
-DOM 发送通过既有已发送页面证明后，还要独立查询 Sent，将响应 body.messageid 与页面已证明的 emailid 关联，并精确核对主题和收发件人。旧收件人、正文、主题和草稿 ID 随即清空，session 只在页面内存。模板仅消费一次，过期、换账户或页面销毁即失效。
+DOM 发送通过既有已发送页面证明后，还要独立查询 Sent，将响应 body.messageid 与页面已证明的 emailid 关联，并精确核对主题和收发件人。旧收件人、正文、主题和草稿 ID 随即清空，session 只在页面内存。
 
-产品侧先释放既有执行授权并持久化 dispatching 栅栏，Reader 再取新的 Sent 基线并发信一次。新主题/正文/收件人替换模板，旧 mailid 清空，重定向禁用，总请求预算 30 秒。发出后最多五次只读 Sent 查询，不回退 DOM，不自动重发。
+就绪模板自 DOM 确认起有效 15 分钟；每次被证明 sent 的重放在同一页面再续期 15 分钟。以下情况失效：过期、换账户、页面重载或销毁（模板只在页面内存；document nonce 已变的复用发送页会重新导航并走 DOM 发信）、发出前 Sent 读取失败，以及任何未被证明 sent 的重放（含服务端拒绝）。学习窗口（含 QQ 标记已读）不清除模板；新观察并确认的 DOM 发送会替换它。
+
+释放执行授权、写 dispatching 栅栏之前先做前置检查：模板就绪、校验新邮件，并在页面会话上读取新的 Sent 基线，返回绑定该邮件的一次性票据（5 分钟有效；授权释放期间模板到期不会使其失效）。任何拒绝（含 Sent 读取失败或被服务端拒绝）对原生路径即为 not_sent：未发出、未占用 dispatch，同一次发信继续走 DOM。只有票据能发信。
+
+随后产品侧释放授权并持久化 dispatching 栅栏，Reader 发信一次。新主题/正文/收件人替换模板，旧 mailid 清空，重定向禁用；请求与核对合计不超过 28 秒，低于宿主 30 秒的页面调用预算。发出后只读轮询 Sent：1 秒后首读，之后每 750 毫秒一次，最后一次恰在 12 秒，出现即返回。实测 QQ 在受理 4.2 秒后列出重放邮件，因此仅 12 秒后仍未出现才判 unknown。不回退 DOM，不自动重发。
 
 成功必须同时满足：响应 head.ret=0 和有效 body.messageid；独立 POST `/list/maillist`（folder 3，page 0，size 50）有且仅有一条同 messageid 的新记录；dirid=3、emailid 有效且不在基线；主题、唯一发件人及唯一收件人精确匹配。公开回执 provider_message_id 使用 emailid，私有发送 journal 保存两个标识及关联证明。不存在、歧义、旧记录、错账户/主题/收件人或响应丢失都保持 unknown。reconcile 只读取原回执。
 
-`APP_CLI_MAIL_SEND_EVIDENCE=1` 记录 DOM/native 路径、总耗时、发送请求耗时和 Sent 核对耗时，不记录邮件值或标识。
+`APP_CLI_MAIL_SEND_EVIDENCE=1` 记录 DOM/native 路径、总耗时、发送请求耗时、Sent 核对耗时、各宿主调用次数与耗时，以及前置检查 not_sent 的原因和 DOM 回退，不记录邮件值或标识。
 
 ## 验证
 

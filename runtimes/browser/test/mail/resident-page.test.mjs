@@ -107,7 +107,7 @@ test('generated bindings keep receive families separate from effectful tasks', a
       assert.equal(command.resource, `${name}.mutation`); assert.equal(host.family, `${name}.mutation`);
       assert.notEqual(command.resource, binding.commands.collect_page.resource);
       assert.notEqual(host.family, shared.family); assert.equal(host.activity, 'mutation');
-      assert.equal(host.reuse_idle_ms, name === 'qq_mail' && operation === 'send' ? 120000 : 0);
+      assert.equal(host.reuse_idle_ms, name === 'qq_mail' && operation === 'send' ? 900000 : 0);
       assert.equal(host.page.hook, undefined);
     }
   }

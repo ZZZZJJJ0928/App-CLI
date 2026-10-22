@@ -39,7 +39,7 @@ for (const provider of ['gmail', 'outlook', 'qq_mail']) {
       ...(name === 'watch' ? {renewable: true} : {}), timeout_ms: entry.timeoutMS, script_id: entry.scriptID,
       revision: entry.revision, ...(name === 'send' ? {reconcile_requires_host: false} : {}), source_checksum: entry.sourceChecksum,
       host: {family: shared ? `${provider}.inbound` : mutation ? `${provider}.mutation` : name, activity: shared ? name === 'watch' ? 'watch' : 'read' : mutation ? 'mutation' : 'exclusive',
-        invalidate_on_failure: isReceiveRead(name), reuse_idle_ms: shared ? 1800000 : provider === 'qq_mail' && name === 'send' ? 120000 : 0,
+        invalidate_on_failure: isReceiveRead(name), reuse_idle_ms: shared ? 1800000 : provider === 'qq_mail' && name === 'send' ? 900000 : 0,
         methods: ['currentURL', 'count', 'attribute', 'value', 'text', 'lines', 'readMany', 'visible', 'enabled', 'evaluate',
           'click', 'runReadCode', 'download', 'fill', 'focus', 'press', 'waitFor', 'waitMilliseconds', 'navigate',
           'prepareBackgroundPage', 'inspect', 'act', 'probeReads', 'setSecrets', 'hookActivate', 'hookEvents'],

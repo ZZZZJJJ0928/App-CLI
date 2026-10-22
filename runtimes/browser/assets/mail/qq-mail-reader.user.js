@@ -1177,7 +1177,7 @@ const markQQMailRead=async function markQQMailRead({provider_message_id, readTar
       return true;
     }, diagnostics:()=>({original:{state:originalState,responseOrigin,response:originalResponse?{...originalResponse}:null},list:{stage:listStage,template:Boolean(listRequest),body:Array.isArray(listRequest?.body),paging:Array.isArray(listRequest?.body?.[0]?.[15])},inbox:Boolean(inbox),records:records.size,transport:transport?.diagnostics?.(),
       learning:JSON.parse(JSON.stringify(learning.entries))}), armLearning, snapshot, resetRound,
-    ...(nativeSend ? {sendNativeReady: nativeSend.ready, confirmSendTemplate: request=>inRound(nativeSend.confirm, request), sendNative: request=>inRound(nativeSend.send, request)} : {}),
+    ...(nativeSend ? {sendNativeReady: nativeSend.ready, confirmSendTemplate: request=>inRound(nativeSend.confirm, request), prepareNativeSend: request=>inRound(nativeSend.prepare, request), sendNative: request=>inRound(nativeSend.send, request)} : {}),
     listPage:request=>inRound(async request=>{
       const value=await listPage(request);checkedAccount(request.account_address);
       return {...value,...accountMetadata()};
@@ -1190,9 +1190,14 @@ const markQQMailRead=async function markQQMailRead({provider_message_id, readTar
     },
   })});
 })({"provider":"qq_mail","installNativeSend":function installQQSendPrototype({account, fetch, readText, responseShape}) {
+  const TEMPLATE_TTL_MS = 15 * 60 * 1000, TICKET_TTL_MS = 5 * 60 * 1000;
+  // QQ listed a replayed send 4.2 s after accepting it. Poll on a time bound,
+  // returning on the first match; only absence after 12 s is unknown. The whole
+  // dispatch stays below the host's 30 s page-call budget.
+  const SENT_FIRST_DELAY_MS = 1000, SENT_POLL_MS = 750, SENT_LIMIT_MS = 12000, DISPATCH_LIMIT_MS = 28000;
   const fields = 'calendar content from func is_resume is_text is_urgent language mailid need_receipt r save_to_send separated_copy sid subject time_zone time_zone_dst to'.split(' ').sort();
-  let active = true, arm = null, candidate = null, template = null, seen = 0, pending = null, expiry = null, reason = 'unlearned', generation = 0;
-  const clear = () => { generation++; arm = candidate = template = null; clearTimeout(expiry); expiry = null; };
+  let tokens = 0, active = true, arm = null, candidate = null, template = null, prepared = null, seen = 0, pending = null, expiry = null, reason = 'unlearned', generation = 0;
+  const clear = () => { generation++; arm = candidate = template = prepared = null; clearTimeout(expiry); expiry = null; };
   const fail = code => { throw Object.assign(new Error(code), {code}); };
   const address = value => typeof value === 'string' && value.length <= 320 && /^[^\s<>@,;"\x00-\x1f]+@[^\s<>@,;"\x00-\x1f]+\.[^\s<>@,;"\x00-\x1f]+$/u.test(value);
   function checked(expected) {
@@ -1286,20 +1291,55 @@ const markQQMailRead=async function markQQMailRead({provider_message_id, readTar
     // draft identity are discarded, even while the page remains alive.
     for (const key of ['to','subject','content','mailid']) value.form.set(key, '');
     value.to = {named: value.to.named, tail: value.to.tail}; delete value.subject; delete value.messageid;
-    template = value;
+    value.until = performance.now() + TEMPLATE_TTL_MS;
+    // The learning window's timer must not retire a confirmed template.
+    clearTimeout(expiry); expiry = null;
+    template = value; reason = 'ready';
     return true;
   }
   function ready({account_address} = {}) {
     const owner = checked(account_address);
-    if (template && (template.until < performance.now() || template.owner !== owner)) template = null;
+    if (template && template.owner !== owner) { template = null; reason = 'account_changed'; }
+    if (template && template.until < performance.now()) { template = null; reason = 'template_expired'; }
     return {provider: 'qq_mail', account_address: owner, ready: Boolean(template), reason: template ? 'ready' : reason};
   }
-  async function send({account_address, to, cc = [], subject, text} = {}) {
+  const validMessage = ({to, cc = [], subject, text} = {}) => Array.isArray(to) && to.length === 1 && address(to[0]) && Array.isArray(cc) && !cc.length &&
+    typeof subject === 'string' && subject.trim() && [...subject].length <= 998 && !/[\r\n\0]/.test(subject) &&
+    typeof text === 'string' && text.trim() && !text.includes('\0') && new TextEncoder().encode(text).length <= 204800;
+  const messageKey = ({to, subject, text}) => JSON.stringify([to, subject, text]);
+  // Sent rows that already exist cannot certify a new send. Reading them is
+  // also the session check, and it runs before the caller claims a dispatch:
+  // any refusal here is "not sent" and leaves the DOM flow available.
+  const baselineOf = rows => ({messageids: new Set(rows.map(row => row?.messageid).filter(Boolean)), emailids: new Set(rows.map(row => row?.emailid).filter(Boolean))});
+  async function prepare({account_address, ...message} = {}) {
     const owner = checked(account_address);
-    if (!ready({account_address}).ready) fail('email_network_template_unlearned');
-    if (!Array.isArray(to) || to.length !== 1 || !address(to[0]) || !Array.isArray(cc) || cc.length || typeof subject !== 'string' ||
-        !subject.trim() || [...subject].length > 998 || /[\r\n\0]/.test(subject) || typeof text !== 'string' || !text.trim() || text.includes('\0') || new TextEncoder().encode(text).length > 204800) fail('invalid_request');
-    const value = template; clear(); // consumed before any asynchronous dispatch
+    prepared = null;
+    const refused = why => ({provider: 'qq_mail', account_address: owner, ready: false, dispatched: false, reason: why});
+    if (!validMessage(message)) return refused('invalid_request');
+    if (!ready({account_address}).ready) return refused(reason);
+    const value = template;
+    try {
+      const rows = await sentList(value, AbortSignal.timeout(10000));
+      if (!active || template !== value) return refused('template_changed');
+      const token = `${++tokens}:${Math.random().toString(36).slice(2) || '0'}`;
+      prepared = {token, owner, value, message: messageKey(message), baseline: baselineOf(rows), until: performance.now() + TICKET_TTL_MS};
+      return {provider: 'qq_mail', account_address: owner, ready: true, token};
+    } catch {
+      // The session that would carry the send cannot read; never dispatch on it.
+      if (template === value) { template = null; reason = 'sent_baseline'; }
+      return refused('sent_baseline');
+    }
+  }
+  async function send({account_address, token, ...message} = {}) {
+    const owner = checked(account_address), ticket = prepared;
+    // Only the ticket of the latest prepare() for this exact message can
+    // dispatch. Its template is not re-timed here: prepare() already proved it,
+    // and an expiry during the caller's release must not turn into unknown.
+    if (!ticket || typeof token !== 'string' || ticket.token !== token || ticket.owner !== owner || ticket.value !== template ||
+        ticket.until < performance.now()) fail('email_network_template_unlearned');
+    if (!validMessage(message) || ticket.message !== messageKey(message)) fail('invalid_request');
+    const {to, subject, text} = message, value = template, baseline = ticket.baseline;
+    clear(); // consumed before any asynchronous dispatch
     const form = new URLSearchParams(value.form);
     form.set('to', (value.to.named ? `"${to[0]}"<${to[0]}>` : to[0]) + value.to.tail);
     form.set('subject', subject);
@@ -1308,36 +1348,51 @@ const markQQMailRead=async function markQQMailRead({provider_message_id, readTar
     form.set('r', String(Math.random()));
     const url = new URL(value.url); if (url.searchParams.has('r')) url.searchParams.set('r', form.get('r'));
     const controller = new AbortController(); pending = controller;
-    const timer = setTimeout(() => controller.abort(), 30000);
+    const timer = setTimeout(() => controller.abort(), DISPATCH_LIMIT_MS);
     const result = {provider:'qq_mail', account_address:owner, outcome:'unknown'};
-    const timings = {}; let phase = 'sent_baseline';
+    const timings = {}; let phase = 'send_response';
     try {
-      const baseline = await sentList(value, controller.signal);
-      phase = 'send_response'; const dispatchAt = performance.now();
+      const dispatchAt = performance.now();
       const reply = await fetch(url.href, {method:'POST', headers:value.headers, body:form.toString(), credentials:'same-origin', redirect:'error', signal:controller.signal});
       const response = await readText(reply);
       timings.request_ms = Math.round(performance.now() - dispatchAt);
       checked(account_address);
       const messageid = reply.status === 200 && reply.url === url.href && sentResponse(response);
-      if (!messageid || baseline.some(row => row?.messageid === messageid)) return {...result,reason:'response_identifier',response_shape:responseShape(response),timings};
+      if (!messageid || baseline.messageids.has(messageid)) return {...result,reason:'response_identifier',response_shape:responseShape(response),timings};
       phase = 'sent_confirmation'; const verifyAt = performance.now();
-      for (let attempt = 0; attempt < 5; attempt++) {
-        if (attempt) await new Promise(resolve => setTimeout(resolve, 500));
+      for (let wait = SENT_FIRST_DELAY_MS; ;) {
+        await new Promise(resolve => setTimeout(resolve, wait));
         const rows = await sentList(value, controller.signal);
         const provider_message_id = matchSent(rows, messageid, owner, to, subject);
-        if (provider_message_id && !baseline.some(row => row?.emailid === provider_message_id)) {
+        if (provider_message_id && !baseline.emailids.has(provider_message_id)) {
           timings.sent_verify_ms = Math.round(performance.now() - verifyAt);
-          return {...result,outcome:'sent',provider_message_id,response_message_id:messageid,
+          // This replay proved the template again; renew it for this page only.
+          let renewed = false, same = false;
+          try { same = checked(account_address) === owner; } catch {}
+          if (active && same && !template) {
+            value.until = performance.now() + TEMPLATE_TTL_MS; template = value; reason = 'ready'; renewed = true;
+          }
+          return {...result,outcome:'sent',provider_message_id,response_message_id:messageid,template_ready:renewed,
             proof:{source:'qq_sent_list_v1',provider_message_id,response_message_id:messageid,folder:'sent',fresh:true},timings};
         }
+        // The last read lands exactly on the limit.
+        const left = SENT_LIMIT_MS - (performance.now() - verifyAt);
+        if (left <= 0) break;
+        wait = Math.min(SENT_POLL_MS, left);
       }
       timings.sent_verify_ms = Math.round(performance.now() - verifyAt);
       return {...result,reason:phase,timings};
     } catch { return {...result, reason:phase,timings}; }
     finally { clearTimeout(timer); pending = null; }
   }
-  return {observe, confirm, ready, send,
-    arm(session) { clear(); arm = session; seen = 0; if(session)expiry = setTimeout(clear, Math.max(0, session.until - performance.now())); },
+  return {observe, confirm, ready, prepare, send,
+    // A learning window (send or mark-read) resets only learning state. A
+    // confirmed template and its preflight ticket keep their own lifetimes; a
+    // template is replaced only by a newly observed and confirmed DOM send.
+    arm(session) {
+      generation++; arm = session; candidate = null; seen = 0; clearTimeout(expiry); expiry = null;
+      if(session)expiry = setTimeout(() => { if (arm === session) { arm = candidate = null; } }, Math.max(0, session.until - performance.now()));
+    },
     dispose() { active = false; clear(); pending?.abort(); }
   };
 },"origins":["https://wx.mail.qq.com"],"account":()=>document.querySelector('.frame-header .profile-user-info .user-email')?.textContent?.trim()||'',"listURL":u=>u.pathname==='/list/maillist',"parse":value=>(parseQQMailList(value)?.rows??[]).map(row=>({...row,draft:false,sent:row.folder==='sent',grouped:/^(?:C|@)/.test(row.provider_message_id)})),"download":({id,row,binding})=>{if(!binding||row.grouped)return null;const u=new URL('/read/readmail',location.origin);u.searchParams.set('func','5');u.searchParams.set('mailid',id);u.searchParams.set('sid',binding.searchParams.get('sid'));return u;},"markRead":async function markQQMailRead({provider_message_id, readTarget, checkAccount, confirmOnly = false}) {

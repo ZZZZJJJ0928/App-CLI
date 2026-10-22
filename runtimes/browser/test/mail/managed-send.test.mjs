@@ -46,11 +46,11 @@ test('account mismatch fails before creating draft or invoking Send',async t=>{
  await assert.rejects(sendManagedMail(raw(),'gmail',runtime),{code:'email_account_identity_mismatch'});assert.equal(clicks,0);
 });
 
-async function sendingFixture(t,{lost=false,wrongReadback=false,provider='gmail',sentEvidence=true,baseline={ids:[]}}={}){
- const dir=await root(t);const r={...raw(),provider};if(provider==='outlook')r.message.cc=[];let sends=0,tabs=0,discards=0;
+async function sendingFixture(t,{lost=false,wrongReadback=false,provider='gmail',sentEvidence=true,baseline={ids:[]},cc,runReadCode=async()=>{}}={}){
+ const dir=await root(t);const r={...raw(),provider};if(provider==='outlook')r.message.cc=[];if(cc)r.message.cc=cc;let sends=0,tabs=0,discards=0;
  const url=provider==='qq_mail'?'https://wx.mail.qq.com/home/index':provider==='outlook'?'https://outlook.live.com/mail/0/sentitems':'https://mail.google.com/mail/u/0/';
  const actual={to:[],cc:[],subject:r.message.subject,body:''};
- const tab={runReadCode:async()=>{},waitFor:async()=>{},focus:async()=>{},press:async()=>{},fill:async(selector,value)=>{
+ const tab={runReadCode,waitFor:async()=>{},focus:async()=>{},press:async()=>{},fill:async(selector,value)=>{
   const field=/data-sc-mail-control="(\w+)"/u.exec(selector)[1];
   if(['to','cc'].includes(field))actual[field].push(value);else actual[field]=value;
  },click:async selector=>{if(selector==='[data-sc-managed-send="true"]'){sends++;if(lost)throw Error('response lost');}},inspect:async code=>{
@@ -69,7 +69,7 @@ async function sendingFixture(t,{lost=false,wrongReadback=false,provider='gmail'
   throw Error(`unexpected fixture phase ${phase}`);
  }};
  const runtime={emailWorkspaceRoot:dir,reserveDispatch:()=>1,releaseDispatch:async()=>1,withSendTab:fn=>{tabs++;return fn(tab)}};
- return {run:()=>sendManagedMail(r,provider,runtime),counts:()=>({sends,tabs}),discards:()=>discards};
+ return {run:()=>sendManagedMail(r,provider,runtime),counts:()=>({sends,tabs}),discards:()=>discards,journal:()=>openSendJournal(dir,validateManagedSend(r,provider))};
 }
 test('lost Send response persists dispatch and restart never invokes a second Send',async t=>{
  const f=await sendingFixture(t,{lost:true});await assert.rejects(f.run(),{code:'send_outcome_unknown'});
@@ -78,6 +78,19 @@ test('lost Send response persists dispatch and restart never invokes a second Se
 test('verified native result persists receipt without claiming unrelated new message IDs',async t=>{
  const f=await sendingFixture(t);const sent=await f.run();assert.equal(sent.status,'sent');assert.equal(sent.provider_message_id,undefined);
  assert.deepEqual(await f.run(),sent);assert.deepEqual(f.counts(),{sends:1,tabs:1});
+});
+test('a refused QQ native preflight sends nothing natively and completes through the DOM',async t=>{
+ const previous=process.env.APP_CLI_MAIL_NATIVE_SEND;process.env.APP_CLI_MAIL_NATIVE_SEND='qq_mail';
+ t.after(()=>{if(previous===undefined)delete process.env.APP_CLI_MAIL_NATIVE_SEND;else process.env.APP_CLI_MAIL_NATIVE_SEND=previous;});
+ const reader={prepare:0,send:0,navigations:0};
+ const f=await sendingFixture(t,{provider:'qq_mail',cc:[],runReadCode:async code=>{
+  if(code.includes('r.prepareNativeSend(request)')){reader.prepare++;return {provider:'qq_mail',account_address:'owner@example.invalid',ready:false,dispatched:false,reason:'sent_baseline'};}
+  if(code.includes('r.sendNative(request)'))reader.send++;
+  if(code.includes('page.goto('))reader.navigations++;
+ }});
+ const sent=await f.run();assert.equal(sent.status,'sent');
+ assert.deepEqual(reader,{prepare:1,send:0,navigations:1});assert.deepEqual(f.counts(),{sends:1,tabs:1});
+ assert.equal((await f.journal()).saved.stage,'sent');
 });
 test('recipient readback mismatch never reaches dispatch',async t=>{
  const f=await sendingFixture(t,{wrongReadback:true});await assert.rejects(f.run(),{code:'email_draft_fields_unverified'});assert.equal(f.counts().sends,0);assert.equal(f.discards(),1);
