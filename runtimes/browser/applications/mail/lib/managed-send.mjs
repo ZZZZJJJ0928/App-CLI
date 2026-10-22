@@ -144,9 +144,9 @@ function sentDOM(provider,arm=false){
 // Native send prototype (opt-in: APP_CLI_MAIL_NATIVE_SEND=qq_mail). Only a
 // plain compose without cc/attachments, on a page that already learned this
 // account's own /send/sendmail request, skips the editor; otherwise the DOM
-// flow runs and teaches the page. Every prototype dispatch remains unknown
-// until a real response identifier and independent Sent lookup are qualified.
-const nativePrototypeEligible=(provider,request)=>process.env.APP_CLI_MAIL_NATIVE_SEND==='qq_mail'&&provider==='qq_mail'&&request.mode==='compose'&&request.message.to.length===1&&!request.message.cc.length&&!request.message.attachments?.length;
+// flow runs and teaches the page. The Reader joins the actual response's
+// messageid to a fresh independent Sent row before returning its emailid.
+const nativePrototypeEligible=(provider,request)=>process.env.APP_CLI_MAIL_NATIVE_SEND==='qq_mail'&&provider==='qq_mail'&&request.mode==='compose'&&request.message.to.length===1&&!request.message.cc.length&&!request.message.attachments?.length&&Buffer.byteLength(JSON.stringify(request.message))<=48000;
 export async function nativeSendReady(tab,provider,request){
  if(!nativePrototypeEligible(provider,request)||typeof tab.runReadCode!=='function')return false;
  try{
@@ -159,13 +159,17 @@ async function dispatchNativeSend(tab,provider,request){
  let value;
  try{value=await tab.runReadCode(`async page=>page.evaluate(async request=>{const r=window.SparkClawMailReader;if(r?.provider!=='qq_mail'||r.version!=='0.2.0'||typeof r.sendNative!=='function')return {outcome:'unknown',reason:'reader_unavailable'};try{return await r.sendNative(request)}catch(error){return {outcome:'unknown',reason:'reader_'+String(error?.code||'error').slice(0,64)}}},${JSON.stringify(message)})`);}
  catch{value={outcome:'unknown',reason:'controller'};}
+ const id=v=>typeof v==='string'&&/^[A-Za-z0-9_+=:.\/~\-]{1,1024}$/.test(v);
+ const qualified=value?.provider==='qq_mail'&&value.account_address===request.account_address.toLowerCase()&&value.outcome==='sent'&&
+   id(value.provider_message_id)&&id(value.response_message_id)&&value.proof?.source==='qq_sent_list_v1'&&
+   value.proof.provider_message_id===value.provider_message_id&&value.proof.response_message_id===value.response_message_id&&
+   value.proof.folder==='sent'&&value.proof.fresh===true;
  if(process.env.APP_CLI_MAIL_SEND_EVIDENCE==='1'||process.env.APP_CLI_MAIL_LEARNING_EVIDENCE==='1'){
   const reason=typeof value?.reason==='string'&&/^[a-z_0-9]{1,80}$/.test(value.reason)?value.reason:undefined;
-  process.stderr.write(JSON.stringify({event:'mail_native_send',provider,outcome:'unknown',...(reason?{reason}:{}),...(Number.isSafeInteger(value?.provider_code)?{provider_code:value.provider_code}:{})}).slice(0,16384)+'\n');
+  process.stderr.write(JSON.stringify({event:'mail_native_send',provider,outcome:qualified?'sent':'unknown',...(reason?{reason}:{})})+'\n');
  }
- // Live response identifier + independent Sent lookup are not qualified yet.
- // A code-only success, or even an unexpected Reader 'sent', cannot finalize.
- return false;
+ if(!qualified)return null;
+ return {...value,proof:{source:'qq_sent_list_v1',provider_message_id:value.provider_message_id,response_message_id:value.response_message_id,folder:'sent',fresh:true}};
 }
 export async function sendManagedMail(raw,provider,runtime){
  const request=validateManagedSend(raw,provider);
@@ -181,15 +185,24 @@ export async function sendManagedMail(raw,provider,runtime){
  if(request.mode==='reconcile'||journal.saved)return unknown;
  if(typeof runtime.withSendTab!=='function')throw fail('email_send_configuration_error');
  let attempted=false, phase='open';
+ const timing={started:performance.now(),path:'dom',confirmed:false};
  const outlookFolderProof=provider==='outlook'&&request.mode==='compose'&&request.message.to.length===1&&request.message.cc.length===0;
  try{return await runtime.withSendTab(async tab=>{
   if(await nativeSendReady(tab,provider,request)){
+   timing.path='native';
    phase='native_dispatch';
    if(typeof runtime.releaseDispatch!=='function'||typeof runtime.reserveDispatch!=='function')throw fail('email_send_configuration_error');
    runtime.reserveDispatch();await runtime.releaseDispatch();
    if(!await journal.write('dispatching'))return unknown;
    attempted=true;
-   phase='native_result';await dispatchNativeSend(tab,provider,request);throw fail('send_outcome_unknown');
+   phase='native_result';
+   const value=await dispatchNativeSend(tab,provider,request);
+   if(!value)throw fail('send_outcome_unknown');
+   timing.confirmed=true;
+   timing.native=Object.fromEntries(Object.entries(value.timings??{}).filter(([key,value])=>['request_ms','sent_verify_ms'].includes(key)&&Number.isSafeInteger(value)&&value>=0&&value<=60000));
+   const result={schema_version:1,status:'sent',provider,recipient_digest:request.recipientDigest,provider_message_id:value.provider_message_id};
+   if(!await journal.write('sent',result,{proof:value.proof,timings:timing.native}))throw fail('send_outcome_unknown');
+   return result;
   }
   await tab.runReadCode(`async page=>{await page.goto(${JSON.stringify(outlookFolderProof?'https://outlook.live.com/mail/0/sentitems':READ_PROVIDERS[provider].url)});return true}`);
   if(runtime.prepareSendPage)await runtime.prepareSendPage();
@@ -208,7 +221,7 @@ export async function sendManagedMail(raw,provider,runtime){
   attempted=true;
   await tab.inspect('()=>{if(globalThis.__sparkclawManagedMail)globalThis.__sparkclawManagedMail.sendAttempted=true;return {marked:true}}');
   // Evidence only: record the shape of the provider's own send request.
-  await tab.runReadCode(`async page=>page.evaluate(()=>{try{return window.SparkClawMailReader?.armLearning?.({kind:'send',window_ms:60000,capture_send_template:${nativePrototypeEligible(provider,request)}})??false}catch{return false}})`).catch(()=>{});
+  await tab.runReadCode(`async page=>page.evaluate(()=>{try{return window.SparkClawMailReader?.armLearning?.({kind:'send',window_ms:120000,capture_send_template:${nativePrototypeEligible(provider,request)}})??false}catch{return false}})`).catch(()=>{});
   phase='send_click';await tab.click(MANAGED_SEND_SELECTOR);
   let proof;
   if(provider==='qq_mail'){
@@ -216,7 +229,7 @@ export async function sendManagedMail(raw,provider,runtime){
    phase='sent_folder';await tab.click(QQMAIL_SENT_FOLDER_SELECTOR);
    phase='sent_evidence';
    const evidence=(await tab.inspect(`(${QQMAIL_SENT_VERIFICATION_EXPRESSION})(${JSON.stringify({ids:sentBaseline.ids,subject:digest(request.message.subject),emptySubject:false})})`)).result;
-   proof={confirmed:evidence?.sent_evidence===true};
+   proof={confirmed:evidence?.sent_evidence===true,provider_message_id:evidence?.provider_message_id};
   }else if(outlookFolderProof){
    const recipientHashes=[digest(request.message.to[0].toLowerCase()),prepared.recipientDisplayHash].filter(Boolean);
    const evidence=(await tab.inspect(`${OUTLOOK_SEND_VERIFICATION_EXPRESSION}(${JSON.stringify({ids:sentBaseline.ids,recipient_hashes:recipientHashes,subject:digest(request.message.subject),emptySubject:false})})`)).result;
@@ -227,8 +240,12 @@ export async function sendManagedMail(raw,provider,runtime){
   }
   await reportLearnedRequests(tab,provider,'send');
   phase='confirm_result';if(!proof?.confirmed)throw fail('send_outcome_unknown');
-  if(nativePrototypeEligible(provider,request))await tab.runReadCode(`async page=>page.evaluate(request=>{try{return window.SparkClawMailReader?.confirmSendTemplate?.(request)??false}catch{return false}},${JSON.stringify({account_address:request.account_address,to:request.message.to,subject:request.message.subject})})`).catch(()=>{});
-  const result={schema_version:1,status:'sent',provider,recipient_digest:request.recipientDigest};
+  timing.confirmed=true;
+  if(nativePrototypeEligible(provider,request)){
+   const learned=await tab.runReadCode(`async page=>page.evaluate(async request=>{try{const r=window.SparkClawMailReader;await r?.confirmSendTemplate?.(request);return r?.sendNativeReady?.(request)??null}catch{return null}},${JSON.stringify({account_address:request.account_address,to:request.message.to,subject:request.message.subject,provider_message_id:proof.provider_message_id})})`).catch(()=>null);
+   if(process.env.APP_CLI_MAIL_SEND_EVIDENCE==='1')process.stderr.write(JSON.stringify({event:'mail_send_template',provider,ready:learned?.ready===true,reason:/^[a-z_]{1,64}$/.test(learned?.reason??'')?learned.reason:'unavailable'})+'\n');
+  }
+  const result={schema_version:1,status:'sent',provider,recipient_digest:request.recipientDigest,...(provider==='qq_mail'&&proof.provider_message_id?{provider_message_id:proof.provider_message_id}:{})};
   await journal.write('sent',result);return result;
  });}catch(error){
   if(process.env.APP_CLI_MAIL_SEND_EVIDENCE==='1')process.stderr.write(JSON.stringify({event:'mail_send_phase_failed',provider,phase,attempted,code:/^[a-zA-Z0-9_]{1,64}$/.test(error.code??'')?error.code:'unavailable'})+'\n');
@@ -240,5 +257,7 @@ export async function sendManagedMail(raw,provider,runtime){
    if(receipt)try{await journal.write('not_sent',receipt)}catch{}
   }
   throw error
+ }finally{
+  if(process.env.APP_CLI_MAIL_SEND_EVIDENCE==='1')process.stderr.write(JSON.stringify({event:'mail_send_timing',provider,path:timing.path,attempted,confirmed:timing.confirmed,total_ms:Math.round(performance.now()-timing.started),...(timing.native??{})})+'\n');
  }
 }

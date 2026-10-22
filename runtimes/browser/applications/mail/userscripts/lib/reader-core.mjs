@@ -44,7 +44,7 @@ export function installReader(config) {
     } catch { return []; }
   }
   // Dynamic keys (identifiers used as object keys) collapse to one name.
-  const shapeKeys = new Set('head ret code error errors body data id Id mailid messageId message_id ItemId ImmutableId requestId result response status success message items rows edges node __typename extensions sentItem sendMail variables mailboxInfo to subject content'.split(' '));
+  const shapeKeys = new Set('head ret code error errors body data id Id mailid messageid messageId message_id ItemId ImmutableId requestId result response status success message items rows edges node __typename extensions sentItem sendMail variables mailboxInfo to subject content'.split(' '));
   const shapeKey = key => shapeKeys.has(key) ? key : 'dynamic_key';
   function valueShape(value) {
     let nodes = 0;
@@ -286,7 +286,7 @@ export function installReader(config) {
     this.addEventListener('load', () => {
       if (this.status === 200 && (!this.responseType || this.responseType === 'text')) observe(url, this.responseText, requestQuery);
       try { learn(learnedMethod, url, learnedBody, this.status, !this.responseType || this.responseType === 'text' ? this.responseText : '', session); } catch {}
-      try { nativeSend?.observe({session, method: learnedMethod, url, headers: learnedHeaders, body: learnedBody, status: this.status, responseURL: this.responseURL || url}); } catch {}
+      try { nativeSend?.observe({session, method: learnedMethod, url, headers: learnedHeaders, body: learnedBody, status: this.status, responseURL: this.responseURL || url, responseText: !this.responseType || this.responseType === 'text' ? this.responseText : ''}); } catch {}
     }, {once:true});
     return originalSend.apply(this, args);
   };
@@ -301,8 +301,10 @@ export function installReader(config) {
         const responseURL = new URL(response.url || requestURL, location.href);
         const method = init.method || request?.method || 'GET';
         if (url.origin === location.origin && responseURL.origin === location.origin && !config.listURL(url)) {
-          void learningText(response).then(value => learn(method, url.href, init.body, response.status, value, session), () => {});
-          nativeSend?.observe({session, method, url: url.href, headers: init.headers, body: init.body, status: response.status, responseURL: responseURL.href});
+          void learningText(response).then(value => {
+            learn(method, url.href, init.body, response.status, value, session);
+            nativeSend?.observe({session, method, url: url.href, headers: init.headers, body: init.body, status: response.status, responseURL: responseURL.href, responseText:value});
+          }, () => {});
         }
       } catch {}
     }
@@ -669,7 +671,7 @@ export function installReader(config) {
       return true;
     }, diagnostics:()=>({original:{state:originalState,responseOrigin,response:originalResponse?{...originalResponse}:null},list:{stage:listStage,template:Boolean(listRequest),body:Array.isArray(listRequest?.body),paging:Array.isArray(listRequest?.body?.[0]?.[15])},inbox:Boolean(inbox),records:records.size,transport:transport?.diagnostics?.(),
       learning:JSON.parse(JSON.stringify(learning.entries))}), armLearning, snapshot, resetRound,
-    ...(nativeSend ? {sendNativeReady: nativeSend.ready, confirmSendTemplate: nativeSend.confirm, sendNative: request=>inRound(nativeSend.send, request)} : {}),
+    ...(nativeSend ? {sendNativeReady: nativeSend.ready, confirmSendTemplate: request=>inRound(nativeSend.confirm, request), sendNative: request=>inRound(nativeSend.send, request)} : {}),
     listPage:request=>inRound(async request=>{
       const value=await listPage(request);checkedAccount(request.account_address);
       return {...value,...accountMetadata()};

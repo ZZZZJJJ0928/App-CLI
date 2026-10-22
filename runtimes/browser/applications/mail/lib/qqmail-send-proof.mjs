@@ -28,7 +28,7 @@ export const QQMAIL_SENT_VERIFICATION_EXPRESSION = `async expected => {
       const digest = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(subject))),
         byte => byte.toString(16).padStart(2, "0")).join("");
       if (digest === expected.subject || expected.emptySubject && ["(No subject)", "(无主题)"].includes(subject)) {
-        return { sent_evidence: true };
+        return { sent_evidence: true, provider_message_id: id };
       }
     }
     await new Promise(resolve => setTimeout(resolve, 100));

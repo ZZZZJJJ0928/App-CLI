@@ -2,8 +2,9 @@
 
 [简体中文](MAIL-NATIVE-SEND-PROTOTYPE.zh-CN.md)
 
-This is a local prototype, disabled by default. It has not been qualified with
-live provider sends. Existing compose/reply/attachment behavior stays on the
+This prototype is disabled by default. A fresh authorized QQ DOM send on
+2026-10-22 established the real request and response schemas; replay qualification
+is recorded separately from that baseline. Existing compose/reply/attachment behavior stays on the
 managed DOM path. No new public command or output schema is introduced.
 
 ## Learning evidence
@@ -29,20 +30,27 @@ Mail text, addresses, tokens, request IDs and response values are not evidence.
 `APP_CLI_MAIL_NATIVE_SEND=qq_mail` opts the managed adapter into this prototype.
 It requires a still-open QQ page with a previously learned and independently
 confirmed DOM send from the same account. A cold page uses the existing DOM
-flow. The prototype does not create resident mutation pages or change the Host
-page lifecycle; deployments that close each send page cannot reuse the template.
+flow. A successful QQ send can retain its separate account/credential/binding
+pool for at most 120 seconds, only while a confirmed one-use template is ready.
+Message secret slots, Reader records and application-owned DOM references are
+cleared before parking. The next lease must prove the same document and account;
+its active authority replaces the previous lease before reloading secrets.
 
 Only a new plain-text compose to one recipient with no cc or attachments is
 eligible. The observed `/send/sendmail` form must contain exactly the 18 known
 field names. Duplicate/unknown fields, bcc, attachment/reply metadata, resumed
 messages, calendar actions, receipt requests, sender mismatch, unknown content
-types and redirects are refused. Field values and recipient encoding assumptions
-in the offline fixtures still need live qualification.
+types and redirects are refused. The observed send uses `func=1`, string `false`
+for the five optional-mode flags, and `save_to_send=true`. Autosave uses `func=2`
+and cannot teach or invalidate an actual send template. The subject/body together
+with the remaining message input must fit a 48 KiB JSON envelope for native
+replay; larger messages retain the DOM path.
 
 Template learning is separate from shape recording: it must be explicitly armed
 for an eligible send, and the existing DOM sent-evidence check must complete
 before `confirmSendTemplate` promotes it. Confirmation also checks the observed
-recipient and subject. Session fields remain only in page memory; the old
+recipient and subject, then independently queries Sent to join the response
+`body.messageid` to the DOM-proved `emailid`. Session fields remain only in page memory; the old
 recipient, subject, content and draft ID are removed. Expiry, account changes and
 disposal clear the template. Each confirmed template can dispatch only once.
 
@@ -52,11 +60,19 @@ and redirects disabled. Dispatch still follows the existing authority release
 and durable create-only send journal. After dispatch there is no DOM fallback
 or automatic retry, including after a lost response, restart or reconciliation.
 
-**Every prototype dispatch remains `unknown`, including HTTP 200 / `ret=0`.**
-The actual send response identifier and independent native Sent lookup have not
-been qualified, so the prototype cannot issue a `sent` receipt. This deliberately
-limits the prototype to exercising request construction and dispatch semantics;
-it does not establish delivery or the proposed latency improvement.
+A replay first reads a fresh Sent baseline, sends once, then performs up to five
+independent read-only Sent polls. A successful `head.ret=0` and bounded
+`body.messageid` are necessary but insufficient. Exactly one fresh row must have
+that `messageid`, `dirid=3`, a valid new `emailid`, and the exact expected subject,
+single sender and single recipient. The observed Sent request is POST
+`/list/maillist` with the page-local session, folder 3, page 0 and page size 50.
+The public receipt uses its `emailid` as `provider_message_id`; the private durable
+send journal stores both ID namespaces and the matching proof. No public schema
+change is needed. Missing, ambiguous, stale, redirected or mismatched evidence
+remains `unknown`. Reconciliation reads the original receipt, never sends again.
+
+`APP_CLI_MAIL_SEND_EVIDENCE=1` logs bounded total/send-request/Sent-verification
+milliseconds and the selected DOM/native path, without message values or IDs.
 
 ## Local validation and next gate
 
@@ -66,10 +82,12 @@ bounds, window correlation, template qualification/expiry, parameter replacement
 concurrent attempts, authorization rejection, and restart/reconcile without a
 second dispatch. Existing DOM send and receive tests remain in the runtime suite.
 
-Before enabling real replay, obtain approval for deployment and fresh test sends,
-record actual response shapes, identify a provider message ID, and verify that
-same ID using an independent native Sent read. Validate session expiry and
-same-page reuse as well. Do not retry historical unknown mail. Replies,
+Deployment and fresh brief test sends were explicitly authorized on 2026-10-22.
+The DOM baseline took 64.935 seconds end to end, including a 367 ms send request.
+An independent Sent response joined the IDs 1.209 seconds after the send response;
+a later native search also matched sender, recipient and subject. The 92 historical
+unknown rows were preserved. Live replay and the installed paired release require
+their own evidence; a successful DOM baseline does not establish replay latency. Do not retry historical unknown mail. Replies,
 attachments, Outlook replay and Gmail replay are outside this prototype.
 
 Validation on 2026-10-22 (macOS, Node 26.2.0, Python 3.11): runtime **508/508**

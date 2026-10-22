@@ -100,7 +100,13 @@ export class MailPage {
     // only after success, then require the same nonce on the next admission.
     await this.prepareMailRound(account, false);
     const ready = await this.runReadCode(`async page=>page.evaluate(account=>{
-      try{return window.SparkClawMailReader?.sendNativeReady?.({account_address:account})??null}catch{return null}
+      try{
+        delete window.__sparkclawManagedMail; delete window.__sparkclawSendNotices;
+        for(const node of document.querySelectorAll('[data-sc-mail-control],[data-sc-managed-send],[data-sc-mail-action]')){
+          node.removeAttribute('data-sc-mail-control'); node.removeAttribute('data-sc-managed-send'); node.removeAttribute('data-sc-mail-action');
+        }
+        return window.SparkClawMailReader?.sendNativeReady?.({account_address:account})??null
+      }catch{return null}
     },${JSON.stringify(account)})`);
     await this.browser.call('setSecrets', {});
     this.sendSecrets = {};
