@@ -206,6 +206,9 @@ test('Outlook provider identity stays immutable when moving mail changes its ord
     pages.push(await f.transport.listPage(interval));assert.equal(f.requests.length,1);
   }
   assert.deepEqual(pages.map(page=>page.rows[0].provider_message_id),['A+immutable/ID=','A+immutable/ID=']);
+  // Arrival notifications name the movable ItemId; it is carried only as the
+  // native locator so a candidate can be compared, never as the identity.
+  assert.deepEqual(pages.map(page=>page.rows[0].native_message_id),['old-folder-item','moved-folder-item']);
   assert.notEqual(pages[0].rows[0].folder,pages[1].rows[0].folder);
 });
 

@@ -57,11 +57,18 @@ test('Outlook single-item notification covers received mail and ignores read sta
 
 test('arrival hints carry bounded candidate targets from the provider envelope itself', async () => {
   const {validCandidateTargets} = await import('../../applications/mail/runtime/mail-notification-rules.mjs');
-  const packet={cmd:1,scene:'notify',encoding:'base64',content:btoa(JSON.stringify({type:'0',mid:'ZC0001-fixture',t:'fixture'}))};
-  assert.deepEqual(classify('qq_mail','qq',packet).targets,[{provider_message_id:'ZC0001-fixture'}]);
-  const long={...packet,content:btoa(JSON.stringify({type:'0',mid:'x'.repeat(600)}))};
+  // Live envelopes name the list emailid in `e`; `mid` is a separate
+  // notification identifier and never a candidate.
+  const packet={cmd:1,scene:'notify',encoding:'base64',content:btoa(JSON.stringify({type:'0',mid:'abcd0001-fixture-notify',e:'ZC0001_Fixture_List_Id',f:'1792646599',t:'fixture'}))};
+  assert.deepEqual(classify('qq_mail','qq',packet).targets,[{provider_message_id:'ZC0001_Fixture_List_Id'}]);
+  const withoutListID={...packet,content:btoa(JSON.stringify({type:'0',mid:'abcd0001-fixture-notify'}))};
+  assert.equal(classify('qq_mail','qq',withoutListID).decision,'change');
+  assert.deepEqual(classify('qq_mail','qq',withoutListID).targets,[]);
+  const long={...packet,content:btoa(JSON.stringify({type:'0',mid:'abcd',e:'x'.repeat(600)}))};
   assert.equal(classify('qq_mail','qq',long).decision,'change');
   assert.deepEqual(classify('qq_mail','qq',long).targets,[]);
+  const malformed={...packet,content:btoa(JSON.stringify({type:'0',mid:'abcd',e:'ZC bad id'}))};
+  assert.deepEqual(classify('qq_mail','qq',malformed).targets,[]);
   const state=new Map();
   const item={ItemId:{Id:'item-new'},DateTimeReceived:'2026-09-24T09:00:00Z',MessageToMe:true,IsDraft:false,IsRead:false};
   const single={operation:'subscribeToRowNotifications',message:{type:'APPLY',argumentList:[{value:1},{value:{data:{subscribeToRowNotifications:{EventType:'RowAdded',Conversation:null,Item:item}}}}]}};
@@ -78,6 +85,6 @@ test('arrival hints carry bounded candidate targets from the provider envelope i
 
 test('the serialized page classifier is self-contained', () => {
   const isolated=new Function(`return (${classify.toString()})`)();
-  const packet={cmd:1,scene:'notify',encoding:'base64',content:btoa(JSON.stringify({type:'0',mid:'isolated'}))};
-  assert.deepEqual(isolated('qq_mail','qq',packet).targets,[{provider_message_id:'isolated'}]);
+  const packet={cmd:1,scene:'notify',encoding:'base64',content:btoa(JSON.stringify({type:'0',mid:'isolated-notify',e:'ZC_isolated'}))};
+  assert.deepEqual(isolated('qq_mail','qq',packet).targets,[{provider_message_id:'ZC_isolated'}]);
 });

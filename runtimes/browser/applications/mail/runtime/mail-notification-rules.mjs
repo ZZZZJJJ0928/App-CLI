@@ -2,8 +2,11 @@
 // reconcile with Reader, never an acquired mail or a coverage watermark.
 // No subject, address, body or credential is returned to the host. A change may
 // carry up to 16 candidate targets: the provider's own identifiers for the
-// arrival (QQ `mid`, Outlook ItemId with its receipt time). Candidates are
-// qualification evidence until a run proves they name the Reader's targets.
+// arrival (QQ envelope `e`, Outlook ItemId with its receipt time). Candidates
+// are qualification evidence until a run proves they name the Reader's targets.
+// QQ's `mid` is a separate notification identifier; live envelopes carry the
+// list `emailid` in `e` (hash-verified on work2, 2026-10-22), so `mid` only
+// deduplicates repeated deliveries of one envelope.
 // Both functions are serialized into the page, so each keeps its own helpers.
 export function validCandidateTargets(targets) {
   const CANDIDATE_ID = /^[A-Za-z0-9_+=:.\/~\-]{1,512}$/u;
@@ -32,7 +35,7 @@ export function classifyMailNotification(provider, channel, value, state = new M
     try { data = JSON.parse(atob(value.content)); } catch { return unknown; }
     if (data?.type === '0' && typeof data.mid === 'string' && /^[A-Za-z0-9_+=:.\/~\-]{1,1024}$/.test(data.mid)) {
       return {decision: 'change', reason: 'qq_inbound_envelope', key: data.mid,
-        targets: CANDIDATE_ID.test(data.mid) ? [{provider_message_id: data.mid}] : []};
+        targets: typeof data.e === 'string' && CANDIDATE_ID.test(data.e) ? [{provider_message_id: data.e}] : []};
     }
     return unknown;
   }

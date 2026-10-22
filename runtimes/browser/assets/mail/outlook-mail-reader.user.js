@@ -208,7 +208,9 @@ const installOutlookRangeTransport=function installOutlookRangeTransport({accoun
       // ItemId can change on a folder move and must not own a second source.
       if(item.Type!=='Message'||!pattern.test(id||'')||!pattern.test(node?.ItemId?.Id||'')||!pattern.test(thread||'')||ids.has(id)||!folder||typeof node.IsDraft!=='boolean'||typeof node.IsRead!=='boolean'||received===null||received<state.start||received>=state.end){unsupported++;continue;}
       ids.add(id);if(node.IsDraft)continue;
-      rows.push({provider_message_id:id,provider_selection_id:thread,provider_thread_id:thread,received_at:node.DateTimeReceived,draft:false,unread:!node.IsRead,sent:false,inbox:folder.inbox,folder:folder.inbox?'inbox':'outlook:'+folder.id});
+      // The movable ItemId is kept only as the native locator that arrival
+      // notifications name; ImmutableId remains the source identity.
+      rows.push({provider_message_id:id,provider_selection_id:thread,provider_thread_id:thread,native_message_id:node.ItemId.Id,received_at:node.DateTimeReceived,draft:false,unread:!node.IsRead,sent:false,inbox:folder.inbox,folder:folder.inbox?'inbox':'outlook:'+folder.id});
     }
     receiveRows(rows);
     const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(state.folders.map(f=>f.id))));
