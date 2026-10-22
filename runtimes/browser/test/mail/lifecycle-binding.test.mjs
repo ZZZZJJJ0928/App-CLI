@@ -167,3 +167,10 @@ test('a send that never released its dispatch is closed and reported as not disp
     assert.deepEqual(calls, ['blocked', 'waiting_confirmation'].includes(status) ? ['cancel', 'status'] : []);
   }
 });
+
+test('Outlook send binds the document-start worker observer before native app navigation',async()=>{
+ const binding=JSON.parse(await fs.readFile(new URL('../../bindings/mail-outlook.json',import.meta.url),'utf8'));
+ assert.deepEqual(binding.commands.send.host.page.beforeNavigationAssets,['assets/mail/outlook-before-navigation.js']);
+ assert.equal(binding.commands.send.host.page.secretReadback,true);
+ assert.equal(binding.commands.send.host.page.readOnlyCode,false);
+});

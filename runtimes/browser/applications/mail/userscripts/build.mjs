@@ -6,6 +6,7 @@ import {installOutlookTransport} from './lib/outlook-transport.mjs';
 import {installOutlookRangeTransport} from './lib/outlook-range.mjs';
 import {installOutlookOriginalResolver} from './lib/outlook-original.mjs';
 import {parseOutlookFolders} from './lib/outlook-folders.mjs';
+import {installQQSendPrototype} from './lib/qq-send-prototype.mjs';
 import {installReader} from './lib/reader-core.mjs';
 import {gmailOriginalURL} from './lib/gmail-download.mjs';
 import {parseGmailList,parseGmailReceivedList} from '../lib/gmail-list.mjs';
@@ -16,7 +17,7 @@ import {providerAccountDOM} from '../lib/provider-account.mjs';
 
 const root = new URL('../../../', import.meta.url);
 const definitions = [
-  {provider:'qq_mail', file:'qq-mail-reader.user.js', label:'QQ Mail', uuid:'5b4323dc-326f-4fbb-a1a0-4ac8c00631c0', origins:['https://wx.mail.qq.com'],
+  {provider:'qq_mail', installNativeSend:installQQSendPrototype, file:'qq-mail-reader.user.js', label:'QQ Mail', uuid:'5b4323dc-326f-4fbb-a1a0-4ac8c00631c0', origins:['https://wx.mail.qq.com'],
    account:()=>document.querySelector('.frame-header .profile-user-info .user-email')?.textContent?.trim()||'',
    listURL:u=>u.pathname==='/list/maillist',
    parse:value=>(parseQQMailList(value)?.rows??[]).map(row=>({...row,draft:false,sent:row.folder==='sent',grouped:/^(?:C|@)/.test(row.provider_message_id)})),

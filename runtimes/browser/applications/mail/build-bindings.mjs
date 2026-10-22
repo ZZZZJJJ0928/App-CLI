@@ -48,7 +48,7 @@ for (const provider of ['gmail', 'outlook', 'qq_mail']) {
           effectSelectors: [entry.effectSelector, ...entry.effectSelectors ?? []].filter(Boolean),
           deniedURLs: provider === 'outlook' ? [{origin: 'https://www.microsoft.com',
             path: '^/[a-z]{2}-[a-z]{2}/microsoft-365/outlook/email-and-calendar-software-microsoft-outlook/?$', query: {deeplink: '/mail/'}}] : [],
-          beforeNavigationAssets: (read || shared) && provider === 'outlook' ? ['assets/mail/outlook-before-navigation.js'] : [],
+          beforeNavigationAssets: provider === 'outlook' ? ['assets/mail/outlook-before-navigation.js'] : [],
           ...(shared ? {hook: {module: 'applications/mail/runtime/mail-observer-runtime.cjs', provider,
             origins: entry.origins.filter(origin => !/login|accounts|www\.microsoft/u.test(origin))}} : {})}}}];
   }));

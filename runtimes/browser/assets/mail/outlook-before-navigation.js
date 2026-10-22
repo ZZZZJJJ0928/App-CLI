@@ -6,6 +6,8 @@
   const queue=[],listeners=[];let consumer=null,startup=null,active=true;
   const observe=(worker,message)=>{
     const operation=message?.argumentList?.[0]?.value?.operationName;
+    // Learning evidence (Reader-gated): every operation's name/variable keys.
+    if(typeof operation==='string')try{consumer?.observeAll?.(message);}catch{}
     if(!['ItemRows','ConversationRows','ItemExport'].includes(operation))return;
     const item={worker,message:structuredClone(message)};
     if(consumer)consumer.request(item.worker,item.message);

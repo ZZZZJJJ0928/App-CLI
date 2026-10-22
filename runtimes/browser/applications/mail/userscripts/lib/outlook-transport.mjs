@@ -2,11 +2,11 @@
 // own read operations; credentials and RPC templates stay in the mailbox page.
 import {installOutlookRangeTransport} from './outlook-range.mjs';
 import {installOutlookOriginalResolver} from './outlook-original.mjs';
-export function installOutlookTransport({account, getInbox, receiveRows, receiveStartup}) {
+export function installOutlookTransport({account, getInbox, receiveRows, receiveStartup, learn, learning}) {
   const existing=window.SparkClawOutlookEarlyBridge;
   const bridge=existing||installOutlookEarlyBridge();
   if(!bridge)return {dispose(){}};
-  const templates=new Map(),pending=new Map();
+  const templates=new Map(),pending=new Map(),learnIDs=new Map();
   let active=true;
   const range=installOutlookRangeTransport({account,getInbox,receiveRows});
   const originalResolver=installOutlookOriginalResolver({account,getInbox});
@@ -22,9 +22,26 @@ export function installOutlookTransport({account, getInbox, receiveRows, receive
       if(value.operationName==='ItemRows')templates.set('ItemRows',{worker,message:structuredClone(message)});
     }
   }
+  // Learning window only: correlate worker operations with their results by
+  // the site's own requestId; shapes go to the Reader, values stay here.
+  function observeAll(message) {
+    const session=learning?.();
+    if(!active||typeof learn!=='function'||!session||message?.type!=='APPLY'||message?.path?.length!==1||message.path[0]!=='execute')return;
+    const value=message.argumentList?.[0]?.value;
+    learn({operation:value?.operationName,variables:value?.variables,phase:'request',session});
+    const id=value?.requestId;
+    if(Number.isSafeInteger(id)||typeof id==='string'&&id.length<=64){
+      const duplicate=learnIDs.get(id)?.session===session;
+      learnIDs.set(id,{operation:duplicate?null:value.operationName,session});
+      while(learnIDs.size>64)learnIDs.delete(learnIDs.keys().next().value);
+    }
+  }
   function result(event,port) {
     const message=event.data;
     const id=message?.argumentList?.[0]?.value,waiter=pending.get(id);
+    if(active&&learnIDs.has(id)&&message?.type==='APPLY'&&['next','complete','error'].includes(message.path?.[0])){
+      try{const observed=learnIDs.get(id);if(observed.session!==learning?.())learnIDs.delete(id);else {if(message.path[0]!=='complete')learn?.({...observed,response:message.argumentList?.[1]?.value,phase:'result'});if(message.path[0]!=='next')learnIDs.delete(id);}}catch{}
+    }
     if(!active||!waiter||message.type!=='APPLY'||!['next','complete','error'].includes(message.path?.[0]))return;
     event.stopImmediatePropagation();
     port.postMessage({type:'RAW',id:message.id,value:undefined});
@@ -32,7 +49,7 @@ export function installOutlookTransport({account, getInbox, receiveRows, receive
     if(value?.data?.itemRows||value?.errors)waiter.resolve(value);
     if(message.path[0]==='error')waiter.reject(Object.assign(new Error('email_network_read_failed'),{code:'email_network_read_failed'}));
   }
-  const consumer={request,result,fetchSearch:range.fetchSearch,startup:receiveStartup};bridge.attach(consumer);
+  const consumer={request,result,observeAll,fetchSearch:range.fetchSearch,startup:receiveStartup};bridge.attach(consumer);
   async function listPage({account_address,interval_start,interval_end,page=0,provider_mode}) {
     if(provider_mode==='time_range')return range.listPage({account_address,interval_start,interval_end,page,provider_mode});
     const owner=account(account_address),inbox=getInbox();
@@ -81,7 +98,7 @@ export function installOutlookTransport({account, getInbox, receiveRows, receive
   async function prepareOriginal({account_address,provider_message_id}) {
     return originalResolver.prepare({account_address,provider_message_id});
   }
-  function dispose(){active=false;range.dispose();originalResolver.dispose();bridge.detach(consumer);if(!existing)bridge.dispose();for(const waiter of pending.values())waiter.reject(Object.assign(new Error('email_network_read_failed'),{code:'email_network_read_failed'}));pending.clear();templates.clear();}
+  function dispose(){active=false;range.dispose();originalResolver.dispose();bridge.detach(consumer);if(!existing)bridge.dispose();learnIDs.clear();for(const waiter of pending.values())waiter.reject(Object.assign(new Error('email_network_read_failed'),{code:'email_network_read_failed'}));pending.clear();templates.clear();}
 
   return {listPage,armRangeSearch:range.arm,resetRound:range.resetRound,prepareOriginal,prepareOriginalRequest:target=>originalResolver.prepareRequest(target),dispose,diagnostics(){return {itemTemplate:templates.has('ItemRows'),inboxTemplate:Boolean(getInbox()&&templates.has('ConversationRows:'+getInbox().id)),templateCount:templates.size,original:originalResolver.diagnostics()};}};
 }

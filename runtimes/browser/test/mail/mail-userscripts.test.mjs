@@ -656,13 +656,73 @@ test('learning window records only the shape of the web client own requests whil
   await f.context.fetch('https://mail.google.com/mail/set_flag',{method:'POST',body:JSON.stringify({mailid:'PRIVATE-ID',flag:'read'})});
   await new Promise(resolve=>setTimeout(resolve,10));
   const learned=JSON.parse(JSON.stringify(f.reader.diagnostics().learning));
-  assert.deepEqual(learned,[
+  assert.deepEqual(learned.map(({response_shape,body_shape,...entry})=>entry),[
     {kind:'send',method:'POST',path:'/compose/send/:id',query_keys:['mailid','sid'],body_keys:['subject','to'],status:200,provider_code:-20003},
     {kind:'send',method:'POST',path:'/mail/set_flag',query_keys:[],body_keys:['flag','mailid'],status:200,provider_code:7},
   ]);
+  assert.deepEqual(learned[0].response_shape.shape,{head:{ret:'number'}});
+  assert.equal(learned[1].response_shape.shape.code,'number');
+  assert.equal(learned[1].body_shape.mailid,'string:16');
   for(const value of ['SECRET','PRIVATE','private','response-value','123456'])assert.equal(JSON.stringify(learned).includes(value),false,value);
   f.reader.armLearning({kind:'send',window_ms:5000});
   for(let i=0;i<30;i++)xhr('POST','https://mail.google.com/compose/draft','a=1','{}');
   assert.equal(f.reader.diagnostics().learning.length,24);
   f.reader.dispose();
+});
+
+test('learning windows exclude requests started before arm, late old replies and expired responses',async()=>{
+ const f=fixture();let now=0;f.context.performance={now:()=>now};
+ const request=()=>{const x=new f.XHR();x.open('POST','https://mail.google.com/send');x.send('{}');x.status=200;x.responseText='{"data":{"mailid":"private-value"}}';return x;};
+ const before=request();f.reader.armLearning({kind:'send'});before.callback();assert.equal(f.reader.diagnostics().learning.length,0);
+ const old=request();f.reader.armLearning({kind:'mark_read'});old.callback();assert.equal(f.reader.diagnostics().learning.length,0);
+ const expired=request();now=30001;expired.callback();assert.equal(f.reader.diagnostics().learning.length,0);
+ f.reader.armLearning({kind:'send'});const current=request();current.callback();
+ const copy=f.reader.diagnostics();copy.learning[0].response_shape.shape.data.mailid='injected-value';
+ assert.equal(f.reader.diagnostics().learning[0].response_shape.shape.data.mailid,'string:16');
+ f.reader.dispose();current.callback();assert.equal(f.reader.diagnostics().learning.length,0);
+});
+
+test('learning fetch reads chunked responses to a byte limit without consuming the web client response',async()=>{
+ const f=fixture();f.reader.dispose();let reads=0,cancels=0,releases=0;
+ f.context.fetch=async()=>({status:200,url:'https://mail.google.com/send',clone:()=>({body:{getReader:()=>({
+   async read(){reads++;return {done:false,value:new Uint8Array(65536)};},async cancel(){cancels++;},releaseLock(){releases++;}
+ })}})});
+ vm.runInContext(`(${installReader.toString()})({provider:'gmail',origins:[location.origin],account:()=>account,listURL:()=>false,parse:()=>[]});`,f.context);
+ const reader=f.context.SparkClawMailReader;reader.armLearning({kind:'send'});
+ const reply=await f.context.fetch('https://mail.google.com/send',{method:'POST',body:'{}'});
+ for(let i=0;i<100&&!reader.diagnostics().learning.length;i++)await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(reply.status,200);assert.equal(reads,17);assert.equal(cancels,1);assert.equal(releases,1);
+ assert.equal(reader.diagnostics().learning[0].response_shape.format,'too_large');reader.dispose();
+});
+
+test('learning response shapes redact dynamic keys, XSSI string values, markup and nested positional arrays',async()=>{
+ const f=fixture();f.reader.armLearning({kind:'send'});
+ const deliver=text=>{const x=new f.XHR();x.open('POST','https://mail.google.com/send');x.send('{}');x.status=200;x.responseText=text;x.callback();};
+ deliver(")]}'\n"+JSON.stringify({data:{'secret@example.test':'private-address',alphabeticsecrettoken:'private-token',items:[1,'private-subject',null,{body:'private-body'}]}}));
+ deliver('<html>private-html</html>');deliver('private-text');
+ const entries=JSON.parse(JSON.stringify(f.reader.diagnostics().learning));
+ assert.equal(entries[0].response_shape.format,'json');assert.equal(entries[0].response_shape.shape.data.dynamic_key,'string:16');
+ assert.equal(entries[1].response_shape.format,'markup');assert.equal(entries[2].response_shape.format,'text');
+ for(const secret of ['secret@','alphabeticsecret','private-'])assert.ok(!JSON.stringify(entries).includes(secret));f.reader.dispose();
+});
+
+test('Outlook worker learning observes real bridge send operations and responses without intercepting site callbacks',()=>{
+ const f=fixture();f.reader.dispose();f.context.location={origin:'https://outlook.live.com',href:'https://outlook.live.com/mail/0/'};
+ let sends=0,acks=0,stops=0,now=0;
+ class Worker {postMessage(){sends++;}}
+ class Port {listeners=new Set();addEventListener(_,fn){this.listeners.add(fn);}removeEventListener(_,fn){this.listeners.delete(fn);}postMessage(){acks++;}emit(data){for(const fn of this.listeners)fn({data,stopImmediatePropagation(){stops++;}});}}
+ f.context.Worker=Worker;f.context.MessageChannel=class {constructor(){this.port1=new Port();this.port2=new Port();}};f.context.performance={now:()=>now};
+ f.context.installOutlookRangeTransport=()=>({dispose(){}});f.context.installOutlookOriginalResolver=()=>({dispose(){},diagnostics(){return {};}});
+ vm.runInContext(`installOutlookEarlyBridge=${installOutlookEarlyBridge.toString()};installOutlookEarlyBridge();worker=new Worker();channel=new MessageChannel();
+ (${installReader.toString()})({provider:'outlook',origins:[location.origin],account:()=>account,listURL:()=>false,parse:()=>[],installTransport:${installOutlookTransport.toString()}});`,f.context);
+ const reader=f.context.SparkClawMailReader,send=id=>f.context.worker.postMessage({type:'APPLY',path:['execute'],argumentList:[{value:{operationName:'SendMessage',requestId:id,variables:{subject:'private-subject',content:'private-body'}}}]}),reply=(id,phase='next')=>f.context.channel.port1.emit({id:'private-rpc',type:'APPLY',path:[phase],argumentList:[{value:id},{value:{data:{sentItem:{ItemId:{Id:'private-id'}}}}}]});
+ send(1);reader.armLearning({kind:'send'});reply(1);assert.equal(reader.diagnostics().learning.length,0);
+ send(2);reply(2);reply(2,'complete');
+ let records=JSON.parse(JSON.stringify(reader.diagnostics().learning));assert.equal(records.length,2);
+ assert.equal(records[0].channel,'worker');assert.equal(records[0].path,'graphql:SendMessage');assert.deepEqual(records[0].body_keys,['content','subject']);
+ assert.equal(records[1].response_shape.shape.data.sentItem.ItemId.Id,'string:16');assert.ok(!JSON.stringify(records).includes('private-'));
+ send(3);reader.armLearning({kind:'send'});reply(3);assert.equal(reader.diagnostics().learning.length,0);
+ send(4);now=30001;reply(4);assert.equal(reader.diagnostics().learning.length,1);
+ assert.equal(sends,4);assert.equal(acks,0);assert.equal(stops,0);
+ reader.dispose();f.context.SparkClawOutlookEarlyBridge.dispose();
 });

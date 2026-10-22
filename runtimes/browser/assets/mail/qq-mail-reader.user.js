@@ -228,6 +228,8 @@ const installOutlookEarlyBridge=function installOutlookEarlyBridge() {
   const queue=[],listeners=[];let consumer=null,startup=null,active=true;
   const observe=(worker,message)=>{
     const operation=message?.argumentList?.[0]?.value?.operationName;
+    // Learning evidence (Reader-gated): every operation's name/variable keys.
+    if(typeof operation==='string')try{consumer?.observeAll?.(message);}catch{}
     if(!['ItemRows','ConversationRows','ItemExport'].includes(operation))return;
     const item={worker,message:structuredClone(message)};
     if(consumer)consumer.request(item.worker,item.message);
@@ -396,8 +398,10 @@ const markQQMailRead=async function markQQMailRead({provider_message_id, readTar
   // Learning window: while a DOM-triggered mutation is armed, record the shape
   // of the web client's own requests (method, redacted path, parameter and
   // body key names, status, provider result code) so a later release can name
-  // the native request. Values, query strings and bodies are never retained.
+  // the native request. Values, query strings and bodies are never retained;
+  // request/response structure is kept as types, key names and size classes.
   const learning = {armed: null, entries: []};
+  let nativeSend = null;
   const keyName = key => /^[A-Za-z_][A-Za-z0-9_.\-\[\]]{0,63}$/.test(key) ? key : 'other';
   const redactPath = pathname => pathname.split('/').slice(0, 12).map(segment =>
     segment === '' || /^[A-Za-z_][A-Za-z_.\-]{0,40}$/.test(segment) ? segment : ':id').join('/');
@@ -413,6 +417,48 @@ const markQQMailRead=async function markQQMailRead({provider_message_id, readTar
       } catch { return [...new Set([...new URLSearchParams(body).keys()].map(keyName))].sort().slice(0, 32); }
     } catch { return []; }
   }
+  // Dynamic keys (identifiers used as object keys) collapse to one name.
+  const shapeKeys = new Set('head ret code error errors body data id Id mailid messageId message_id ItemId ImmutableId requestId result response status success message items rows edges node __typename extensions sentItem sendMail variables mailboxInfo to subject content'.split(' '));
+  const shapeKey = key => shapeKeys.has(key) ? key : 'dynamic_key';
+  function valueShape(value) {
+    let nodes = 0;
+    const walk = (item, depth) => {
+      if (++nodes > 160) return 'limit';
+      if (item === null) return 'null';
+      if (Array.isArray(item)) return depth >= 6 ? 'array:' + Math.min(item.length, 999) : ['array:' + Math.min(item.length, 999), ...item.slice(0, 12).map(child => walk(child, depth + 1))];
+      if (typeof item === 'object') {
+        if (depth >= 6) return 'object';
+        const out = {};
+        for (const key of Object.keys(item).slice(0, 24)) out[shapeKey(key)] = walk(item[key], depth + 1);
+        return out;
+      }
+      if (typeof item === 'string') return item.length <= 16 ? 'string:16' : item.length <= 64 ? 'string:64' : item.length <= 1024 ? 'string:1k' : 'string:>1k';
+      return typeof item;
+    };
+    return walk(value, 0);
+  }
+  const sizeClass = n => n <= 64 ? '<=64' : n <= 1024 ? '<=1k' : n <= 65536 ? '<=64k' : '>64k';
+  function parseNative(text) {
+    // Google endpoints prefix JSON with an XSSI guard.
+    return JSON.parse(String(text).replace(/^\)\]\}'\s*/, ''));
+  }
+  function responseShape(text) {
+    if (typeof text !== 'string' || !text) return {format: 'empty'};
+    if (text.length > 1 << 20) return {format: 'too_large'};
+    try { return {format: 'json', bytes: sizeClass(text.length), shape: valueShape(parseNative(text))}; }
+    catch { return {format: /^\s*</.test(text) ? 'markup' : 'text', bytes: sizeClass(text.length)}; }
+  }
+  function bodyShape(body) {
+    if (typeof body !== 'string' || !body || body.length > 1 << 20) return undefined;
+    try { const value = JSON.parse(body); return value && typeof value === 'object' ? valueShape(value) : undefined; } catch { return undefined; }
+  }
+  function pushLearning(entry) {
+    if (JSON.stringify(entry).length > 8192) {
+      if (entry.response_shape) entry.response_shape = {format: 'too_large'};
+      if (entry.body_shape !== undefined) entry.body_shape = 'too_large';
+    }
+    learning.entries.push(entry);
+  }
   function providerCode(text) {
     try {
       const value = JSON.parse(typeof text === 'string' && text.length <= 1 << 20 ? text : 'null');
@@ -420,19 +466,53 @@ const markQQMailRead=async function markQQMailRead({provider_message_id, readTar
       return Number.isSafeInteger(code) && Math.abs(code) <= 1000000 ? code : undefined;
     } catch { return undefined; }
   }
-  function learn(method, url, body, status, text) {
-    const armed = learning.armed;
-    if (!armed || performance.now() > armed.until || learning.entries.length >= 24) return;
+  function learn(method, url, body, status, text, session) {
+    const armed = learningSession();
+    if (!armed || armed !== session) return;
     let u; try { u = new URL(url, location.href); } catch { return; }
     if (u.origin !== location.origin || config.listURL(u)) return;
-    const code = providerCode(text);
-    learning.entries.push({kind: armed.kind, method: String(method || 'GET').toUpperCase().slice(0, 8), path: redactPath(u.pathname),
+    const code = providerCode(text), requestShape = bodyShape(body);
+    pushLearning({kind: armed.kind, method: String(method || 'GET').toUpperCase().slice(0, 8), path: redactPath(u.pathname),
       query_keys: [...new Set([...u.searchParams.keys()].map(keyName))].sort().slice(0, 32), body_keys: bodyKeys(body),
-      status: Number.isSafeInteger(status) ? status : 0, ...(code === undefined ? {} : {provider_code: code})});
+      ...(requestShape === undefined ? {} : {body_shape: requestShape}),
+      status: Number.isSafeInteger(status) ? status : 0, ...(code === undefined ? {} : {provider_code: code}), response_shape: responseShape(text)});
   }
-  function armLearning({kind, window_ms = 30000} = {}) {
-    if (typeof kind !== 'string' || !/^[a-z_]{1,32}$/.test(kind) || !Number.isSafeInteger(window_ms) || window_ms < 1 || window_ms > 120000) failure('invalid_request');
+  // Worker-channel operations (Outlook GraphQL over MessagePort): operation
+  // name, variable names and the response structure, never values.
+  function learnWorker({operation, variables, response, phase, session}) {
+    const armed = learningSession();
+    if (!armed || armed !== session) return;
+    if (typeof operation !== 'string' || !/^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(operation)) return;
+    pushLearning({kind: armed.kind, channel: 'worker', method: phase === 'result' ? 'RESULT' : 'APPLY', path: 'graphql:' + operation, query_keys: [],
+      body_keys: variables && typeof variables === 'object' && !Array.isArray(variables) ? Object.keys(variables).map(keyName).sort().slice(0, 32) : [],
+      status: 0, ...(phase === 'result' ? {response_shape: {format: 'json', shape: valueShape(response ?? null)}} : {})});
+  }
+  function learningSession() { return active && learning.armed && performance.now() <= learning.armed.until && learning.entries.length < 24 ? learning.armed : null; }
+  // Clone reads are bounded even when the response is chunked or lies about its
+  // length. Do not await tee cancellation: the site's consumer owns its branch.
+  async function learningText(response) {
+    const reader = response.clone().body?.getReader();
+    if (!reader) return '';
+    const chunks = []; let bytes = 0, expired = false;
+    const timer = setTimeout(() => { expired = true; void reader.cancel().catch(() => {}); }, 5000);
+    try {
+      for (;;) {
+        const {done, value} = await reader.read();
+        if (expired) return '';
+        if (done) break;
+        bytes += value.byteLength;
+        if (bytes > 1 << 20) { void reader.cancel().catch(() => {}); return ' '.repeat((1 << 20) + 1); }
+        chunks.push(value);
+      }
+      const out = new Uint8Array(bytes); let offset = 0;
+      for (const chunk of chunks) { out.set(chunk, offset); offset += chunk.byteLength; }
+      return new TextDecoder().decode(out);
+    } finally { clearTimeout(timer); reader.releaseLock(); }
+  }
+  function armLearning({kind, window_ms = 30000, capture_send_template = false} = {}) {
+    if (typeof kind !== 'string' || !/^[a-z_]{1,32}$/.test(kind) || !Number.isSafeInteger(window_ms) || window_ms < 1 || window_ms > 120000 || typeof capture_send_template !== 'boolean') failure('invalid_request');
     learning.armed = {kind, until: performance.now() + window_ms}; learning.entries = [];
+    nativeSend?.arm(capture_send_template && kind === 'send' ? learning.armed : null);
     return true;
   }
   async function inRound(operation, request) {
@@ -488,7 +568,7 @@ const markQQMailRead=async function markQQMailRead({provider_message_id, readTar
     const current = observedAccount();
     if (!current) failure('email_account_identity_unavailable');
     if (account && account !== current.toLowerCase()) {
-      records.clear(); pageTokens.clear(); binding = null; listRequest = null; networkQuery = null; nativeQueryReply = null; inbox = null; transport?.dispose();
+      records.clear(); pageTokens.clear(); binding = null; listRequest = null; networkQuery = null; nativeQueryReply = null; inbox = null; nativeSend?.dispose(); transport?.dispose();
       failure('email_account_identity_mismatch');
     }
     account = current.toLowerCase();
@@ -575,24 +655,28 @@ const markQQMailRead=async function markQQMailRead({provider_message_id, readTar
     const url = this.__sparkclawMailURL;
     let requestQuery;
     try { requestQuery=JSON.parse(args[0])?.[0]?.[3]; } catch {}
-    const learnedMethod = this.__sparkclawMailRequest?.method, learnedBody = args[0];
+    const learnedMethod = this.__sparkclawMailRequest?.method, learnedBody = args[0], session = learningSession();
+    const learnedHeaders = {...this.__sparkclawMailRequest?.headers};
     this.addEventListener('load', () => {
       if (this.status === 200 && (!this.responseType || this.responseType === 'text')) observe(url, this.responseText, requestQuery);
-      try { learn(learnedMethod, url, learnedBody, this.status, !this.responseType || this.responseType === 'text' ? this.responseText : ''); } catch {}
+      try { learn(learnedMethod, url, learnedBody, this.status, !this.responseType || this.responseType === 'text' ? this.responseText : '', session); } catch {}
+      try { nativeSend?.observe({session, method: learnedMethod, url, headers: learnedHeaders, body: learnedBody, status: this.status, responseURL: this.responseURL || url}); } catch {}
     }, {once:true});
     return originalSend.apply(this, args);
   };
   const fetch = async function(...args) {
+    const session = learningSession();
     const response = await originalFetch.apply(this, args);
-    if (learning.armed && learning.entries.length < 24 && performance.now() <= learning.armed.until) {
+    if (session && session === learningSession()) {
       try {
         const request = args[0], init = args[1] || {};
-        const url = new URL(response.url || (typeof request === 'string' ? request : request?.url), location.href);
-        const method = init.method || (typeof request === 'object' && request?.method) || 'GET';
-        if (url.origin === location.origin && !config.listURL(url)) {
-          const length = Number(response.headers.get('content-length'));
-          const text = Number.isFinite(length) && length <= 1 << 20 ? response.clone().text() : Promise.resolve('');
-          void text.then(value => learn(method, url.href, init.body, response.status, value), () => {});
+        const requestURL = typeof request === 'string' ? request : request?.url;
+        const url = new URL(requestURL, location.href);
+        const responseURL = new URL(response.url || requestURL, location.href);
+        const method = init.method || request?.method || 'GET';
+        if (url.origin === location.origin && responseURL.origin === location.origin && !config.listURL(url)) {
+          void learningText(response).then(value => learn(method, url.href, init.body, response.status, value, session), () => {});
+          nativeSend?.observe({session, method, url: url.href, headers: init.headers, body: init.body, status: response.status, responseURL: responseURL.href});
         }
       } catch {}
     }
@@ -938,15 +1022,16 @@ const markQQMailRead=async function markQQMailRead({provider_message_id, readTar
     return {provider:config.provider,account_address:account,provider_message_id,read_state:result.read_state};
   }
   function dispose() {
-    nativeQueryReply=null;
-    active = false;originalAbort?.abort();if(objectURL)URL.revokeObjectURL(objectURL);objectURL=null;originalBytes=null;originalMessageID=''; records.clear(); pageTokens.clear(); networkQuery = null; binding = null; listRequest = null; inbox = null; transport?.dispose(); anchor?.remove();
+    nativeQueryReply=null; learning.armed=null; learning.entries=[];
+    active = false;originalAbort?.abort();if(objectURL)URL.revokeObjectURL(objectURL);objectURL=null;originalBytes=null;originalMessageID=''; records.clear(); pageTokens.clear(); networkQuery = null; binding = null; listRequest = null; inbox = null; nativeSend?.dispose(); transport?.dispose(); anchor?.remove();
     if (XMLHttpRequest.prototype.open === open) XMLHttpRequest.prototype.open = originalOpen;
     if (XMLHttpRequest.prototype.send === send) XMLHttpRequest.prototype.send = originalSend;
     if (XMLHttpRequest.prototype.setRequestHeader === setHeader) XMLHttpRequest.prototype.setRequestHeader = originalSetHeader;
     if (window.fetch === fetch) window.fetch = originalFetch;
     delete window.SparkClawMailReader;
   }
-  transport=config.installTransport?.({account:checkedAccount,getInbox:()=>inbox,receiveStartup(value){inbox=config.parseFolders?.(value)||null;},receiveRows(rows){
+  nativeSend = config.installNativeSend?.({account: checkedAccount, fetch: originalFetch, readText: learningText, responseShape});
+  transport=config.installTransport?.({learn:learnWorker,learning:learningSession,account:checkedAccount,getInbox:()=>inbox,receiveStartup(value){inbox=config.parseFolders?.(value)||null;},receiveRows(rows){
     checkedAccount();for(const row of rows){if(row && row.provider_selection_id===undefined)row.provider_selection_id=row.provider_thread_id||row.provider_message_id;if(idPattern.test(row.provider_message_id||''))records.set(row.provider_message_id,row);}
     while(records.size>2000)records.delete(records.keys().next().value);
   }});
@@ -957,7 +1042,8 @@ const markQQMailRead=async function markQQMailRead({provider_message_id, readTar
       checkedAccount(account_address);
       return true;
     }, diagnostics:()=>({original:{state:originalState,responseOrigin,response:originalResponse?{...originalResponse}:null},list:{stage:listStage,template:Boolean(listRequest),body:Array.isArray(listRequest?.body),paging:Array.isArray(listRequest?.body?.[0]?.[15])},inbox:Boolean(inbox),records:records.size,transport:transport?.diagnostics?.(),
-      learning:learning.entries.map(entry=>({...entry,query_keys:[...entry.query_keys],body_keys:[...entry.body_keys]}))}), armLearning, snapshot, resetRound,
+      learning:JSON.parse(JSON.stringify(learning.entries))}), armLearning, snapshot, resetRound,
+    ...(nativeSend ? {sendNativeReady: nativeSend.ready, confirmSendTemplate: nativeSend.confirm, sendNative: request=>inRound(nativeSend.send, request)} : {}),
     listPage:request=>inRound(async request=>{
       const value=await listPage(request);checkedAccount(request.account_address);
       return {...value,...accountMetadata()};
@@ -969,7 +1055,97 @@ const markQQMailRead=async function markQQMailRead({provider_message_id, readTar
       return Boolean(row && !row.draft && !row.sent && row.provider_selection_id===provider_selection_id && (!folder||folder==='all'||row.folder===folder) && Number.isFinite(Date.parse(row.received_at)));
     },
   })});
-})({"provider":"qq_mail","origins":["https://wx.mail.qq.com"],"account":()=>document.querySelector('.frame-header .profile-user-info .user-email')?.textContent?.trim()||'',"listURL":u=>u.pathname==='/list/maillist',"parse":value=>(parseQQMailList(value)?.rows??[]).map(row=>({...row,draft:false,sent:row.folder==='sent',grouped:/^(?:C|@)/.test(row.provider_message_id)})),"download":({id,row,binding})=>{if(!binding||row.grouped)return null;const u=new URL('/read/readmail',location.origin);u.searchParams.set('func','5');u.searchParams.set('mailid',id);u.searchParams.set('sid',binding.searchParams.get('sid'));return u;},"markRead":async function markQQMailRead({provider_message_id, readTarget, checkAccount, confirmOnly = false}) {
+})({"provider":"qq_mail","installNativeSend":function installQQSendPrototype({account, fetch, readText, responseShape}) {
+  const fields = 'calendar content from func is_resume is_text is_urgent language mailid need_receipt r save_to_send separated_copy sid subject time_zone time_zone_dst to'.split(' ').sort();
+  let active = true, arm = null, candidate = null, template = null, seen = 0, pending = null, expiry = null;
+  const clear = () => { arm = candidate = template = null; clearTimeout(expiry); expiry = null; };
+  const fail = code => { throw Object.assign(new Error(code), {code}); };
+  const address = value => typeof value === 'string' && value.length <= 320 && /^[^\s<>@,;"\x00-\x1f]+@[^\s<>@,;"\x00-\x1f]+\.[^\s<>@,;"\x00-\x1f]+$/u.test(value);
+  function checked(expected) {
+    if (!active) fail('email_network_capability_unavailable');
+    try { return account(expected); } catch (error) { clear(); throw error; }
+  }
+  function recipient(value) {
+    const match = /^(?:"[^"<>\r\n]*"\s*<([^<>]+)>|([^<>;,]+))([;,]?)$/.exec(value);
+    const email = match?.[1] || match?.[2];
+    return address(email) ? {email, named: Boolean(match[1]), tail: match[3]} : null;
+  }
+  function observe({session, method, url, headers, body, status, responseURL}) {
+    if (!active || !arm || session !== arm || performance.now() > arm.until) return;
+    let u; try { u = new URL(url, location.href); } catch { return; }
+    if (u.origin !== location.origin || u.pathname !== '/send/sendmail') return;
+    candidate = template = null;
+    if (++seen !== 1 || method?.toUpperCase() !== 'POST' || status !== 200 || responseURL !== u.href ||
+        u.username || u.password || u.hash || typeof body !== 'string' || body.length > 1 << 20) return;
+    const form = new URLSearchParams(body);
+    if ([...form.keys()].sort().join(',') !== fields.join(',') || [...u.searchParams.keys()].some(key => !['sid','func','r'].includes(key))) return;
+    // Unknown flags, extra fields (including bcc/attachments/reply metadata),
+    // resumed drafts and non-default send modes cannot enter this prototype.
+    if (['is_resume','is_urgent','need_receipt','separated_copy'].some(key => form.get(key) !== '0') ||
+        form.get('save_to_send') !== '1' || form.get('calendar') !== '' || !['0','1'].includes(form.get('is_text')) ||
+        !form.get('sid') || !/^[A-Za-z0-9_]{1,32}$/.test(form.get('func') || '')) return;
+    let owner; try { owner = checked(); } catch { return; }
+    const from = recipient(form.get('from')), to = recipient(form.get('to'));
+    if (!from || from.email.toLowerCase() !== owner || !to) return;
+    if (u.searchParams.has('sid') && u.searchParams.get('sid') !== form.get('sid')) return;
+    const copied = {};
+    try {
+      const entries = typeof Headers !== 'undefined' && headers instanceof Headers ? [...headers] : Array.isArray(headers) ? headers : Object.entries(headers || {});
+      for (const [key, value] of entries) {
+        const name = key.toLowerCase();
+        if (!['content-type','accept','x-requested-with'].includes(name) || typeof value !== 'string' || value.length > 256 || /[\r\n]/.test(value)) return;
+        copied[name] = value;
+      }
+    } catch { return; }
+    if (!/^application\/x-www-form-urlencoded(?:;\s*charset=utf-8)?$/i.test(copied['content-type'] || '')) return;
+    candidate = {url: u.href, headers: copied, form, owner, to, subject: form.get('subject'), until: arm.until};
+  }
+  function confirm({account_address, to, subject} = {}) {
+    const owner = checked(account_address), value = candidate;
+    candidate = null; arm = null;
+    if (!value || seen !== 1 || value.until < performance.now() || value.owner !== owner || !Array.isArray(to) || to.length !== 1 ||
+        to[0] !== value.to.email || subject !== value.subject) return false;
+    // Keep only template/session fields. Prior recipients, subject, content and
+    // draft identity are discarded, even while the page remains alive.
+    for (const key of ['to','subject','content','mailid']) value.form.set(key, '');
+    value.to = {named: value.to.named, tail: value.to.tail}; delete value.subject;
+    template = value;
+    return true;
+  }
+  function ready({account_address} = {}) {
+    const owner = checked(account_address);
+    if (template && (template.until < performance.now() || template.owner !== owner)) template = null;
+    return {provider: 'qq_mail', account_address: owner, ready: Boolean(template)};
+  }
+  async function send({account_address, to, cc = [], subject, text} = {}) {
+    const owner = checked(account_address);
+    if (!ready({account_address}).ready) fail('email_network_template_unlearned');
+    if (!Array.isArray(to) || to.length !== 1 || !address(to[0]) || !Array.isArray(cc) || cc.length || typeof subject !== 'string' ||
+        !subject.trim() || [...subject].length > 998 || /[\r\n\0]/.test(subject) || typeof text !== 'string' || !text.trim() || text.includes('\0') || new TextEncoder().encode(text).length > 204800) fail('invalid_request');
+    const value = template; clear(); // consumed before any asynchronous dispatch
+    const form = new URLSearchParams(value.form);
+    form.set('to', (value.to.named ? `"${to[0]}"<${to[0]}>` : to[0]) + value.to.tail);
+    form.set('subject', subject);
+    const escape = line => line.replace(/[&<>"']/g, char => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[char]));
+    form.set('content', form.get('is_text') === '1' ? text : text.split(/\r?\n/).map(line => `<div>${line ? escape(line) : '<br>'}</div>`).join(''));
+    form.set('r', String(Math.random()));
+    const url = new URL(value.url); if (url.searchParams.has('r')) url.searchParams.set('r', form.get('r'));
+    const controller = new AbortController(); pending = controller;
+    const timer = setTimeout(() => controller.abort(), 30000);
+    const result = {provider:'qq_mail', account_address:owner, outcome:'unknown'};
+    try {
+      const reply = await fetch(url.href, {method:'POST', headers:value.headers, body:form.toString(), credentials:'same-origin', redirect:'error', signal:controller.signal});
+      const response = await readText(reply);
+      checked(account_address);
+      return {...result, reason:'response_proof_unqualified', response_shape:responseShape(response)};
+    } catch { return {...result, reason:'transport_or_identity'}; }
+    finally { clearTimeout(timer); pending = null; }
+  }
+  return {observe, confirm, ready, send,
+    arm(session) { clear(); arm = session; seen = 0; if(session)expiry = setTimeout(clear, Math.max(0, session.until - performance.now())); },
+    dispose() { active = false; clear(); pending?.abort(); }
+  };
+},"origins":["https://wx.mail.qq.com"],"account":()=>document.querySelector('.frame-header .profile-user-info .user-email')?.textContent?.trim()||'',"listURL":u=>u.pathname==='/list/maillist',"parse":value=>(parseQQMailList(value)?.rows??[]).map(row=>({...row,draft:false,sent:row.folder==='sent',grouped:/^(?:C|@)/.test(row.provider_message_id)})),"download":({id,row,binding})=>{if(!binding||row.grouped)return null;const u=new URL('/read/readmail',location.origin);u.searchParams.set('func','5');u.searchParams.set('mailid',id);u.searchParams.set('sid',binding.searchParams.get('sid'));return u;},"markRead":async function markQQMailRead({provider_message_id, readTarget, checkAccount, confirmOnly = false}) {
   const result=read_state=>({provider_message_id,read_state});
   if(typeof readTarget!=='function'||typeof checkAccount!=='function')return result('unknown');
   const signal=AbortSignal.timeout(8000);
