@@ -6,6 +6,31 @@ import {createNotSentReceipt, createProviderRejectedReceipt, legacyNotSentReceip
 import {removeSendJournal} from './lib/send-journal.mjs';
 import {isReceiveRead, mailAccount} from './page-policy.mjs';
 import {validCandidateTargets} from './runtime/mail-notification-rules.mjs';
+import {CONTROLLER_ERROR_CODES} from './runtime/errors.mjs';
+
+const DIAGNOSTIC_CODES=new Set([...Object.keys(CONTROLLER_ERROR_CODES),
+  'HOST_STALE','HOST_LEASE_EXPIRED','HOST_LEASE_INVALID','HOST_UNAVAILABLE','HOST_TIMEOUT','HOST_RESOURCE_BUSY',
+  'HOST_ARTIFACT_INVALID','AUTHORIZATION_EXPIRED','CANCEL_REQUESTED','EXECUTOR_STOPPING','EFFECT_DENIED',
+  'ENOENT','EACCES','EPERM','ENOSPC','EIO','EMFILE','ENFILE',
+  'email_account_identity_mismatch','email_account_identity_unavailable','email_login_required','email_provider_origin_invalid',
+  'email_network_capability_unavailable','email_network_read_failed','email_network_template_unlearned','email_network_template_stale',
+  'email_network_list_unqualified','email_network_original_unqualified','email_capture_invalid','email_capture_limit',
+  'email_capture_unavailable','email_download_limit','email_local_io','email_batch_limit','email_source_conflict','email_source_recovery_pending'].flatMap(code=>[code,code.toLowerCase(),code.toUpperCase()]));
+const DIAGNOSTIC_REASONS=new Set(['process_exit_context_destroyed','process_exit_page_closed','process_exit_syntax',
+  'process_exit_invalid_arguments','process_exit_target_missing','process_exit_target_ambiguous','process_exit_download_timeout',
+  'process_exit_action_timeout','output_overflow','task_page_missing','application_cleanup_fenced']);
+const DIAGNOSTIC_METHODS=new Set(['navigate','prepareBackgroundPage','runReadCode','currentURL','inspect','readMany','download',
+  'click','fill','focus','press','waitFor','waitMilliseconds','evaluate','runCodeRequest','count','attribute','value','text','lines','visible','enabled','run-code','tab-close']);
+function captureFailureDiagnostic(provider,phase,error,milliseconds){
+ try{
+  const name=['Error','TypeError','ReferenceError','SyntaxError','RangeError','URIError','EvalError','AggregateError','AbortError','TimeoutError','ControllerError','RuntimeError'].includes(error?.name)?error.name:'unavailable';
+  const code=DIAGNOSTIC_CODES.has(error?.code)?error.code:'unavailable';
+  const reason=error?.diagnosticReason??error?.reason,method=error?.mailHostMethod??error?.diagnosticCommand;
+  const record={event:'mail_capture_phase_failed',provider,operation:'collect_page',phase,exception_name:name,exception_code:code,
+   ...(DIAGNOSTIC_REASONS.has(reason)?{host_reason:reason}:{}),...(DIAGNOSTIC_METHODS.has(method)?{host_method:method}:{}),milliseconds};
+  process.stderr.write(JSON.stringify(record)+'\n');
+ }catch{/* Diagnostics cannot change the original failure or uncertainty. */}
+}
 
 export async function mailHandlers() {
   const registry = new ProviderScriptRegistry(); await registry.prepare();
@@ -59,6 +84,9 @@ async function execute(entry, original, context, reconcile = false) {
     validateNotSentBinding(result, input, context);
     return result.status === 'unknown' ? {status: 'uncertain', reason: 'SEND_OUTCOME_UNKNOWN'} : {data: result};
   }
+  let phase='prepare',phaseStarted=performance.now();const milliseconds={};
+  const measurePhase=()=>{milliseconds[phase]=Math.min(86_400_000,Math.max(0,Math.round(performance.now()-phaseStarted)));};
+  const enterPhase=next=>{measurePhase();phase=next;phaseStarted=performance.now();};
   try {
     const native = entry.operation === 'send' ? nativeSendFor(entry.provider, input) : null;
     const page = await prepare(entry, input, context, native);
@@ -73,6 +101,7 @@ async function execute(entry, original, context, reconcile = false) {
       runtime.notSentReceipt = (request, reason) => createNotSentReceipt(request, context, reason, 'pre_dispatch_failure');
       runtime.providerRejectedReceipt = (request, rejection) => createProviderRejectedReceipt(request, context, rejection);
     }
+    enterPhase('handler');
     const result = await entry.handler(input, runtime);
     if (result?.status === 'unknown') return {status: 'uncertain', reason: 'SEND_OUTCOME_UNKNOWN'};
     // Per-message capture/coverage failures describe the result, not ownership
@@ -82,6 +111,7 @@ async function execute(entry, original, context, reconcile = false) {
     let retain = isReceiveRead(entry.operation) && Boolean(account) &&
       ['ready', 'collected', 'empty', 'partial', 'listed', 'complete_for_observation'].includes(result?.status);
     if (retain) {
+      enterPhase('park');
       await page.parkMailRound(account);
     }
     // A native send page stays parked after a decided result. A login
@@ -94,6 +124,7 @@ async function execute(entry, original, context, reconcile = false) {
     }
     return {data: result, retain, invalidate};
   } catch (error) {
+    if(entry.operation==='collect_page'){measurePhase();captureFailureDiagnostic(entry.provider,phase,error,milliseconds);}
     const reason = typeof error.code === 'string' && /^[A-Za-z0-9_]{1,64}$/u.test(error.code) ? error.code.toUpperCase() : 'PROVIDER_SCRIPT_FAILED';
     if (/LOGIN_REQUIRED|ACCOUNT_IDENTITY/u.test(reason)) return {status: 'waiting_confirmation', reason, invalidate: isReceiveRead(entry.operation)};
     if (reason === 'SEND_OUTCOME_UNKNOWN') return {status: 'uncertain', reason};

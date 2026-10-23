@@ -19,6 +19,8 @@ export class MailPage {
       const started = this.callTimings ? performance.now() : 0;
       try {return await browser.call(method,...args.map(value=>value===undefined?null:value));}
       catch (error) {
+        // Local diagnostic metadata only; never includes host arguments or URLs.
+        try {Object.defineProperty(error,'mailHostMethod',{value:method,configurable:true});} catch {}
         const code = typeof error.code === 'string' ? error.code.toLowerCase() : '';
         if (code === 'application_download_limit') throw Object.assign(new Error('Email download limit'), {code:'email_download_limit'});
         if (code === 'application_download_unavailable') throw Object.assign(new Error('Email download unavailable'), {code:'email_capture_unavailable'});

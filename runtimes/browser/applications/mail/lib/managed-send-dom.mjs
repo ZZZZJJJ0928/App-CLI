@@ -26,7 +26,7 @@ export function managedSendDOM(provider,phase,expected={}){
  };
  const label=n=>n.getAttribute('aria-label')||n.getAttribute('data-tooltip')||text(n);
  const bodySelector=provider==='qq_mail'?'.mail-compose-page .mail-content-editor-inner[contenteditable="true"],.mail-compose-page [contenteditable="true"][aria-label="Enter content"],.mail-compose-page [contenteditable="true"][aria-label="输入正文"]':provider==='gmail'?'[role="textbox"][contenteditable="true"]':'[contenteditable="true"][aria-label="Message body"],[contenteditable="true"][aria-label="Email body"],[contenteditable="true"][aria-label="邮件正文"],[contenteditable="true"][aria-label="消息正文"]';
- const bodies=all(bodySelector);
+ const bodyCandidates=[...document.querySelectorAll(bodySelector)],bodies=bodyCandidates.filter(visible);
  const controls=(root=document)=>all('button,[role="button"],[role="menuitem"],[data-a11y="button"],.xmail-ui-btn,a',root);
  const exactControl=(re,root=document)=>controls(root).filter(n=>re.test(label(n)));
  const error=code=>({error:code});
@@ -68,6 +68,12 @@ export function managedSendDOM(provider,phase,expected={}){
   const st=globalThis.__sparkclawManagedMail;st.priorDrafts=[...document.querySelectorAll('input[name="draft"]')].map(n=>n.value).filter(Boolean);st.sourceNativeId=st.sourceRoot?.getAttribute('data-message-id')?.replace(/^#/u,'');return action(buttons[0],{opened:true});
  }
  const state=globalThis.__sparkclawManagedMail;
+ // Structural facts only: a failed ownership check must not expose draft text,
+ // identity, selectors, or arbitrary page-provided diagnostic strings.
+ const editorError=check=>({error:'email_reply_editor_unverified',check,diagnostic:{
+  state_present:!!state,provider_matches:state?.provider===provider,ownership_checked:state?.ownershipChecked===true,
+  body_candidates:Math.min(bodyCandidates.length,1000),body_count:Math.min(bodies.length,1000),
+ }});
  if(phase==='discard'){
   if(!state?.ownershipChecked||!state.root?.isConnected||state.sendAttempted)return {discarded:false};
   const current=state.root.querySelector('input[name="draft"]')?.value;
@@ -111,11 +117,13 @@ export function managedSendDOM(provider,phase,expected={}){
     if(restore.length===1)return action(restore[0],{retry:true});
    }
   }
-  if(!state||state.provider!==provider||bodies.length!==1)return error('email_reply_editor_unverified');
+  if(!state)return editorError('state_missing');
+  if(state.provider!==provider)return editorError('provider_mismatch');
+  if(bodies.length!==1)return editorError('body_count');
   const body=bodies[0];let root=provider==='qq_mail'?body.closest('.mail-compose-page'):provider==='gmail'?body.closest('form')||body.closest('.M9')||body.closest('.gA'):body.closest('[data-app-section="MailCompose"]');
   // Find the smallest actual ancestor with one body and a native Send control.
   if(!root){for(let n=body.parentElement;n&&n!==document.body;n=n.parentElement){if(all(bodySelector,n).length!==1)break;if(exactControl(/^(Send|发送)(?:$|[ \u202a(（])/u,n).length===1){root=n;break}}}
-  if(!root)return error('email_reply_editor_unverified');
+  if(!root)return editorError('root_missing');
   if(!state.ownershipChecked){
    if(provider==='gmail'){const id=root.querySelector('input[name="draft"]')?.value;if(id&&state.priorDrafts?.includes(id))return error('email_existing_draft');state.ownDraftId=id??null;}
    if(provider==='qq_mail'){const key=Object.keys(root).find(k=>/^__react(?:Fiber|InternalInstance)\$/u.test(k));const props=key?root[key]?.return?.memoizedProps?.value:null;if(!props||props.isResumeMail===true||props.isEdited===true)return error('email_existing_draft');state.ownDraftId=props.draftMailId??null;}
@@ -141,7 +149,7 @@ export function managedSendDOM(provider,phase,expected={}){
     const target=decodeURIComponent(location.pathname.split('/id/')[1]??'');
     linked=state.single&&!!state.selection&&target===state.selection&&selected.length<=1&&selected.every(n=>n.getAttribute('data-convid')===state.selection)&&!!state.replyRoot?.isConnected&&state.replyRoot.contains(body);
    }
-   if(!linked)return error('email_reply_editor_unverified');
+   if(!linked)return editorError('target_unlinked');
   }
   state.root=root;state.body=body;mark(body,'body');
   const subject=all('input[name="subjectbox"],input[aria-label="Subject"],input[aria-label="主题"],input[aria-label="Add a subject"],input[aria-label="添加主题"]',root);
@@ -202,7 +210,7 @@ export function managedSendDOM(provider,phase,expected={}){
    return {values:parsed,pending:input?.value??text(copy).replace(/[\u200b\ufeff]/gu,''),display:chips.map(n=>label(n).trim())};
   };
   if(provider==='qq_mail'){const key=Object.keys(state.root).find(k=>/^__react(?:Fiber|InternalInstance)\$/u.test(k));const props=key?state.root[key]?.return?.memoizedProps?.value:null;if(!props||['bcc','scc'].some(k=>!Array.isArray(props[k])||props[k].length)||state.mode!=='compose'&&props.replyMailId!==state.target)return error('email_draft_fields_unverified');}
-  if(provider==='gmail'&&state.mode!=='compose'){const refs=[...state.root.querySelectorAll('input[name="rm"]')];if(refs.length!==1||!state.sourceNativeId||refs[0].value.replace(/^#/u,'')!==state.sourceNativeId)return error('email_reply_editor_unverified');}
+  if(provider==='gmail'&&state.mode!=='compose'){const refs=[...state.root.querySelectorAll('input[name="rm"]')];if(refs.length!==1||!state.sourceNativeId||refs[0].value.replace(/^#/u,'')!==state.sourceNativeId)return editorError('target_unlinked');}
   const to=addresses('to'),cc=addresses('cc'),bcc=all('input[name="bcc"],textarea[name="bcc"],[aria-label="Bcc"],[aria-label="密送"]',state.root).filter(n=>n.matches('input,textarea,[contenteditable="true"],[role="combobox"]'));
   // A provider's Bcc toggle is a button, not an uncommitted recipient. Keep
   // checking actual editors, including Outlook's contenteditable recipient box.

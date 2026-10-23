@@ -94,11 +94,23 @@ export async function openNativeReplyTarget(tab,provider,request){
 
 const CONTROL=name=>`[data-sc-mail-control="${name}"]`;
 export const MANAGED_SEND_SELECTOR='[data-sc-managed-send="true"]';
-async function native(tab,provider,phase,expected={}){
+function editorFailure(provider,phase,check,diagnostic,attempt){
+ // Page results are untrusted. Copy only fixed enums, bounded counts and true
+ // booleans; never copy arbitrary error/DOM text into executor diagnostics.
+ const record={event:'mail_editor_validation_failed',provider,phase,
+  check:['state_missing','provider_mismatch','body_count','root_missing','target_unlinked','open_unconfirmed','editor_not_ready'].includes(check)?check:'unavailable'};
+ for(const key of ['state_present','provider_matches','ownership_checked'])if(typeof diagnostic?.[key]==='boolean')record[key]=diagnostic[key];
+ for(const key of ['body_candidates','body_count'])if(Number.isSafeInteger(diagnostic?.[key])&&diagnostic[key]>=0&&diagnostic[key]<=1000)record[key]=diagnostic[key];
+ if(Number.isSafeInteger(attempt)&&attempt>=1&&attempt<=8)record.attempt=attempt;
+ try{process.stderr.write(JSON.stringify(record)+'\n');}catch{/* Diagnostics cannot replace the failed guard. */}
+ return fail('email_reply_editor_unverified');
+}
+async function native(tab,provider,phase,expected={},attempt){
  // The CLI intentionally redacts message secrets in returned DOM text. Compare
  // browser-computed digests instead of trying to unmask or export that text.
  const r=await tab.inspect(`async()=>{const value=(${managedSendDOM.toString()})(${JSON.stringify(provider)},${JSON.stringify(phase)},${JSON.stringify(expected)});if(!value||value.error)return value;const hash=async value=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value))),v=>v.toString(16).padStart(2,'0')).join('');const addr=v=>{const i=v.lastIndexOf('@');return v.slice(0,i)+'@'+v.slice(i+1).toLowerCase()};if(${JSON.stringify(phase)}==='readback'){return {to_count:value.to.length,cc_count:value.cc.length,to_hash:await hash(JSON.stringify(value.to.map(addr).sort())),cc_hash:await hash(JSON.stringify(value.cc.map(addr).sort())),subject_hash:await hash(value.subject??''),...(value.to_display?{recipient_display_hash:await hash(value.to_display.toLowerCase())}:{}),body_hash:await hash(value.body),body_length:value.body.length,send_ready:value.send_ready,linked:value.linked};}if(value.subject!==undefined){value.subject_hash=await hash(value.subject);delete value.subject;}return value;}`);
  if(r?.result?.error){
+  if(r.result.error==='email_reply_editor_unverified')throw editorFailure(provider,phase,r.result.check,r.result.diagnostic,attempt);
   if(['pending_to','pending_cc','unparsed_recipient','unexpected_bcc'].includes(r.result.check))process.stderr.write(JSON.stringify({event:'mail_recipient_validation_failed',provider,phase,check:r.result.check})+'\n');
   if(r.result.error==='email_draft_fields_unverified')process.stderr.write(JSON.stringify({event:'mail_draft_validation_failed',provider,phase,fields:['editor_structure']})+'\n');
   throw fail(r.result.error);
@@ -115,13 +127,13 @@ export async function prepareManagedDraft(tab,provider,request){
  const expected={mode:request.mode,needs_cc:request.message.cc.length>0,provider_message_id:target?.provider_message_id,provider_selection_id:target?.provider_selection_id,single_message_proven:target?.single_message_proven===true};
  let opened=await native(tab,provider,'open',expected);
  if(opened.menu_opened)opened=await native(tab,provider,'reply_menu',expected);
- if(!opened.opened)throw fail('email_reply_editor_unverified');
+ if(!opened.opened)throw editorFailure(provider,'open','open_unconfirmed');
  let editor;
  for(let attempt=0;attempt<8;attempt++){
-  try{editor=await native(tab,provider,'editor',expected);if(editor.ready)break;}catch(e){if(!['email_reply_editor_unverified','email_recipient_editor_unverified'].includes(e.code)||attempt===7)throw e}
+  try{editor=await native(tab,provider,'editor',expected,attempt+1);if(editor.ready)break;}catch(e){if(!['email_reply_editor_unverified','email_recipient_editor_unverified'].includes(e.code)||attempt===7)throw e}
   await tab.inspect('async()=>{await new Promise(r=>setTimeout(r,200));return {waited:true}}');
  }
- if(!editor?.ready)throw fail('email_reply_editor_unverified');
+ if(!editor?.ready)throw editorFailure(provider,'editor','editor_not_ready',undefined,8);
  if(!editor.has_subject&&editor.subject_hash!==digest(request.message.subject)){
   await native(tab,provider,'edit_subject');await native(tab,provider,'subject_menu');
   for(let i=0;i<8;i++){await tab.inspect('async()=>{await new Promise(r=>setTimeout(r,200));return {waited:true}}');editor=await native(tab,provider,'editor',expected);if(editor.ready&&editor.has_subject)break;}
