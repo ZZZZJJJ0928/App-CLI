@@ -2,12 +2,17 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import {installReader} from '../../applications/mail/userscripts/lib/reader-core.mjs';
-import {installQQSendPrototype} from '../../applications/mail/userscripts/lib/qq-send-prototype.mjs';
 
 const account = 'owner@example.test', recipient = 'recipient@example.test';
-const messageid = 'private-response-identifier', emailid = 'private-sent-identifier';
+const messageid = 'private-response-identifier';
 const responseValue = () => ({head: {ret: 0}, body: {messageid}});
-const confirmation = {account_address: account, to: [recipient], subject: 'private subject', provider_message_id: emailid};
+const confirmation = {account_address: account, to: [recipient], subject: 'private subject'};
+// The learning window records shapes only; a maintained template replaced DOM
+// teaching, so no observed send can arm a replay or trigger a request.
+const untaught = f => {
+  for (const name of ['confirmSendTemplate', 'sendNativeReady', 'prepareNativeSend', 'sendNative']) assert.equal(f.reader[name], undefined);
+  assert.equal(f.calls.length, 0);
+};
 
 function fixture(t) {
   const calls = [];
@@ -19,19 +24,12 @@ function fixture(t) {
     TextDecoder, TextEncoder, Uint8Array, performance, setTimeout, clearTimeout, structuredClone,
     XMLHttpRequest: XHR, location: {origin: 'https://wx.mail.qq.com', href: 'https://wx.mail.qq.com/home/index'},
     document: {addEventListener() {}, removeEventListener() {}},
-    fetch: async (url, options) => {
-      calls.push({url, options}); assert.equal(new URL(url).pathname, '/list/maillist');
-      const response = new Response(JSON.stringify({head: {ret: 0}, body: {total_num: 1, list: [{
-        emailid, messageid, dirid: 3, subject: confirmation.subject,
-        senders: {item: [{email: account}]}, receivers: {item: [{email: recipient}]},
-      }]}}));
-      Object.defineProperty(response, 'url', {value: url}); return response;
-    }});
+    fetch: async (url, options) => {calls.push({url, options}); throw new Error('no request expected');}});
   vm.runInContext(`window=globalThis;top=window;(${installReader.toString()})({provider:'qq_mail',origins:[location.origin],
-    account:()=>${JSON.stringify(account)},listURL:()=>false,parse:()=>[],installNativeSend:${installQQSendPrototype.toString()}});`, context);
+    account:()=>${JSON.stringify(account)},listURL:()=>false,parse:()=>[]});`, context);
   const reader = context.SparkClawMailReader;
   t.after(() => reader.dispose());
-  const arm = () => reader.armLearning({kind: 'send', capture_send_template: true});
+  const arm = () => reader.armLearning({kind: 'send'});
   const request = (type, value) => {
     const xhr = new XHR(); xhr.open('POST', 'https://wx.mail.qq.com/send/sendmail');
     xhr.setRequestHeader('content-type', 'application/x-www-form-urlencoded; charset=UTF-8');
@@ -49,7 +47,7 @@ function fixture(t) {
   return {reader, calls, arm, request};
 }
 
-for (const type of ['', 'text', 'json']) test(`XHR ${type || 'default text'} shares bounded response evidence with QQ template confirmation`, async t => {
+for (const type of ['', 'text', 'json']) test(`XHR ${type || 'default text'} records bounded response evidence without teaching a send`, async t => {
   const f = fixture(t); f.arm();
   const value = Object.freeze({head: Object.freeze({ret: 0}), body: Object.freeze({messageid})});
   const xhr = f.request(type, type === 'json' ? value : JSON.stringify(value));
@@ -59,9 +57,7 @@ for (const type of ['', 'text', 'json']) test(`XHR ${type || 'default text'} sha
   assert.equal(entries[0].response_shape.format, 'json');
   assert.equal(entries[0].response_shape.shape.body.messageid, 'string:64');
   assert.equal(JSON.stringify(entries).includes('private'), false);
-  assert.equal(await f.reader.confirmSendTemplate(confirmation), true);
-  assert.equal(f.reader.sendNativeReady(confirmation).ready, true);
-  assert.equal(f.calls.length, 1, 'confirmation performs one independent Sent read and never sends');
+  untaught(f);
   if (type === 'json') assert.equal(xhr.response, value, 'the site retains the identical untouched response object');
 });
 
@@ -69,11 +65,11 @@ for (const [label, type, value, format] of [
   ['malformed text', 'text', '{"head":', 'text'],
   ['failed JSON parse', 'json', null, 'empty'],
   ['unsupported binary', 'arraybuffer', new ArrayBuffer(8), 'empty'],
-]) test(`XHR ${label} does not certify a send`, async t => {
+]) test(`XHR ${label} is recorded only as its format`, async t => {
   const f = fixture(t); f.arm(); const xhr = f.request(type, value);
   assert.doesNotThrow(() => xhr.loaded());
   assert.equal(f.reader.diagnostics().learning[0].response_shape.format, format);
-  assert.equal(await f.reader.confirmSendTemplate(confirmation), false); assert.equal(f.calls.length, 0);
+  untaught(f);
 });
 
 test('XHR JSON observation does not execute accessors, toJSON hooks or accept cyclic data', async t => {
@@ -83,7 +79,7 @@ test('XHR JSON observation does not execute accessors, toJSON hooks or accept cy
     const f = fixture(t); f.arm();
     assert.doesNotThrow(() => f.request('json', value).loaded());
     assert.equal(f.reader.diagnostics().learning[0].response_shape.format, 'empty');
-    assert.equal(await f.reader.confirmSendTemplate(confirmation), false); assert.equal(f.calls.length, 0);
+    untaught(f);
   }
   assert.equal(callbacks, 0);
 });
@@ -95,10 +91,10 @@ for (const [label, type, value] of [
   ['JSON UTF-8 bytes', 'json', {...responseValue(), extra: '文'.repeat(400000)}],
   ['JSON array width', 'json', {...responseValue(), extra: Array(4097).fill(0)}],
   ['JSON depth', 'json', {...responseValue(), extra: Array.from({length: 40}).reduce(value => ({data: value}), null)}],
-]) test(`XHR ${label} exceeding the response budget cannot teach a template`, async t => {
+]) test(`XHR ${label} exceeding the response budget is recorded as too large`, async t => {
   const f = fixture(t); f.arm(); assert.doesNotThrow(() => f.request(type, value).loaded());
   assert.equal(f.reader.diagnostics().learning[0].response_shape.format, 'too_large');
-  assert.equal(await f.reader.confirmSendTemplate(confirmation), false); assert.equal(f.calls.length, 0);
+  untaught(f);
 });
 
 test('old JSON XHR replies are not inspected or inserted into a new learning window', async t => {
@@ -108,5 +104,5 @@ test('old JSON XHR replies are not inspected or inserted into a new learning win
   f.arm(); assert.doesNotThrow(() => old.loaded());
   assert.equal(reads, 0);
   assert.equal(f.reader.diagnostics().learning.length, 0);
-  assert.equal(await f.reader.confirmSendTemplate(confirmation), false); assert.equal(f.calls.length, 0);
+  untaught(f);
 });

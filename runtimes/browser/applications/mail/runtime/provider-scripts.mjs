@@ -20,6 +20,7 @@ import { readQQMail, readOutlook, readGmail, readEmail, discoverEmail, enumerate
 import { READ_PROVIDERS } from "../lib/provider-account.mjs";
 import { validateCaptureInput } from "../lib/read-capture.mjs";
 import {validateMailObserverInput} from './observer-input.mjs';
+import {sendAdmission} from "../lib/native-send-config.mjs";
 
 const REPOSITORY_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const SCRIPT_CODE_PATTERN = /^[a-z0-9_]{1,64}$/u;
@@ -187,6 +188,7 @@ export function providerScriptContract(entries = registrations) {
       script_id: entry.scriptID,
       revision: entry.revision,
       timeout_ms: entry.timeoutMS,
+      ...(entry.operation === "send" && sendAdmission(entry.provider) ? { send_admission: sendAdmission(entry.provider) } : {}),
     }))
     .sort((a, b) => a.provider.localeCompare(b.provider) || a.operation.localeCompare(b.operation));
   return { schema_version: 1, scripts };
@@ -250,7 +252,7 @@ function registration(value) {
     ...value,
     validate: value.validate ?? ((input) => validateScriptInput(value.provider, value.operation, input)),
     origins: Object.freeze([...value.origins]),
-    sourceFiles: Object.freeze([...new Set([...value.sourceFiles,...(value.operation==="send"?["lib/managed-send.mjs","lib/managed-send-dom.mjs","lib/send-journal.mjs","lib/workspace-attachments.mjs","input-schema.mjs","read.mjs","lib/read-capture.mjs","lib/receipt-time.mjs","lib/gmail-list.mjs","lib/outlook-list.mjs","lib/qqmail-list.mjs","lib/provider-account.mjs","lib/network-reader.mjs","userscripts/lib/outlook-early-bridge.mjs","userscripts/lib/qqmail-mark-read.mjs"]:[])])]),
+    sourceFiles: Object.freeze([...new Set([...value.sourceFiles,...(value.operation==="send"?["lib/managed-send.mjs","lib/managed-send-dom.mjs","lib/native-send.mjs","lib/native-send-config.mjs","lib/qq-native-send.mjs","lib/send-recovery.mjs","userscripts/lib/qq-sendmail-v1.mjs","lib/send-journal.mjs","lib/workspace-attachments.mjs","input-schema.mjs","read.mjs","lib/read-capture.mjs","lib/receipt-time.mjs","lib/gmail-list.mjs","lib/outlook-list.mjs","lib/qqmail-list.mjs","lib/provider-account.mjs","lib/network-reader.mjs","userscripts/lib/outlook-early-bridge.mjs","userscripts/lib/qqmail-mark-read.mjs"]:[])])]),
   });
 }
 

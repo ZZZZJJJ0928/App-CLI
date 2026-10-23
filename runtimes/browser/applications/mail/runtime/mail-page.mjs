@@ -5,7 +5,7 @@ const clientUnavailableError = () => new ControllerError('browser_extension_unav
 const pageStale = () => new ControllerError('browser_page_stale','Task page is stale');
 const TRANSIENT_EVALUATION_ATTEMPTS = 4;
 const TRANSIENT_EVALUATION_DELAY_MS = 250;
-const METHODS = ['currentURL','count','attribute','value','text','lines','readMany','visible','enabled','evaluate','click','runReadCode','download','fill','focus','press','waitFor','waitMilliseconds','navigate','prepareBackgroundPage'];
+const METHODS = ['currentURL','count','attribute','value','text','lines','readMany','visible','enabled','evaluate','click','runReadCode','download','fill','focus','press','waitFor','waitMilliseconds','navigate','prepareBackgroundPage','runCodeRequest'];
 export class MailPage {
   constructor(browser, registration, context) {
     this.browser=browser; this.registration=registration; this.signal=context.signal;
@@ -103,25 +103,6 @@ export class MailPage {
     this.signal = undefined;
   }
 
-  async parkSendTemplate(account) {
-    if (this.registration.provider !== 'qq_mail' || this.registration.operation !== 'send') return false;
-    // A DOM send may have replaced the document. Establish its current nonce
-    // only after success, then require the same nonce on the next admission.
-    await this.prepareMailRound(account, false);
-    const ready = await this.runReadCode(`async page=>page.evaluate(account=>{
-      try{
-        delete window.__sparkclawManagedMail; delete window.__sparkclawSendNotices;
-        for(const node of document.querySelectorAll('[data-sc-mail-control],[data-sc-managed-send],[data-sc-mail-action]')){
-          node.removeAttribute('data-sc-mail-control'); node.removeAttribute('data-sc-managed-send'); node.removeAttribute('data-sc-mail-action');
-        }
-        return window.SparkClawMailReader?.sendNativeReady?.({account_address:account})??null
-      }catch{return null}
-    },${JSON.stringify(account)})`);
-    await this.browser.call('setSecrets', {});
-    this.sendSecrets = {};
-    return ready?.provider === 'qq_mail' && ready.account_address === account.toLowerCase() && ready.ready === true;
-  }
-
 }
 function isContextDestroyed(error) {
   return error &&
@@ -191,6 +172,9 @@ export function createProviderRuntime(client, registration) {
         navigate:url=>client.runReadCode(`async page=>{await page.goto(${JSON.stringify(url)});return true}`),
         readMany:commands=>client.readMany(commands),
         runReadCode:code=>client.runReadCode(code),
+        // Guarded code request: `argument` (message content) never enters an
+        // argument list; see the Browser Controller's private request files.
+        runCodeRequest:(code,argument,timeoutMS)=>client.runCodeRequest(code,argument,timeoutMS),
       });
     },
     withReadTab: async callback => {
@@ -206,6 +190,8 @@ export function createProviderRuntime(client, registration) {
       });
     },
     emailWorkspaceRoot: client.emailWorkspaceRoot,
+    documentNonce: client.mailDocumentNonce,
+    reusedPage: client.browser?.reused === true,
     callTimings: client.callTimings,
     captureTimingDiagnostic: client.captureTimingDiagnostic,
     capturePhaseEvidence: client.capturePhaseEvidence,

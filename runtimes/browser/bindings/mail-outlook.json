@@ -1682,7 +1682,7 @@
       "script_id": "outlook.send",
       "revision": 2,
       "reconcile_requires_host": false,
-      "source_checksum": "sha256:4b89144fb5626a5b510938031191e717186524eac8d67d6b7a4954f57cb548eb",
+      "source_checksum": "sha256:1cdd37dcfeb8290c0fa1e812f90782ef7539cc28e74cb47336cbde9f5c091241",
       "host": {
         "family": "outlook.mutation",
         "activity": "mutation",
@@ -1714,7 +1714,8 @@
           "probeReads",
           "setSecrets",
           "hookActivate",
-          "hookEvents"
+          "hookEvents",
+          "runCodeRequest"
         ],
         "page": {
           "secretReadback": true,
@@ -2300,7 +2301,7 @@
       "timeout_ms": 120000,
       "script_id": "outlook.observe",
       "revision": 1,
-      "source_checksum": "sha256:888f97f5e0f986caaf246c18ba09b85a782b81ab000918168c27a1cf6e4944e1",
+      "source_checksum": "sha256:886e164425d3ca8b7cf4308167f32768ab7722c73a17e659d6b8f96c8ef6379f",
       "host": {
         "family": "outlook.inbound",
         "activity": "watch",

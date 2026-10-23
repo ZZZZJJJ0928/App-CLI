@@ -457,6 +457,48 @@ const markQQMailRead=async function markQQMailRead({provider_message_id, readTar
   }
   return result('unknown');
 };
+const qqPlainTextHTML=function qqPlainTextHTML(text) {
+  const encode = value => value.replace(/[&<>\u00a0]/g, char => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '\u00a0': '&nbsp;'}[char]));
+  return String(text).split('\n').map(raw => {
+    let line = raw.replace(/\r/g, '').replace(/^ /, '\u00a0').replace(/ $/, '\u00a0').replace(/ {2}/g, ' \u00a0');
+    if (line.includes('\t')) {
+      let out = '';
+      for (const char of line) out += char === '\t' ? '\u2002'.repeat(6 - out.length % 6) : char;
+      line = out;
+    }
+    return line ? `<div>${encode(line)}</div>` : '<div><br></div>';
+  }).join('');
+};
+const qqSendmailSid=function qqSendmailSid({headUin = '', cookie = '', href = ''} = {}) {
+  const valid = value => typeof value === 'string' && value.length <= 4096 && /^[A-Za-z0-9_.~*+=:%\-]+$/.test(value);
+  const jar = new Map();
+  for (const part of String(cookie).split(';')) {
+    const at = part.indexOf('=');
+    if (at < 1) continue;
+    let value = part.slice(at + 1).trim();
+    try { value = decodeURIComponent(value); } catch {}
+    jar.set(part.slice(0, at).trim(), value);
+  }
+  let urlSid = '';
+  try { urlSid = new URL(href).searchParams.get('sid') || ''; } catch {}
+  if (!valid(urlSid)) urlSid = '';
+  const multi = (jar.get('xm_muti_sid') || '').split('|').map(entry => {
+    const at = entry.indexOf('&');
+    return at > 0 ? [entry.slice(0, at), entry.slice(at + 1)] : null;
+  }).filter(Boolean);
+  const uin = (typeof headUin === 'string' && headUin) || multi.find(([, sid]) => urlSid && sid === urlSid)?.[0] || jar.get('xm_uin') || '';
+  let cookieSid = '';
+  if (multi.length) cookieSid = uin ? multi.find(([entry]) => entry === uin)?.[1] || '' : '';
+  else if (jar.get('xm_uin') && (!uin || uin === jar.get('xm_uin'))) cookieSid = jar.get('xm_sid') || '';
+  if (!valid(cookieSid)) cookieSid = '';
+  const sid = cookieSid || urlSid;
+  return {sid, source: cookieSid ? 'cookie' : urlSid ? 'url' : 'none', disagree: Boolean(cookieSid && urlSid && cookieSid !== urlSid)};
+};
+const qqTimeZone=function qqTimeZone(DateType = Date) {
+  const base = new DateType(2009, 0, 1).getTimezoneOffset() / 60 * 3600;
+  const now = new DateType().getTimezoneOffset() / 60 * 3600;
+  return {time_zone: String(0 - base), time_zone_dst: String(base - now)};
+};
 (function installReader(config) {
   'use strict';
   if (window.top !== window || !config.origins.includes(location.origin)) return;
@@ -646,10 +688,9 @@ const markQQMailRead=async function markQQMailRead({provider_message_id, readTar
     try {walk(response, 0); return chunks.join('');}
     catch (error) {return error === large ? ' '.repeat(limit + 1) : '';}
   }
-  function armLearning({kind, window_ms = 30000, capture_send_template = false} = {}) {
-    if (typeof kind !== 'string' || !/^[a-z_]{1,32}$/.test(kind) || !Number.isSafeInteger(window_ms) || window_ms < 1 || window_ms > 120000 || typeof capture_send_template !== 'boolean') failure('invalid_request');
+  function armLearning({kind, window_ms = 30000} = {}) {
+    if (typeof kind !== 'string' || !/^[a-z_]{1,32}$/.test(kind) || !Number.isSafeInteger(window_ms) || window_ms < 1 || window_ms > 120000) failure('invalid_request');
     learning.armed = {kind, until: performance.now() + window_ms}; learning.entries = [];
-    nativeSend?.arm(capture_send_template && kind === 'send' ? learning.armed : null);
     return true;
   }
   async function inRound(operation, request) {
@@ -794,13 +835,11 @@ const markQQMailRead=async function markQQMailRead({provider_message_id, readTar
     let requestQuery;
     try { requestQuery=JSON.parse(args[0])?.[0]?.[3]; } catch {}
     const learnedMethod = this.__sparkclawMailRequest?.method, learnedBody = args[0], session = learningSession();
-    const learnedHeaders = {...this.__sparkclawMailRequest?.headers};
     this.addEventListener('load', () => {
       if (this.status === 200 && (!this.responseType || this.responseType === 'text')) observe(url, this.responseText, requestQuery);
       if (!session || session !== learningSession()) return;
       let responseText = ''; try {responseText = xhrLearningText(this);} catch {}
       try { learn(learnedMethod, url, learnedBody, this.status, responseText, session); } catch {}
-      try { nativeSend?.observe({session, method: learnedMethod, url, headers: learnedHeaders, body: learnedBody, status: this.status, responseURL: this.responseURL || url, responseText}); } catch {}
     }, {once:true});
     return originalSend.apply(this, args);
   };
@@ -815,10 +854,7 @@ const markQQMailRead=async function markQQMailRead({provider_message_id, readTar
         const responseURL = new URL(response.url || requestURL, location.href);
         const method = init.method || request?.method || 'GET';
         if (url.origin === location.origin && responseURL.origin === location.origin && !config.listURL(url)) {
-          void learningText(response).then(value => {
-            learn(method, url.href, init.body, response.status, value, session);
-            nativeSend?.observe({session, method, url: url.href, headers: init.headers, body: init.body, status: response.status, responseURL: responseURL.href, responseText:value});
-          }, () => {});
+          void learningText(response).then(value => learn(method, url.href, init.body, response.status, value, session), () => {});
         }
       } catch {}
     }
@@ -1172,7 +1208,8 @@ const markQQMailRead=async function markQQMailRead({provider_message_id, readTar
     if (window.fetch === fetch) window.fetch = originalFetch;
     delete window.SparkClawMailReader;
   }
-  nativeSend = config.installNativeSend?.({account: checkedAccount, fetch: originalFetch, readText: learningText, responseShape});
+  // A maintained native send template (e.g. qq_sendmail_v1); nothing is learned.
+  nativeSend = config.installNativeSend?.({account: checkedAccount, fetch: originalFetch, readText: learningText});
   transport=config.installTransport?.({learn:learnWorker,learning:learningSession,account:checkedAccount,getInbox:()=>inbox,receiveStartup(value){inbox=config.parseFolders?.(value)||null;startupConversations=config.parseConversations?.(value)??startupConversations;},receiveRows(rows){
     checkedAccount();for(const row of rows){if(row && row.provider_selection_id===undefined)row.provider_selection_id=row.provider_thread_id||row.provider_message_id;if(idPattern.test(row.provider_message_id||''))records.set(row.provider_message_id,row);}
     while(records.size>2000)records.delete(records.keys().next().value);
@@ -1185,7 +1222,7 @@ const markQQMailRead=async function markQQMailRead({provider_message_id, readTar
       return true;
     }, diagnostics:()=>({original:{state:originalState,responseOrigin,response:originalResponse?{...originalResponse}:null},list:{stage:listStage,template:Boolean(listRequest),body:Array.isArray(listRequest?.body),paging:Array.isArray(listRequest?.body?.[0]?.[15])},inbox:Boolean(inbox),records:records.size,transport:transport?.diagnostics?.(),
       learning:JSON.parse(JSON.stringify(learning.entries))}), armLearning, snapshot, resetRound,
-    ...(nativeSend ? {sendNativeReady: nativeSend.ready, confirmSendTemplate: request=>inRound(nativeSend.confirm, request), prepareNativeSend: request=>inRound(nativeSend.prepare, request), sendNative: request=>inRound(nativeSend.send, request)} : {}),
+    ...(nativeSend ? {nativeSendPreflight: request=>inRound(nativeSend.preflight, request), nativeSendDispatch: request=>inRound(nativeSend.dispatch, request), nativeSendLookup: request=>inRound(nativeSend.lookup, request)} : {}),
     listPage:request=>inRound(async request=>{
       const value=await listPage(request);checkedAccount(request.account_address);
       return {...value,...accountMetadata()};
@@ -1211,212 +1248,147 @@ const markQQMailRead=async function markQQMailRead({provider_message_id, readTar
       return Boolean(row && !row.draft && !row.sent && row.provider_selection_id===provider_selection_id && (!folder||folder==='all'||row.folder===folder) && Number.isFinite(Date.parse(row.received_at)));
     },
   })});
-})({"provider":"qq_mail","installNativeSend":function installQQSendPrototype({account, fetch, readText, responseShape}) {
-  const TEMPLATE_TTL_MS = 15 * 60 * 1000, TICKET_TTL_MS = 5 * 60 * 1000;
-  // QQ listed a replayed send 4.2 s after accepting it. Poll on a time bound,
-  // returning on the first match; only absence after 12 s is unknown. The whole
-  // dispatch stays below the host's 30 s page-call budget.
-  const SENT_FIRST_DELAY_MS = 1000, SENT_POLL_MS = 750, SENT_LIMIT_MS = 12000, DISPATCH_LIMIT_MS = 28000;
-  const fields = 'calendar content from func is_resume is_text is_urgent language mailid need_receipt r save_to_send separated_copy sid subject time_zone time_zone_dst to'.split(' ').sort();
-  let tokens = 0, active = true, arm = null, candidate = null, template = null, prepared = null, seen = 0, pending = null, expiry = null, reason = 'unlearned', generation = 0;
-  const clear = () => { generation++; arm = candidate = template = prepared = null; clearTimeout(expiry); expiry = null; };
+})({"provider":"qq_mail","installNativeSend":function installQQSendmailV1({account, fetch, readText}) {
+  const VERSION = 'qq_sendmail_v1', ORIGIN = 'https://wx.mail.qq.com';
+  const TICKET_MS = 60000, REQUEST_MS = 25000, LOOKUP_MS = 12000, POLL_MS = 750, SKEW_MS = 120000;
+  let active = true, ticket = null, tokens = 0;
   const fail = code => { throw Object.assign(new Error(code), {code}); };
   const address = value => typeof value === 'string' && value.length <= 320 && /^[^\s<>@,;"\x00-\x1f]+@[^\s<>@,;"\x00-\x1f]+\.[^\s<>@,;"\x00-\x1f]+$/u.test(value);
-  function checked(expected) {
-    if (!active) fail('email_network_capability_unavailable');
-    try { return account(expected); } catch (error) { clear(); throw error; }
-  }
-  function recipient(value) {
-    const match = /^(?:"[^"<>\r\n]*"\s*<([^<>]+)>|([^<>;,]+))([;,]?)$/.exec(value);
-    const email = match?.[1] || match?.[2];
-    return address(email) ? {email, named: Boolean(match[1]), tail: match[3]} : null;
-  }
   const id = value => typeof value === 'string' && /^[A-Za-z0-9_+=:.\/~\-]{1,1024}$/.test(value);
-  function sentResponse(text) {
-    if (typeof text !== 'string' || text.length > 1 << 20) return null;
-    try {
-      const value = JSON.parse(text);
-      return value?.head?.ret === 0 && id(value.body?.messageid) ? value.body.messageid : null;
-    } catch { return null; }
+  const canonical = value => { const at = value.lastIndexOf('@'); return value.slice(0, at) + '@' + value.slice(at + 1).toLowerCase(); };
+  const checked = expected => { if (!active) fail('email_network_capability_unavailable'); return account(expected); };
+  const visible = node => { const rect = node?.getBoundingClientRect?.(); return Boolean(rect && rect.width > 0 && rect.height > 0); };
+  const loginVisible = () => [...document.querySelectorAll('.login-page')].some(visible);
+  const language = () => typeof window.lang === 'string' && /^[A-Za-z_\-]{1,16}$/.test(window.lang) ? window.lang : '';
+  const sid = () => qqSendmailSid({headUin: document.head?.getAttribute?.('xmail_uin') || '', cookie: document.cookie, href: location.href});
+  // Front-end version, only to compare QQ releases; never a gate.
+  function drift(value) {
+    const manifest = window.__WEB_MANIFEST__?.version;
+    const script = [...document.scripts].map(node => /\/(home-web\.[0-9a-f]{8,32}\.js)(?:$|[?#])/.exec(node.src || '')?.[1]).find(Boolean);
+    return {...(typeof manifest === 'string' && /^[A-Za-z0-9._\-]{1,64}$/.test(manifest) ? {manifest_version: manifest} : {}),
+      ...(script ? {home_web: script} : {}), sid_source: value.source, sid_disagree: value.disagree};
   }
-  function observe({session, method, url, headers, body, status, responseURL, responseText}) {
-    if (!active || !arm || session !== arm || performance.now() > arm.until) return;
-    let u; try { u = new URL(url, location.href); } catch { return; }
-    if (u.origin !== location.origin || u.pathname !== '/send/sendmail') return;
-    if (typeof body !== 'string' || body.length > 1 << 20) return;
-    const form = new URLSearchParams(body);
-    // The same endpoint handles autosave (func=2). Only an actual send can
-    // count toward the single observed dispatch in this learning window.
-    if (form.get('func') !== '1') return;
-    candidate = template = null; reason = 'request_shape';
-    if (++seen !== 1 || method?.toUpperCase() !== 'POST' || status !== 200 || responseURL !== u.href ||
-        u.username || u.password || u.hash || typeof body !== 'string' || body.length > 1 << 20) return;
-    if ([...form.keys()].sort().join(',') !== fields.join(',') || [...u.searchParams.keys()].some(key => !['sid','func','r'].includes(key))) return;
-    // Unknown flags, extra fields (including bcc/attachments/reply metadata),
-    // resumed drafts and non-default send modes cannot enter this prototype.
-    if (['is_resume','is_urgent','need_receipt','separated_copy','is_text'].some(key => form.get(key) !== 'false') ||
-        form.get('save_to_send') !== 'true' || form.get('calendar') !== '' || !form.get('sid')) return;
-    let owner; try { owner = checked(); } catch { return; }
-    const from = recipient(form.get('from')), to = recipient(form.get('to'));
-    if (!from || from.email.toLowerCase() !== owner || !to) return;
-    if (u.searchParams.has('sid') && u.searchParams.get('sid') !== form.get('sid')) return;
-    const copied = {};
-    try {
-      const entries = typeof Headers !== 'undefined' && headers instanceof Headers ? [...headers] : Array.isArray(headers) ? headers : Object.entries(headers || {});
-      for (const [key, value] of entries) {
-        const name = key.toLowerCase();
-        if (!['content-type','accept','x-requested-with'].includes(name) || typeof value !== 'string' || value.length > 256 || /[\r\n]/.test(value)) return;
-        copied[name] = value;
-      }
-    } catch { return; }
-    if (!/^application\/x-www-form-urlencoded(?:;\s*charset=utf-8)?$/i.test(copied['content-type'] || '')) return;
-    const messageid = sentResponse(responseText);
-    if (!messageid) { reason = 'response_identifier'; return; }
-    candidate = {url: u.href, headers: copied, form, owner, to, subject: form.get('subject'), messageid, until: arm.until};
-    reason = 'awaiting_confirmation';
-  }
-  async function sentList(value, signal) {
-    checked(value.owner);
-    const url = new URL('/list/maillist', location.origin);
-    const body = new URLSearchParams({sid:value.form.get('sid'),r:String(Math.random()),language:value.form.get('language'),
-      func:'1',dir:'3',dirid:'3',sort_type:'1',sort_direction:'1',page_now:'0',page_size:'50',enable_topmail:'true'});
-    const response = await fetch(url.href, {method:'POST',headers:{'content-type':'application/x-www-form-urlencoded; charset=UTF-8'},
-      body:body.toString(),credentials:'same-origin',redirect:'error',cache:'no-store',signal});
-    if (response.status !== 200 || response.url !== url.href) fail('email_network_sent_unqualified');
-    const text = await readText(response);
-    checked(value.owner);
-    const parsed = JSON.parse(text);
-    if (parsed?.head?.ret !== 0 || !Array.isArray(parsed.body?.list) || parsed.body.list.length > 50 ||
-        !Number.isInteger(parsed.body.total_num) || parsed.body.total_num < parsed.body.list.length) fail('email_network_sent_unqualified');
-    return parsed.body.list;
-  }
-  function matchSent(rows, messageid, owner, to, subject) {
-    const found = rows.filter(row => row?.messageid === messageid);
-    if (found.length !== 1) return null;
-    const row = found[0], senders = row.senders?.item, receivers = row.receivers?.item;
-    return row.dirid === 3 && id(row.emailid) && rows.filter(item => item?.emailid === row.emailid).length === 1 && row.subject === subject &&
-      Array.isArray(senders) && senders.length === 1 && senders[0]?.email?.toLowerCase() === owner &&
-      Array.isArray(receivers) && receivers.length === 1 && receivers[0]?.email === to[0] ? row.emailid : null;
-  }
-  async function confirm({account_address, to, subject, provider_message_id} = {}) {
-    const owner = checked(account_address), value = candidate, epoch = generation;
-    candidate = null; arm = null;
-    if (!value || seen !== 1 || value.until < performance.now() || value.owner !== owner || !Array.isArray(to) || to.length !== 1 ||
-        to[0] !== value.to.email || subject !== value.subject || !id(provider_message_id)) return false;
-    try {
-      const rows = await sentList(value, AbortSignal.timeout(10000));
-      if (!active || generation !== epoch || matchSent(rows, value.messageid, owner, to, subject) !== provider_message_id || value.until < performance.now()) {
-        reason = 'sent_confirmation'; return false;
-      }
-    } catch { reason = 'sent_confirmation'; return false; }
-    // Keep only template/session fields. Prior recipients, subject, content and
-    // draft identity are discarded, even while the page remains alive.
-    for (const key of ['to','subject','content','mailid']) value.form.set(key, '');
-    value.to = {named: value.to.named, tail: value.to.tail}; delete value.subject; delete value.messageid;
-    value.until = performance.now() + TEMPLATE_TTL_MS;
-    // The learning window's timer must not retire a confirmed template.
-    clearTimeout(expiry); expiry = null;
-    template = value; reason = 'ready';
-    return true;
-  }
-  function ready({account_address} = {}) {
-    const owner = checked(account_address);
-    if (template && template.owner !== owner) { template = null; reason = 'account_changed'; }
-    if (template && template.until < performance.now()) { template = null; reason = 'template_expired'; }
-    return {provider: 'qq_mail', account_address: owner, ready: Boolean(template), reason: template ? 'ready' : reason};
-  }
-  const validMessage = ({to, cc = [], subject, text} = {}) => Array.isArray(to) && to.length === 1 && address(to[0]) && Array.isArray(cc) && !cc.length &&
+  const message = ({to, cc = [], subject, text} = {}) => Array.isArray(to) && to.length === 1 && address(to[0]) && Array.isArray(cc) && !cc.length &&
     typeof subject === 'string' && subject.trim() && [...subject].length <= 998 && !/[\r\n\0]/.test(subject) &&
     typeof text === 'string' && text.trim() && !text.includes('\0') && new TextEncoder().encode(text).length <= 204800;
-  const messageKey = ({to, subject, text}) => JSON.stringify([to, subject, text]);
-  // Sent rows that already exist cannot certify a new send. Reading them is
-  // also the session check, and it runs before the caller claims a dispatch:
-  // any refusal here is "not sent" and leaves the DOM flow available.
-  const baselineOf = rows => ({messageids: new Set(rows.map(row => row?.messageid).filter(Boolean)), emailids: new Set(rows.map(row => row?.emailid).filter(Boolean))});
-  async function prepare({account_address, ...message} = {}) {
+  const document_ = () => typeof window.__sparkclawMailDocument === 'string' ? window.__sparkclawMailDocument : '';
+
+  function preflight({account_address} = {}) {
+    if (!active) fail('email_network_capability_unavailable');
+    ticket = null;
+    if (loginVisible()) fail('email_login_required');
     const owner = checked(account_address);
-    prepared = null;
-    const refused = why => ({provider: 'qq_mail', account_address: owner, ready: false, dispatched: false, reason: why});
-    if (!validMessage(message)) return refused('invalid_request');
-    if (!ready({account_address}).ready) return refused(reason);
-    const value = template;
-    try {
-      const rows = await sentList(value, AbortSignal.timeout(10000));
-      if (!active || template !== value) return refused('template_changed');
-      const token = `${++tokens}:${Math.random().toString(36).slice(2) || '0'}`;
-      prepared = {token, owner, value, message: messageKey(message), baseline: baselineOf(rows), until: performance.now() + TICKET_TTL_MS};
-      return {provider: 'qq_mail', account_address: owner, ready: true, token};
-    } catch {
-      // The session that would carry the send cannot read; never dispatch on it.
-      if (template === value) { template = null; reason = 'sent_baseline'; }
-      return refused('sent_baseline');
-    }
+    const refused = reason => ({provider: 'qq_mail', account_address: owner, ready: false, reason});
+    if (location.origin !== ORIGIN || location.pathname !== '/home/index') return refused('page_unavailable');
+    const session = sid();
+    if (!session.sid) return refused('sid_missing');
+    if (!language()) return refused('language_unavailable');
+    const token = `${++tokens}:${Math.random().toString(36).slice(2) || '0'}`;
+    ticket = {token, nonce: document_(), account: owner, expires_at: performance.now() + TICKET_MS};
+    return {provider: 'qq_mail', account_address: owner, ready: true, token, template_version: VERSION, drift: drift(session)};
   }
-  async function send({account_address, token, ...message} = {}) {
-    const owner = checked(account_address), ticket = prepared;
-    // Only the ticket of the latest prepare() for this exact message can
-    // dispatch. Its template is not re-timed here: prepare() already proved it,
-    // and an expiry during the caller's release must not turn into unknown.
-    if (!ticket || typeof token !== 'string' || ticket.token !== token || ticket.owner !== owner || ticket.value !== template ||
-        ticket.until < performance.now()) fail('email_network_template_unlearned');
-    if (!validMessage(message) || ticket.message !== messageKey(message)) fail('invalid_request');
-    const {to, subject, text} = message, value = template, baseline = ticket.baseline;
-    clear(); // consumed before any asynchronous dispatch
-    const form = new URLSearchParams(value.form);
-    form.set('to', (value.to.named ? `"${to[0]}"<${to[0]}>` : to[0]) + value.to.tail);
-    form.set('subject', subject);
-    const escape = line => line.replace(/[&<>"']/g, char => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[char]));
-    form.set('content', text.split(/\r?\n/).map(line => `<div>${line ? escape(line) : '<br>'}</div>`).join(''));
-    form.set('r', String(Math.random()));
-    const url = new URL(value.url); if (url.searchParams.has('r')) url.searchParams.set('r', form.get('r'));
-    const controller = new AbortController(); pending = controller;
-    const timer = setTimeout(() => controller.abort(), DISPATCH_LIMIT_MS);
-    const result = {provider:'qq_mail', account_address:owner, outcome:'unknown'};
-    const timings = {}; let phase = 'send_response';
+
+  async function dispatch({account_address, token, ...content} = {}) {
+    if (!active) fail('email_network_capability_unavailable');
+    const held = ticket; ticket = null; // one use, before any asynchronous step
+    const result = {provider: 'qq_mail', template_version: VERSION};
+    const refused = reason => ({...result, outcome: 'refused_before_request', reason});
+    if (!held || typeof token !== 'string' || held.token !== token || held.expires_at < performance.now() || held.nonce !== document_()) return refused('ticket_invalid');
+    let owner;
+    try { owner = checked(account_address); } catch { return refused('account_unavailable'); }
+    if (owner !== held.account) return refused('account_changed');
+    if (!message(content)) return refused('invalid_request');
+    const session = sid(), lang = language();
+    if (!session.sid) return refused('sid_missing');
+    if (!lang) return refused('language_unavailable');
+    const zone = qqTimeZone(Date);
+    const form = new URLSearchParams();
+    for (const [key, value] of [['func', '1'], ['mailid', ''], ['time_zone', zone.time_zone], ['time_zone_dst', zone.time_zone_dst], ['calendar', ''],
+      ['subject', content.subject], ['content', qqPlainTextHTML(content.text)], ['is_text', 'false'], ['is_urgent', 'false'], ['is_resume', 'false'],
+      ['need_receipt', 'false'], ['from', owner], ['save_to_send', 'true'], ['separated_copy', 'false'], ['to', content.to[0]],
+      ['language', lang], ['r', (1e13 * Math.random()).toFixed(0) + Date.now()], ['sid', session.sid]]) form.append(key, value);
+    const url = ORIGIN + '/send/sendmail';
+    const controller = new AbortController(), timer = setTimeout(() => controller.abort(), REQUEST_MS);
+    const started = performance.now(), timings = {};
+    const unknown = (reason, extra = {}) => ({...result, outcome: 'unknown', reason, ...extra, timings});
+    let reply, text;
     try {
-      const dispatchAt = performance.now();
-      const reply = await fetch(url.href, {method:'POST', headers:value.headers, body:form.toString(), credentials:'same-origin', redirect:'error', signal:controller.signal});
-      const response = await readText(reply);
-      timings.request_ms = Math.round(performance.now() - dispatchAt);
-      checked(account_address);
-      const messageid = reply.status === 200 && reply.url === url.href && sentResponse(response);
-      if (!messageid || baseline.messageids.has(messageid)) return {...result,reason:'response_identifier',response_shape:responseShape(response),timings};
-      phase = 'sent_confirmation'; const verifyAt = performance.now();
-      for (let wait = SENT_FIRST_DELAY_MS; ;) {
-        await new Promise(resolve => setTimeout(resolve, wait));
-        const rows = await sentList(value, controller.signal);
-        const provider_message_id = matchSent(rows, messageid, owner, to, subject);
-        if (provider_message_id && !baseline.emailids.has(provider_message_id)) {
-          timings.sent_verify_ms = Math.round(performance.now() - verifyAt);
-          // This replay proved the template again; renew it for this page only.
-          let renewed = false, same = false;
-          try { same = checked(account_address) === owner; } catch {}
-          if (active && same && !template) {
-            value.until = performance.now() + TEMPLATE_TTL_MS; template = value; reason = 'ready'; renewed = true;
-          }
-          return {...result,outcome:'sent',provider_message_id,response_message_id:messageid,template_ready:renewed,
-            proof:{source:'qq_sent_list_v1',provider_message_id,response_message_id:messageid,folder:'sent',fresh:true},timings};
+      reply = await fetch(url, {method: 'POST', headers: {'content-type': 'application/x-www-form-urlencoded'}, body: form.toString(),
+        credentials: 'same-origin', redirect: 'error', cache: 'no-store', signal: controller.signal});
+      text = await readText(reply);
+    } catch { timings.request_ms = Math.round(performance.now() - started); return unknown(controller.signal.aborted ? 'timeout' : 'network'); }
+    finally { clearTimeout(timer); }
+    timings.request_ms = Math.round(performance.now() - started);
+    if (reply.status !== 200 || reply.url !== url) return unknown('http_status');
+    let value;
+    try { if (typeof text !== 'string' || text.length > 1 << 20) throw new Error('size'); value = JSON.parse(text); } catch { return unknown('response_format'); }
+    const ret = value?.head?.ret, code = typeof ret === 'number' ? ret : typeof ret === 'string' && /^-?[0-9]{1,9}$/.test(ret) ? Number(ret) : null;
+    if (!Number.isSafeInteger(code)) return unknown('response_format');
+    const messageid = id(value.body?.messageid) ? value.body.messageid : undefined;
+    let same = false;
+    try { same = checked(account_address) === held.account; } catch {}
+    if (code !== 0) return {...result, outcome: 'provider_code', provider_code: code, timings};
+    if (!messageid || !id(value.body?.mailid)) return unknown('response_identifier', messageid ? {messageid} : {});
+    if (!same) return unknown('account_after_response', {messageid});
+    return {...result, outcome: 'sent', mailid: value.body.mailid, messageid, timings};
+  }
+
+  // Pending path only: one bounded search of Sent. QQ's own response Date is
+  // the clock; a row older than the dispatch (minus skew) never matches.
+  async function lookup({account_address, to, subject, messageid, dispatched_at_ms} = {}) {
+    if (!active) fail('email_network_capability_unavailable');
+    const owner = checked(account_address), started = performance.now();
+    if (!Array.isArray(to) || to.length !== 1 || !address(to[0]) || typeof subject !== 'string' || messageid !== undefined && !id(messageid) ||
+        !Number.isSafeInteger(dispatched_at_ms)) fail('invalid_request');
+    const recipient = canonical(to[0]);
+    const pending = reason => ({provider: 'qq_mail', outcome: 'unknown', reason, timings: {lookup_ms: Math.round(performance.now() - started)}});
+    let reason = 'not_found';
+    for (;;) {
+      try {
+        const session = sid();
+        if (!session.sid || !language()) { reason = 'sid_missing'; break; }
+        const url = ORIGIN + '/list/maillist';
+        const body = new URLSearchParams({sid: session.sid, r: String(Math.random()), language: language(), func: '1', dir: '3', dirid: '3',
+          sort_type: '1', sort_direction: '1', page_now: '0', page_size: '50', enable_topmail: 'true'});
+        const response = await fetch(url, {method: 'POST', headers: {'content-type': 'application/x-www-form-urlencoded; charset=UTF-8'},
+          body: body.toString(), credentials: 'same-origin', redirect: 'error', cache: 'no-store', signal: AbortSignal.timeout(5000)});
+        const received = Date.now();
+        if (response.status !== 200 || response.url !== url) throw new Error('status');
+        const parsed = JSON.parse(await readText(response));
+        if (checked(account_address) !== owner) fail('email_account_identity_mismatch');
+        const rows = parsed?.body?.list;
+        if (parsed?.head?.ret !== 0 || !Array.isArray(rows) || rows.length > 50) throw new Error('list');
+        const server = Date.parse(response.headers.get('date') || '');
+        const offset = Number.isFinite(server) ? server - received : Number.isInteger(parsed.head.time) ? parsed.head.time * 1000 - received : null;
+        const exact = row => row?.dirid === 3 && id(row.emailid) && row.subject === subject &&
+          Array.isArray(row.senders?.item) && row.senders.item.length === 1 && typeof row.senders.item[0]?.email === 'string' && row.senders.item[0].email.toLowerCase() === owner &&
+          Array.isArray(row.receivers?.item) && row.receivers.item.length === 1 && typeof row.receivers.item[0]?.email === 'string' && canonical(row.receivers.item[0].email) === recipient;
+        let found;
+        if (messageid) found = rows.filter(row => row?.messageid === messageid);
+        else if (offset !== null) {
+          const bound = (dispatched_at_ms + offset - SKEW_MS) / 1000;
+          found = rows.filter(row => Number.isInteger(row?.fromtime) && row.fromtime >= bound && exact(row));
+        } else { reason = 'server_time_unavailable'; break; }
+        if (found.length > 1) { reason = 'ambiguous'; break; }
+        if (found.length === 1 && exact(found[0]) && rows.filter(row => row?.emailid === found[0].emailid).length === 1) {
+          return {provider: 'qq_mail', outcome: 'sent', provider_message_id: found[0].emailid,
+            proof: {source: 'qq_sent_list_v1', provider_message_id: found[0].emailid, ...(messageid ? {response_message_id: messageid} : {}), folder: 'sent', fresh: true},
+            timings: {lookup_ms: Math.round(performance.now() - started)}};
         }
-        // The last read lands exactly on the limit.
-        const left = SENT_LIMIT_MS - (performance.now() - verifyAt);
-        if (left <= 0) break;
-        wait = Math.min(SENT_POLL_MS, left);
+        if (found.length === 1) { reason = 'mismatch'; break; }
+        reason = 'not_found';
+      } catch (error) {
+        if (error?.code === 'email_account_identity_mismatch') throw error;
+        reason = 'lookup_failed';
       }
-      timings.sent_verify_ms = Math.round(performance.now() - verifyAt);
-      return {...result,reason:phase,timings};
-    } catch { return {...result, reason:phase,timings}; }
-    finally { clearTimeout(timer); pending = null; }
+      const left = LOOKUP_MS - (performance.now() - started);
+      if (left <= 0) break;
+      await new Promise(resolve => setTimeout(resolve, Math.min(POLL_MS, left)));
+    }
+    return pending(reason);
   }
-  return {observe, confirm, ready, prepare, send,
-    // A learning window (send or mark-read) resets only learning state. A
-    // confirmed template and its preflight ticket keep their own lifetimes; a
-    // template is replaced only by a newly observed and confirmed DOM send.
-    arm(session) {
-      generation++; arm = session; candidate = null; seen = 0; clearTimeout(expiry); expiry = null;
-      if(session)expiry = setTimeout(() => { if (arm === session) { arm = candidate = null; } }, Math.max(0, session.until - performance.now()));
-    },
-    dispose() { active = false; clear(); pending?.abort(); }
-  };
+
+  return {preflight, dispatch, lookup, dispose() { active = false; ticket = null; }};
 },"origins":["https://wx.mail.qq.com"],"account":()=>document.querySelector('.frame-header .profile-user-info .user-email')?.textContent?.trim()||'',"listURL":u=>u.pathname==='/list/maillist',"parse":value=>(parseQQMailList(value)?.rows??[]).map(row=>({...row,draft:false,sent:row.folder==='sent',grouped:/^(?:C|@)/.test(row.provider_message_id)})),"download":({id,row,binding})=>{if(!binding||row.grouped)return null;const u=new URL('/read/readmail',location.origin);u.searchParams.set('func','5');u.searchParams.set('mailid',id);u.searchParams.set('sid',binding.searchParams.get('sid'));return u;},"markRead":async function markQQMailRead({provider_message_id, readTarget, checkAccount, confirmOnly = false}) {
   const result=read_state=>({provider_message_id,read_state});
   if(typeof readTarget!=='function'||typeof checkAccount!=='function')return result('unknown');
