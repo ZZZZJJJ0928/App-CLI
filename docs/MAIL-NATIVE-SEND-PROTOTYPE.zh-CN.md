@@ -1,8 +1,8 @@
-# 邮件学习窗口与 QQ 重放原型
+# 邮件学习窗口与维护的原生发送
 
 [English](MAIL-NATIVE-SEND-PROTOTYPE.md)
 
-原型默认关闭。2026-10-22 负责人已授权推送、对应服务升级、work2 部署及新的简短测试邮件；历史 unknown 不重发。一次真实 DOM 发信已确认请求/响应结构，原生重放仍须用独立上线证据验收。
+QQ 新撰写邮件改用代码维护的请求模板 `qq_sendmail_v1`，不再从 DOM 发信中学习模板。回复、抄送、附件、Gmail 和 Outlook 在各自拥有模板之前继续走受管 DOM 流程。下面的学习窗口只保留为请求形状证据，不再学习或确认任何发送。
 
 ## 学习窗口
 
@@ -10,28 +10,31 @@
 
 窗口最长 120 秒、最多 24 条；响应最多 1 MiB、读取最多 5 秒，结构有深度/宽度/节点数限制，每条不超过 8 KiB。只接纳当前窗口发起的请求；迟到回调和跨窗口确认不得复活旧模板。未知键折叠为 dynamic_key。`APP_CLI_MAIL_LEARNING_EVIDENCE=1` 输出这些形状。
 
-## QQ 重放
+## 网络原生发送
 
-`APP_CLI_MAIL_NATIVE_SEND=qq_mail` 开启单收件人、无抄送/附件的新纯文本 compose 原型。原生消息输入的 JSON 上限 48 KiB，更大消息仍走 DOM。冷页面先正常发信学习；成功且模板确认后，同账户、owner、scope、凭据代次和 binding 的独立发送页最多保留 15 分钟。停驻前清空消息私密槽位、Reader 记录及应用自己的 DOM 引用。下次租约必须验证同一 document nonce 和账户，并在加载新私密槽位前更新租约权限。
+原生发送分为与提供方无关的流程（`lib/native-send.mjs`）和提供方模块。提供方模块给出范围、恢复页面、模板版本和明确的拒绝码清单，页面侧在 Reader 上实现 `nativeSendPreflight`、`nativeSendDispatch`、`nativeSendLookup`。QQ 是第一个模块（`lib/qq-native-send.mjs`、`userscripts/lib/qq-sendmail-v1.mjs`）。`lib/native-send-config.mjs` 是发布配置：某提供方是否启用原生发送，以及响应标识是否写入回执的 `provider_message_id`。没有环境变量覆盖，`APP_CLI_MAIL_NATIVE_SEND` 已退役。
 
-真实发送为 POST `/send/sendmail`、`func=1`、恰好 18 个字段；五个可选模式值为字符串 false，save_to_send=true。同路径 func=2 是自动存草稿，不能学习成发送模板。未知/重复字段、bcc、附件、回复、续草稿、日历、回执、发送人不符或重定向均拒绝。
+范围（QQ v1）：新撰写、单收件人、无抄送、无附件的纯文本邮件，正文不超过 200 KiB；其余走 DOM 流程。v1 邮件从不用 DOM 发信来获取模板，也从不回退到 DOM 发信。
 
-DOM 发送通过既有已发送页面证明后，还要独立查询 Sent，将响应 body.messageid 与页面已证明的 emailid 关联，并精确核对主题和收发件人。旧收件人、正文、主题和草稿 ID 随即清空，session 只在页面内存。
+正常路径只有两次页面调用，经主机的受保护代码请求（`runCodeRequest`：固定页面函数加私有 `argument`，邮件内容不进入任何参数列表）：
 
-就绪模板自 DOM 确认起有效 15 分钟；每次被证明 sent 的重放在同一页面再续期 15 分钟。以下情况失效：过期、换账户、页面重载或销毁（模板只在页面内存；document nonce 已变的复用发送页会重新导航并走 DOM 发信）、发出前 Sent 读取失败，以及任何未被证明 sent 的重放（含服务端拒绝）。学习窗口（含 QQ 标记已读）不清除模板；新观察并确认的 DOM 发送会替换它。
+1. `preflight` 不带邮件内容。复用页面必须仍是准入时的文档 nonce；冷页面在调用内最多等待 5 秒，等 Reader 和登录账号就绪。它检查可见的登录页、账号（不区分大小写）和模板前提（QQ：源 `https://wx.mail.qq.com`、路径 `/home/index`、有 sid、`window.lang` 为短字符串），返回 60 秒内有效的一次性票据。页面、Reader 或前提失败时，先导航回邮箱一次再做一次 preflight，仍失败则报 `email_native_send_unavailable`。这些都在放行发送之前。
+2. 执行器放行发送，写入 `dispatching` 日志。`dispatch` 只在这一次携带票据和内容。页面先核对票据（令牌、文档、账号、有效期），不符则返回 `refused_before_request`；然后发起一次 `fetch`，超时 25 秒。
 
-释放执行授权、写 dispatching 栅栏之前先做前置检查：模板就绪、校验新邮件，并在页面会话上读取新的 Sent 基线，返回绑定该邮件的一次性票据（5 分钟有效；授权释放期间模板到期不会使其失效）。任何拒绝（含 Sent 读取失败或被服务端拒绝）对原生路径即为 not_sent：未发出、未占用 dispatch，同一次发信继续走 DOM。只有票据能发信。
+QQ 表单按其自身的 `sendMail`/`k(e)` 和 `post()` 公共参数组装：`func=1`、`mailid=`、QQ 的两个时区公式、`calendar=`、主题、正文、`is_text/is_urgent/is_resume/need_receipt=false`、`from`=已核对的账号、`save_to_send=true`、`separated_copy=false`、`to`、`language`、QQ 的 `r` 公式和 sid。正文按编辑器"粘贴为纯文本"规则转换（首尾空格和连续空格转不换行空格，制表符按 6 列转 EN 空格，每行一个 `<div>`，空行为 `<div><br></div>`）。sid 取法同 QQ 的 `ee()`：先按当前 uin 取 Cookie `xm_muti_sid`/`xm_uin`/`xm_sid`，地址栏 sid 只作兜底；sid 不离开页面。
 
-随后产品侧释放授权并持久化 dispatching 栅栏，Reader 发信一次。新主题/正文/收件人替换模板，旧 mailid 清空，重定向禁用；请求与核对合计不超过 28 秒，低于宿主 30 秒的页面调用预算。发出后只读轮询 Sent：1 秒后首读，之后每 750 毫秒一次，最后一次恰在 12 秒，出现即返回。实测 QQ 在受理 4.2 秒后列出重放邮件，因此仅 12 秒后仍未出现才判 unknown。不回退 DOM，不自动重发。
+结果只由响应决定：
 
-成功必须同时满足：响应 head.ret=0 和有效 body.messageid；独立 POST `/list/maillist`（folder 3，page 0，size 50）有且仅有一条同 messageid 的新记录；dirid=3、emailid 有效且不在基线；主题、唯一发件人及唯一收件人精确匹配。公开回执 provider_message_id 使用 emailid，私有发送 journal 保存两个标识及关联证明。不存在、歧义、旧记录、错账户/主题/收件人或响应丢失都保持 unknown。reconcile 只读取原回执。
+- 已接受：请求地址返回 HTTP 200，JSON 不超过 1 MiB，`head.ret` 为 0，`body.mailid` 和 `body.messageid` 有效，响应后账号不变。回执为 `sent`；只有发布开关打开时才带 `provider_message_id`。私有日志保存两个 ID、模板版本、耗时和前端漂移信号。
+- 明确拒绝：QQ 列出的 12 个码之一（登录 `-5012 -20002 -20062 -20071 -21021`，参数 `-20011 -21101 -5151 -21501 -21132`，暂时 `-21519 -20003`）。结果为 `status: completed`，数据 `{status: not_sent, not_sent: {kind: provider_rejected, reason, provider_code}}`，绑定原任务；日志原子地把 `dispatching` 替换为 `not_sent`。登录类拒绝使页面失效。
+- 待确认：其余情况（网络错误、超时、非 200、非 JSON、缺 ID、账号变化、未列出的码、票据被拒）。单独一次 `lookup` 调用最多查询已发送 12 秒；只有唯一匹配（已知 `messageid` 时按它，否则按 QQ 服务器时间不早于放行时间减 120 秒的行）才成为 `sent`，证据为 `qq_sent_list_v1`；否则任务保持不确定。任何情况都不重发。
 
-`APP_CLI_MAIL_SEND_EVIDENCE=1` 记录 DOM/native 路径、总耗时、发送请求耗时、Sent 核对耗时、各宿主调用次数与耗时，以及前置检查 not_sent 的原因和 DOM 回退，不记录邮件值或标识。
+结果确定后页面原样停驻：不调用 `setSecrets`、不重置轮次、不清理 DOM、不导航。发送脚本契约声明 `send_admission: in_page`，调用方可凭持久状态准入，不必在发送前再做登录探测。
 
-## 验证
+`APP_CLI_MAIL_SEND_EVIDENCE=1` 输出路径、结果、恢复、原因码、服务商返回码和有界的请求/查询毫秒数，不含邮件内容、sid 或 ID。
 
-测试覆盖序列化 Reader、worker、脱敏、窗口关联、模板过期、账户/文档漂移、自动存草稿排除、并发单次消费、不同标识命名空间、独立 Sent 字段/唯一性/新鲜性、授权拒绝、私密槽位清理失败与重启/reconcile 不重发。
+## 本地验证与下一关
 
-真实 DOM 基线 QQ→Outlook：完整调用 64.935 秒，发送请求 367 毫秒；发送响应后 1.209 秒取得匹配 Sent 标识，稍后的独立 search 再核对主题及收发件人。92 条历史 unknown 保持不变。该基线不代表原生重放已经上线或达到目标时延；配对发行和后续新信另行验收。回复、附件、Outlook/Gmail 重放不在本原型范围。
+测试使用合成账号、在 VM 中运行真实 Reader 与模板的页面、模拟的 QQ 服务端和临时日志，不发送邮件。覆盖字段集合与每条取值规则、含夏令时的时区、正文转换、sid 优先级与不一致、每个成功条件的反例、12 个码与清单外的码、登录页与账号不可读的区分、`refused_before_request`、查询的时间下界与唯一性、无 DOM 回退、内容只出现在 dispatch 参数中、任何结果都不重发，以及 `provider_rejected` 回执的对账。
 
-macOS 使用 TMPDIR=/private/tmp、Node 26、Python 3.11 运行测试，避免既有临时目录符号链接问题。完整 runtime 测试串行执行并启用 recovery 用例。
+实机验收仍需负责人批准的测试邮件：冷页面第一封、热页面第二封、刷新后第三封；并核对 `mailid` 等于已发送行的 `emailid`、`from` 显示名和正文空白与 DOM 发信一致。通过之后才能打开 `provider_message_id` 开关。历史 unknown 邮件永不重发。

@@ -252,4 +252,4 @@ This is address-selection evidence, not a delivery guarantee: recipient policy,
 service health and mailbox state can still reject mail. Actual send and receive
 qualification remains separate from login checks and synthetic fixture tests.
 
-Local response/worker learning and the default-off QQ replay experiment are documented in [the prototype notes](MAIL-NATIVE-SEND-PROTOTYPE.md).
+Response/worker learning windows and the network-native send with the maintained QQ template are documented in [the native send notes](MAIL-NATIVE-SEND-PROTOTYPE.md).
