@@ -12,7 +12,7 @@ const digest = value => crypto.createHash('sha256').update(value).digest('hex');
 // Always emit a small rejection record, independent of optional detailed DOM
 // evidence. Only fixed guards and bounded counts/flags cross this boundary.
 function attachmentFailure(provider, phase, result) {
-  const checks=['send_unready','upload_pending','upload_alert','row_count','outlook_card_context','outlook_card_shape','outlook_name','outlook_size','outlook_summary','outlook_actions','qq_card_context','qq_name_shape','qq_name','row_name','row_remove','remaining','input_invalid','manifest_changed'];
+  const checks=['send_unready','upload_pending','upload_alert','row_count','outlook_card_context','outlook_card_shape','outlook_name','outlook_size','outlook_summary','outlook_actions','qq_card_context','qq_name_shape','qq_name','gmail_card_context','gmail_card_shape','gmail_name','gmail_remove','row_name','row_remove','remaining','input_invalid','manifest_changed'];
   const record={event:'mail_attachment_validation_failed',provider,phase,check:checks.includes(result?.check)?result.check:'unavailable'};
   for(const key of ['ready','wait_timed_out'])if(typeof result?.[key]==='boolean')record[key]=result[key];
   for(const key of ['known_rows','expected_count','remaining_count'])if(Number.isSafeInteger(result?.diagnostic?.[key])&&result.diagnostic[key]>=0&&result.diagnostic[key]<=1000)record[key]=result.diagnostic[key];
@@ -131,7 +131,11 @@ export function attachmentDOM(provider, phase, expected) {
   // Current Outlook cards have no data-attachment-id. Count every canonical
   // attachment container before proving its visible completed representation.
   const outlookCards = provider === 'outlook' ? [...state.root.querySelectorAll('.av-container')] : [];
-  const rows = [...state.root.querySelectorAll(rowSelector)].filter(node=>visible(node)&&!(provider==='qq_mail'&&qqHiddenMirror(node))).concat(qqCards,outlookCards);
+  const legacyRows = [...state.root.querySelectorAll(rowSelector)];
+  // Current Gmail omits the .aQH ancestor. Count all additional cards, including
+  // hidden or malformed ones, before proving their completed representation.
+  const gmailCards = provider === 'gmail' ? [...state.root.querySelectorAll('div.dL')].filter(node=>!legacyRows.includes(node)) : [];
+  const rows = [...new Set(legacyRows.filter(node=>visible(node)&&!(provider==='qq_mail'&&qqHiddenMirror(node))).concat(qqCards,outlookCards,gmailCards))];
   const label = node => node.getAttribute('aria-label') || node.getAttribute('data-tooltip') || node.textContent.trim();
   const enabled = node => visible(node) && !node.disabled && node.getAttribute('aria-disabled') !== 'true';
   const sameOutlookComposer = () => {
@@ -241,12 +245,14 @@ export function attachmentDOM(provider, phase, expected) {
     state.attachmentPrepared = true;
     state.attachmentProof = null;
     state.attachmentVerifiedManifest = null;
+    state.attachmentCapturedFiles = null;
     const changed = event => {
       if (event.target !== state.attachmentInput) return;
       document.removeEventListener('change', changed, true);
+      const context = {root:state.root,body:state.body,send:state.send,input:event.target};
       const files = [...event.target.files];
       state.attachmentProof = Promise.all(files.map(async file => ({name:file.name, size_bytes:file.size,
-        sha256:'sha256:'+Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', await file.arrayBuffer())), value=>value.toString(16).padStart(2,'0')).join('')}))).then(actual=>{state.attachmentVerifiedManifest=actual;return actual;});
+        sha256:'sha256:'+Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', await file.arrayBuffer())), value=>value.toString(16).padStart(2,'0')).join('')}))).then(actual=>{state.attachmentVerifiedManifest=actual;state.attachmentCapturedFiles={...context,manifest:actual};return actual;});
     };
     document.addEventListener('change', changed, true);
     state.attachmentInputValid = () => {
@@ -275,6 +281,27 @@ export function attachmentDOM(provider, phase, expected) {
     if (rows.length !== expected.length) return unready('row_count');
     const remaining = [...expected];
     for (const row of rows) {
+      if(provider==='gmail'&&gmailCards.includes(row)){
+        const proof=state.attachmentCapturedFiles;
+        // Gmail replaces its input after upload. Keep the captured File proof
+        // bound to the original input and composer; never rebind to its empty
+        // replacement or accept a similarly named card in editable content.
+        if(!visibleWithinComposer(row)||state.body.contains(row)||!state.root.contains(state.send)||
+          !proof||proof.root!==state.root||proof.body!==state.body||proof.send!==state.send||proof.input!==state.attachmentInput||
+          proof.manifest!==state.attachmentVerifiedManifest||
+          JSON.stringify(proof.manifest)!==JSON.stringify(expected.map(({name,size_bytes,sha256})=>({name,size_bytes,sha256}))))return unready('gmail_card_context');
+        const links=[...row.querySelectorAll(':scope > a.dO')],remove=[...row.querySelectorAll(':scope > div.vq[role="button"]')];
+        const names=links.length===1?[...links[0].querySelectorAll(':scope > div.vI')]:[];
+        const sizes=links.length===1?[...links[0].querySelectorAll(':scope > div.vJ')]:[];
+        if(row.children.length!==3||row.querySelectorAll(':scope > input').length!==1||links.length!==1||
+          !visibleWithinComposer(links[0])||links[0].children.length!==2||names.length!==1||sizes.length!==1||
+          !visibleWithinComposer(names[0])||!visibleWithinComposer(sizes[0])||!sizes[0].textContent.trim())return unready('gmail_card_shape');
+        const name=names[0].textContent.trim(),index=remaining.findIndex(item=>item.name===name);
+        if(index<0||expected.filter(item=>item.name===name).length!==1)return unready('gmail_name');
+        if(remove.length!==1||!enabled(remove[0])||!visibleWithinComposer(remove[0])||
+          !/^(Remove attachment|Remove|Delete attachment|Delete|移除附件|删除附件|移除|删除)(?:$|[ :：])/u.test(label(remove[0])))return unready('gmail_remove');
+        remaining.splice(index,1);continue;
+      }
       if(provider==='outlook'&&outlookCards.includes(row)){
         if(!visibleWithinComposer(row)||row.children.length!==1||!state.attachmentInputValid?.()||!state.root.contains(state.send)||
           JSON.stringify(state.attachmentVerifiedManifest)!==JSON.stringify(expected.map(({name,size_bytes,sha256})=>({name,size_bytes,sha256}))))return unready('outlook_card_context');
