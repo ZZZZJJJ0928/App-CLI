@@ -1,5 +1,13 @@
 // Native Sent-folder evidence shared by legacy and managed sends.
 export const QQMAIL_SENT_FOLDER_SELECTOR='.frame-sidebar-menu .sidebar-menu-text:text-is("Sent"), .frame-sidebar-menu .sidebar-menu-text:text-is("已发送")';
+// The CLI click resolves non-ref selectors immediately, before Playwright's
+// action wait. Wait on the same strict locator while a fresh QQ page hydrates.
+// Do not retry the click or choose one of multiple matching menu entries.
+export const QQMAIL_SENT_READY_CODE = `async page => {
+  const target = page.locator(${JSON.stringify(QQMAIL_SENT_FOLDER_SELECTOR)});
+  await target.waitFor({state: 'visible', timeout: 5000});
+  return await target.count() === 1 && await target.isVisible();
+}`;
 export const QQMAIL_SENT_BASELINE_EXPRESSION = `async () => {
   const visible = element => element && element.getBoundingClientRect().width > 0 && element.getBoundingClientRect().height > 0 && getComputedStyle(element).visibility !== "hidden";
   const deadline = Date.now() + 5000;

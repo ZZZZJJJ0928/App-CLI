@@ -1,7 +1,7 @@
 import {validateAttachments,uploadManagedAttachments,verifyManagedAttachments} from './workspace-attachments.mjs';
 import {OUTLOOK_SENT_BASELINE_EXPRESSION,OUTLOOK_SEND_VERIFICATION_EXPRESSION} from './outlook-send-proof.mjs';
 import crypto from 'node:crypto';
-import {QQMAIL_SENT_FOLDER_SELECTOR,QQMAIL_SENT_BASELINE_EXPRESSION,QQMAIL_SENT_VERIFICATION_EXPRESSION} from './qqmail-send-proof.mjs';
+import {QQMAIL_SENT_FOLDER_SELECTOR,QQMAIL_SENT_READY_CODE,QQMAIL_SENT_BASELINE_EXPRESSION,QQMAIL_SENT_VERIFICATION_EXPRESSION} from './qqmail-send-proof.mjs';
 import {managedSendDOM} from './managed-send-dom.mjs';
 import {nativeSendPlan,sendNativeMail} from './native-send.mjs';
 import {openSendJournal} from './send-journal.mjs';
@@ -254,6 +254,8 @@ export async function sendManagedMail(raw,provider,runtime){
   let claimed, sentBaseline, prepared;
   phase='sent_baseline';
   if(provider==='qq_mail'){
+   await verifySendAccount(tab,provider,request.account_address);
+   if(await tab.runReadCode(QQMAIL_SENT_READY_CODE)!==true)throw fail('email_send_precondition_failed');
    await tab.click(QQMAIL_SENT_FOLDER_SELECTOR);
    sentBaseline=(await tab.inspect(QQMAIL_SENT_BASELINE_EXPRESSION)).result;
   }else if(outlookFolderProof)sentBaseline=(await tab.inspect(OUTLOOK_SENT_BASELINE_EXPRESSION)).result;

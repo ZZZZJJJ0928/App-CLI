@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {spawn} from 'node:child_process';
 import vm from 'node:vm';
-import {QQMAIL_SENT_BASELINE_EXPRESSION,QQMAIL_SENT_VERIFICATION_EXPRESSION} from '../../applications/mail/lib/qqmail-send-proof.mjs';
+import {QQMAIL_SENT_READY_CODE,QQMAIL_SENT_BASELINE_EXPRESSION,QQMAIL_SENT_VERIFICATION_EXPRESSION} from '../../applications/mail/lib/qqmail-send-proof.mjs';
 import {managedSendDOM} from '../../applications/mail/lib/managed-send-dom.mjs';
 import test from 'node:test';
 import {openSendJournal} from '../../applications/mail/lib/send-journal.mjs';
@@ -50,7 +50,7 @@ async function sendingFixture(t,{lost=false,wrongReadback=false,provider='gmail'
  const dir=await root(t);const r={...raw(),provider};if(provider==='outlook')r.message.cc=[];if(cc)r.message.cc=cc;let sends=0,tabs=0,discards=0;
  const url=provider==='qq_mail'?'https://wx.mail.qq.com/home/index':provider==='outlook'?'https://outlook.live.com/mail/0/sentitems':'https://mail.google.com/mail/u/0/';
  const actual={to:[],cc:[],subject:r.message.subject,body:''};
- const tab={runReadCode,waitFor:async()=>{},focus:async()=>{},press:async()=>{},fill:async(selector,value)=>{
+ const tab={runReadCode:async code=>code===QQMAIL_SENT_READY_CODE?true:runReadCode(code),waitFor:async()=>{},focus:async()=>{},press:async()=>{},fill:async(selector,value)=>{
   const field=/data-sc-mail-control="(\w+)"/u.exec(selector)[1];
   if(['to','cc'].includes(field))actual[field].push(value);else actual[field]=value;
  },click:async selector=>{if(selector==='[data-sc-managed-send="true"]'){sends++;if(lost)throw Error('response lost');}},inspect:async code=>{
