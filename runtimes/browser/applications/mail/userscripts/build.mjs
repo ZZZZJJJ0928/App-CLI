@@ -9,7 +9,7 @@ import {parseOutlookFolders} from './lib/outlook-folders.mjs';
 import {installQQSendmailV1,qqPlainTextHTML,qqSendmailSid,qqTimeZone} from './lib/qq-sendmail-v1.mjs';
 import {installReader} from './lib/reader-core.mjs';
 import {gmailOriginalURL} from './lib/gmail-download.mjs';
-import {parseGmailList,parseGmailReceivedList} from '../lib/gmail-list.mjs';
+import {parseGmailList,parseGmailReceivedList,parseGmailSentList} from '../lib/gmail-list.mjs';
 import {parseOutlookList} from '../lib/outlook-list.mjs';
 import {parseQQMailList} from '../lib/qqmail-list.mjs';
 import {markQQMailRead} from './lib/qqmail-mark-read.mjs';
@@ -30,6 +30,7 @@ const definitions = [
    search:query=>{location.hash='#search/'+encodeURIComponent(query);},
    download:gmailOriginalURL,
    parse:parseGmailReceivedList,
+   parseSent:parseGmailSentList,
    markRead:()=>null,
   },
   {provider:'outlook', accountIdentity:installOutlookAccountIdentity, parseFolders:parseOutlookFolders, parseConversations:value=>parseOutlookList(value,true), installTransport:installOutlookTransport, file:'outlook-mail-reader.user.js', label:'Outlook', uuid:'c2b90f5c-629d-41bd-8fc8-179729ad70b4', origins:['https://outlook.live.com','https://outlook.office.com','https://outlook.office365.com'],

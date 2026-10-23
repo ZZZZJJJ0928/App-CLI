@@ -50,3 +50,24 @@ export function parseGmailReceivedList(value) {
   }
   return rows;
 }
+
+// Exact-target capture may observe Sent in its own page. Keep these rows out
+// of the received parser and reject ambiguous IDs rather than picking a copy.
+export function parseGmailSentList(value) {
+  const rows=[],counts=new Map();
+  if(!Array.isArray(value?.[19]))return rows;
+  for(const batch of value[19])for(const container of Array.isArray(batch?.[1])?batch[1]:[]) {
+    const thread=container?.[0];
+    if(!Array.isArray(thread?.[4]))continue;
+    for(const message of thread[4]) {
+      const id=message?.[55];
+      if(typeof id==='string')counts.set(id,(counts.get(id)||0)+1);
+      const labels=message?.[10];
+      if(!Array.isArray(labels)||!labels.every(label=>typeof label==='string')||!labels.includes('^f')||labels.includes('^r'))continue;
+      const individual=[...thread];individual[4]=[message];
+      const source=[];source[19]=[[null,[[individual]]]];
+      for(const row of parseGmailList(source,true))rows.push({...row,native_message_id:message[0],folder:'sent'});
+    }
+  }
+  return rows.filter(row=>counts.get(row.provider_message_id)===1);
+}

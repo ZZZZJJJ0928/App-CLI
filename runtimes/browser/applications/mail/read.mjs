@@ -1,6 +1,6 @@
 import {accountAddressMetadata} from './lib/account-address.mjs';
 import {receiptTimeNanos} from './lib/receipt-time.mjs';
-import { prepareNetworkOriginal, networkListPage, networkSnapshot, networkMarkRead } from './lib/network-reader.mjs';
+import { prepareNetworkOriginal, networkListPage, networkSnapshot, networkMarkRead, networkSentTarget } from './lib/network-reader.mjs';
 import crypto from 'node:crypto';
 import { capturePage, captureMail, markCapturedRead, validateCaptureInput, validateMailTarget } from "./lib/read-capture.mjs";
 
@@ -26,6 +26,10 @@ export async function collectUnread(tab, provider, options = {}) {
   if (!networkInterval?.account_address || !networkInterval.interval_start || !networkInterval.interval_end) throw fail('email_network_interval_required');
   const combinedRange = options.discovery_options?.provider_mode === 'time_range' && provider !== 'outlook';
   const snapshot = combinedRange ? null : await networkSnapshot(tab, provider, networkInterval, {required:true});
+  if(options.folder==='sent'&&!options.discovery_options) {
+    const listed=await networkSentTarget(tab,provider,{account_address:networkAccount,folder:'sent',provider_message_id:options.pinned_message_id,provider_selection_id:options.pinned_selection_id});
+    return collectNetworkListed(tab,provider,options,listed);
+  }
   if (options.discovery_options) {
     if (options.discovery_options.lane !== 'recent_inbound') throw fail('email_network_interval_required');
     const page = await networkListPage(tab, provider, {...options.discovery_options, limit:options.discovery_options.limit ?? 100}, snapshot);
@@ -104,7 +108,7 @@ async function collectNetworkListed(tab, provider, options, listed) {
   if (message.provider_message_id === undefined) throw fail('email_message_identity_ambiguous');
   await options.onSelected(message);
   if (options.capture_required === false) return message;
-  const target = {account_address:account, provider_message_id:message.provider_message_id};
+  const target = {account_address:account, provider_message_id:message.provider_message_id,...(folder==='sent'?{folder,provider_selection_id:message.provider_selection_id}:{})};
   const original = await prepareNetworkOriginal(tab, provider, target);
   if (!original?.selector || original.provider_message_id !== target.provider_message_id || original.account_address !== account) throw fail('email_network_original_unqualified');
   return {...message, original, network_original:true, read_state:message.unread ? 'unread' : 'read'};

@@ -76,6 +76,16 @@ export async function networkSnapshot(tab, provider, options, { required = false
   return { ...value, network_reader: true };
 }
 
+export async function networkSentTarget(tab, provider, target) {
+  if(provider!=='gmail'||target.folder!=='sent'||!target.provider_message_id||!target.provider_selection_id)throw networkError('email_network_capability_unavailable');
+  const value=await callReader(tab,provider,'observeSentTarget',target,{required:true});
+  if(value?.provider!==provider||value.account_address!==target.account_address.toLowerCase()||!Array.isArray(value.rows)||value.rows.length!==1)throw networkError('email_network_target_unobserved');
+  const row=value.rows[0];
+  if(row.provider_message_id!==target.provider_message_id||row.provider_selection_id!==target.provider_selection_id||row.folder!=='sent'||row.sent!==true||row.draft!==false)throw networkError('email_network_target_unobserved');
+  accountAddressMetadata(value);
+  return {...value,network_reader:true};
+}
+
 // Opt-in qualification evidence: the bounded request shapes the page recorded
 // while a mutation was armed. Never affects the outcome; never logs values.
 export async function reportLearnedRequests(tab,provider,kind){

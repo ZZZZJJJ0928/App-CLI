@@ -266,7 +266,8 @@ export function installReader(config) {
         if(typeof owner==='string' && typeof id==='string')inbox=config.parseFolders?.(value)||{account:owner.toLowerCase(),id,qualified:false};
         startupConversations=config.parseConversations?.(value)??startupConversations;
       }
-      const rows = config.parse(value);
+      const parsed = config.parse(value);
+      const rows = parsed && config.parseSent ? [...parsed,...config.parseSent(value)] : parsed;
       if (!rows) return;
       checkedAccount();
       for (const row of rows) {
@@ -401,6 +402,32 @@ export function installReader(config) {
       ...accountMetadata(), rows, unsupported_rows:unsupported,
       scan_complete:false, reason:'folder_scope_and_pagination_unqualified'};
   }
+  async function observeSentTarget({account_address,provider_message_id,provider_selection_id,folder} = {}) {
+    checkedAccount(account_address);
+    if(config.provider!=='gmail'||folder!=='sent'||!idPattern.test(provider_message_id||'')||!idPattern.test(provider_selection_id||''))failure('invalid_request');
+    if(typeof config.parseSent!=='function'||typeof config.search!=='function')failure('email_network_capability_unavailable');
+    const matches=row=>row?.sent===true&&row.draft===false&&row.folder==='sent'&&
+      row.provider_message_id===provider_message_id&&row.provider_selection_id===provider_selection_id;
+    let row=records.get(provider_message_id);
+    if(!matches(row)) {
+      // One native UI search, on this account's owned page. The target ID is
+      // never used to invent an HTTP request or admitted as retained evidence.
+      const query='in:sent';nativeQueryReply=null;
+      config.search(query);
+      const deadline=Date.now()+20000;
+      while(active&&nativeQueryReply?.query!==query&&Date.now()<deadline)await new Promise(resolve=>setTimeout(resolve,100));
+      checkedAccount(account_address);
+      const value=nativeQueryReply?.query===query?nativeQueryReply.value:null;
+      if(!active||!Array.isArray(value)||value[0]!==0||![0,1].includes(value[3])||!Array.isArray(value[19]))failure('email_network_list_unqualified');
+      const candidates=config.parseSent(value).filter(candidate=>candidate.provider_message_id===provider_message_id&&candidate.provider_thread_id===provider_selection_id);
+      if(candidates.length!==1)failure('email_network_target_unobserved');
+      row={...candidates[0],provider_selection_id};
+      if(!matches(row))failure('email_network_target_unobserved');
+      records.set(provider_message_id,row);
+    }
+    checkedAccount(account_address);
+    return {provider:config.provider,account_address:account,...accountMetadata(),rows:[{...row}],unsupported_rows:0,scan_complete:false};
+  }
   async function prepareRetainedOriginal(target = {}) {
     const {account_address,provider_message_id,provider_selection_id,provider_native_id,folder}=target;
     checkedAccount(account_address);
@@ -419,11 +446,12 @@ export function installReader(config) {
     }
     return prepareOriginal(target,row);
   }
-  async function prepareOriginal({account_address, provider_message_id} = {}, retainedRow = null) {
+  async function prepareOriginal({account_address, provider_message_id, provider_selection_id, folder} = {}, retainedRow = null) {
     checkedAccount(account_address);
     if (!idPattern.test(provider_message_id || '')) failure('invalid_request');
     const row = retainedRow || records.get(provider_message_id);
     if (!row || row.draft || row.grouped) failure('email_network_target_unobserved');
+    if(folder==='sent'&&(!row.sent||row.folder!=='sent'||row.provider_selection_id!==provider_selection_id))failure('email_network_target_unobserved');
     let url = await config.download?.({id:provider_message_id, row, binding, request:listRequest});
     let headers;
     if (!url && config.provider==='outlook' && transport?.prepareOriginalRequest) {
@@ -723,6 +751,7 @@ export function installReader(config) {
       return true;
     }, diagnostics:()=>({original:{state:originalState,responseOrigin,response:originalResponse?{...originalResponse}:null},list:{stage:listStage,template:Boolean(listRequest),body:Array.isArray(listRequest?.body),paging:Array.isArray(listRequest?.body?.[0]?.[15])},inbox:Boolean(inbox),records:records.size,transport:transport?.diagnostics?.(),
       learning:JSON.parse(JSON.stringify(learning.entries))}), armLearning, snapshot, resetRound,
+    observeSentTarget:request=>inRound(observeSentTarget,request),
     ...(nativeSend ? {nativeSendPreflight: request=>inRound(nativeSend.preflight, request), nativeSendDispatch: request=>inRound(nativeSend.dispatch, request), nativeSendLookup: request=>inRound(nativeSend.lookup, request)} : {}),
     listPage:request=>inRound(async request=>{
       const value=await listPage(request);checkedAccount(request.account_address);
