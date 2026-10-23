@@ -4,6 +4,26 @@ export function managedSendDOM(provider,phase,expected={}){
  const visible=n=>n?.isConnected&&n.getBoundingClientRect().width>0&&n.getBoundingClientRect().height>0&&getComputedStyle(n).visibility!=='hidden';
  const all=(s,root=document)=>[...root.querySelectorAll(s)].filter(visible);
  const text=n=>(n?.innerText??n?.textContent??'').trim();
+ // Chromium's native plaintext insertion uses one DIV per following line.
+ // innerText double-counts a DIV containing only its empty-line BR placeholder.
+ // Read that exact, attribute-free line shape without changing the DOM or the
+ // selection. Keep all text bytes and every leading/trailing/empty line; other
+ // editor markup retains the existing rendered-text verification path.
+ const bodyText=node=>{
+  const nodes=[...node.childNodes??[]];let prefix='',blocks=false;const lines=[];
+  for(const child of nodes){
+   if(child.nodeType===3&&!blocks){prefix+=child.textContent;continue}
+   if(child.nodeType!==1||child.tagName!=='DIV'||child.attributes.length)return node.innerText??node.textContent;
+   const style=getComputedStyle(child);
+   if(style.display!=='block'||style.visibility!=='visible')return node.innerText??node.textContent;
+   if(!blocks){if(prefix!=='')lines.push(prefix);blocks=true;}
+   const parts=[...child.childNodes];
+   if(parts.length===1&&parts[0].nodeType===1&&parts[0].tagName==='BR'&&parts[0].attributes.length===0)lines.push('');
+   else if(parts.length&&parts.every(n=>n.nodeType===3))lines.push(parts.map(n=>n.textContent).join(''));
+   else return node.innerText??node.textContent;
+  }
+  return blocks?lines.join('\n'):node.innerText??node.textContent;
+ };
  const label=n=>n.getAttribute('aria-label')||n.getAttribute('data-tooltip')||text(n);
  const bodySelector=provider==='qq_mail'?'.mail-compose-page .mail-content-editor-inner[contenteditable="true"],.mail-compose-page [contenteditable="true"][aria-label="Enter content"],.mail-compose-page [contenteditable="true"][aria-label="输入正文"]':provider==='gmail'?'[role="textbox"][contenteditable="true"]':'[contenteditable="true"][aria-label="Message body"],[contenteditable="true"][aria-label="Email body"],[contenteditable="true"][aria-label="邮件正文"],[contenteditable="true"][aria-label="消息正文"]';
  const bodies=all(bodySelector);
@@ -189,7 +209,7 @@ export function managedSendDOM(provider,phase,expected={}){
   const check=to.pending.trim()?'pending_to':cc.pending.trim()?'pending_cc':[...to.values,...cc.values].some(v=>!v)?'unparsed_recipient':bcc.some(n=>(n.value||text(n)).trim())?'unexpected_bcc':null;
   if(check)return {...error('email_recipient_verification_failed'),check};
   const subject=state.root.querySelector('[data-sc-mail-control="subject"]')||state.root.querySelector('input[type="hidden"][name="subject"]');
-  const body=state.body.innerText??state.body.textContent;
+  const body=bodyText(state.body);
   return {to:to.values,cc:cc.values,...(provider==='outlook'&&to.display?.length===1?{to_display:to.display[0]}:{}),subject:subject?.value??null,body:body.replace(/\r\n?/gu,'\n'),send_ready:visible(state.send)&&!state.send.disabled&&state.send.getAttribute('aria-disabled')!=='true',linked:state.mode==='compose'||!!state.target};
  }
  return error('email_send_precondition_failed');

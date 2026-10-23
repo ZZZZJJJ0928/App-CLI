@@ -97,9 +97,10 @@ export const MANAGED_SEND_SELECTOR='[data-sc-managed-send="true"]';
 async function native(tab,provider,phase,expected={}){
  // The CLI intentionally redacts message secrets in returned DOM text. Compare
  // browser-computed digests instead of trying to unmask or export that text.
- const r=await tab.inspect(`async()=>{const value=(${managedSendDOM.toString()})(${JSON.stringify(provider)},${JSON.stringify(phase)},${JSON.stringify(expected)});if(!value||value.error)return value;const hash=async value=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value))),v=>v.toString(16).padStart(2,'0')).join('');const addr=v=>{const i=v.lastIndexOf('@');return v.slice(0,i)+'@'+v.slice(i+1).toLowerCase()};if(${JSON.stringify(phase)}==='readback'){return {to_count:value.to.length,cc_count:value.cc.length,to_hash:await hash(JSON.stringify(value.to.map(addr).sort())),cc_hash:await hash(JSON.stringify(value.cc.map(addr).sort())),subject_hash:await hash(value.subject??''),...(value.to_display?{recipient_display_hash:await hash(value.to_display.toLowerCase())}:{}),body_hash:await hash(value.body),send_ready:value.send_ready,linked:value.linked};}if(value.subject!==undefined){value.subject_hash=await hash(value.subject);delete value.subject;}return value;}`);
+ const r=await tab.inspect(`async()=>{const value=(${managedSendDOM.toString()})(${JSON.stringify(provider)},${JSON.stringify(phase)},${JSON.stringify(expected)});if(!value||value.error)return value;const hash=async value=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value))),v=>v.toString(16).padStart(2,'0')).join('');const addr=v=>{const i=v.lastIndexOf('@');return v.slice(0,i)+'@'+v.slice(i+1).toLowerCase()};if(${JSON.stringify(phase)}==='readback'){return {to_count:value.to.length,cc_count:value.cc.length,to_hash:await hash(JSON.stringify(value.to.map(addr).sort())),cc_hash:await hash(JSON.stringify(value.cc.map(addr).sort())),subject_hash:await hash(value.subject??''),...(value.to_display?{recipient_display_hash:await hash(value.to_display.toLowerCase())}:{}),body_hash:await hash(value.body),body_length:value.body.length,send_ready:value.send_ready,linked:value.linked};}if(value.subject!==undefined){value.subject_hash=await hash(value.subject);delete value.subject;}return value;}`);
  if(r?.result?.error){
   if(['pending_to','pending_cc','unparsed_recipient','unexpected_bcc'].includes(r.result.check))process.stderr.write(JSON.stringify({event:'mail_recipient_validation_failed',provider,phase,check:r.result.check})+'\n');
+  if(r.result.error==='email_draft_fields_unverified')process.stderr.write(JSON.stringify({event:'mail_draft_validation_failed',provider,phase,fields:['editor_structure']})+'\n');
   throw fail(r.result.error);
  }
  if(!r?.result)throw fail('email_send_precondition_failed');if(r.result.action_selector)await tab.click(r.result.action_selector);return r.result;
@@ -156,7 +157,13 @@ export async function prepareManagedDraft(tab,provider,request){
 
 export async function verifyManagedDraft(tab,provider,request){
  const readback=await native(tab,provider,'readback');
- if(readback.to_hash!==addressDigest(request.message.to)||readback.cc_hash!==addressDigest(request.message.cc)||readback.subject_hash!==digest(request.message.subject)||readback.body_hash!==digest(request.message.body.content.replace(/\r\n?/gu,'\n'))||!readback.send_ready||!readback.linked)throw fail('email_draft_fields_unverified');
+ const expectedBody=request.message.body.content.replace(/\r\n?/gu,'\n');
+ const checks={to:readback.to_hash===addressDigest(request.message.to),cc:readback.cc_hash===addressDigest(request.message.cc),subject:readback.subject_hash===digest(request.message.subject),body:readback.body_hash===digest(expectedBody),send_ready:readback.send_ready===true,linked:readback.linked===true};
+ const fields=Object.keys(checks).filter(field=>!checks[field]);
+ if(fields.length){
+  process.stderr.write(JSON.stringify({event:'mail_draft_validation_failed',provider,fields,body_length_expected:expectedBody.length,body_length_actual:Number.isSafeInteger(readback.body_length)?readback.body_length:null,body_hash_expected:digest(expectedBody),body_hash_actual:/^[a-f0-9]{64}$/u.test(readback.body_hash??'')?readback.body_hash:null})+'\n');
+  throw fail('email_draft_fields_unverified');
+ }
  await verifySendAccount(tab,provider,request.account_address);
  return readback;
 }

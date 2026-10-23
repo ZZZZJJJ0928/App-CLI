@@ -1795,7 +1795,7 @@
       "script_id": "qqmail.send",
       "revision": 2,
       "reconcile_requires_host": false,
-      "source_checksum": "sha256:275b812ffe9d8be3be0e9d86a723c0b3b272ae79ebb49e1acc4c8bcbcf73949c",
+      "source_checksum": "sha256:9db8c4511428b392edc330d9bde310a51d11f8d1ea2ba01434d8dcf7265aeadd",
       "host": {
         "family": "qq_mail.mutation",
         "activity": "mutation",
