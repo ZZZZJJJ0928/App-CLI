@@ -60,6 +60,36 @@ test('probe can reuse only a live watch with matching current credentials', asyn
   assert.notEqual((await m.admission(request('capture', {target: {account_address: account}}))).resource.pool_key, watch.resource.pool_key);
 });
 
+test('explicit Sent reads have separate task pages and never borrow a watch account', async () => {
+  const m=mailbox(),watch=await m.admission(request('observe',{account_address:account}));
+  m.watches.set('gmail',{task:{status:'running'},admission:watch});
+  const sent_match={folder:'sent',subject:'fixture',recipient:'recipient@example.invalid',
+    interval_start:'2026-09-10T00:00:00Z',interval_end:'2026-09-11T00:00:00Z'};
+  const first=await m.admission(request('read',{account_address:account,sent_match}));
+  const second=await m.admission(request('read',{account_address:account,sent_match},{taskID:'next-sent'}));
+  assert.notEqual(first.resource.pool_key,watch.resource.pool_key);
+  assert.notEqual(first.resource.pool_key,second.resource.pool_key);
+  const unbound=await m.admission(request('read',{sent_match}));
+  assert.equal(unbound.resource.account_address,'');
+  assert.equal(unbound.request.arguments.account_address,undefined);
+  assert.notEqual(unbound.resource.pool_key,watch.resource.pool_key);
+});
+
+test('explicit Sent read closes its owned page instead of parking it in the inbound pool', async t => {
+  let resets=0;
+  t.mock.method(ProviderScriptRegistry.prototype,'prepare',async function(){
+    this.entries=new Map([['fixture',{provider:'gmail',operation:'read',validate(){},async handler(){return {status:'collected'};}}]]);
+  });
+  const handlers=await mailHandlers();
+  const output=await handlers['gmail.read'].run({account_address:account,sent_match:{folder:'sent'}},{
+    resource:{account_address:account},beforeEffect(){},browser:{reused:true,async call(method){
+      if(method==='runReadCode'){resets++;return {provider:'gmail',account_address:account};}
+    }},
+  });
+  assert.equal(output.retain,false);assert.equal(output.invalidate,true);
+  assert.equal(resets,1,'only the pre-read identity reset runs; Sent has no receive-page park');
+});
+
 for (const operation of ['probe', 'discover', 'capture', 'enumerate_thread', 'collect_page']) {
   test(`${operation} reuses the receive page without navigation and resets before and after`, async t => {
     const status = {probe: 'ready', discover: 'listed', capture: 'collected', enumerate_thread: 'complete_for_observation', collect_page: 'partial'}[operation];

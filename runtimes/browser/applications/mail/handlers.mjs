@@ -108,7 +108,7 @@ async function execute(entry, original, context, reconcile = false) {
     // of the shared page. A successful guarded reset below proves reusability
     // and keeps the independent watch alive even when the round is partial.
     const account = mailAccount(input) || context.resource.account_address;
-    let retain = isReceiveRead(entry.operation) && Boolean(account) &&
+    let retain = isReceiveRead(entry.operation) && !input.sent_match && Boolean(account) &&
       ['ready', 'collected', 'empty', 'partial', 'listed', 'complete_for_observation'].includes(result?.status);
     if (retain) {
       enterPhase('park');

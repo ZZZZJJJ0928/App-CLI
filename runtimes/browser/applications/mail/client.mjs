@@ -80,7 +80,7 @@ export class MailboxClient {
     // A probe has no account in its public input. It may join the receive page
     // only through the current authorized watch, never an old/default account.
     const watch = this.watches.get(provider), watched = watch?.admission;
-    if (this.sharedPages && isReceiveRead(command) && !account &&
+    if (this.sharedPages && isReceiveRead(command) && !input.sent_match && !account &&
         ['pending', 'running'].includes(watch?.task.status) &&
         watched?.resource?.token === token && watched.resource.credential_generation === credentialGeneration &&
         (!scope || scope === watched.request.arguments.owner_scope)) {
@@ -92,7 +92,7 @@ export class MailboxClient {
     const sendPool = provider === 'qq_mail' && command === 'send' && account;
     const resource = {...(previousRequestKey ? {previous_request_key: previousRequestKey} : {}), ...(previousTask ? {previous_task_id: previousTask} : {}), binding_digest: digest(binding), profile_id: this.config.profile_id, credential_generation: credentialGeneration,
       token, account_address: account, workspace_root: this.config.workspace_root, host_runtime_root: this.config.host_runtime_root,
-      pool_key: sendPool ? digest({pool_key, command}) : (isReceiveRead(command) || command === 'watch') && account ? (this.sharedPages ? pool_key : digest({pool_key, command})) : digest({taskID, command}), document_nonce: pool_key};
+      pool_key: input.sent_match ? digest({taskID,command,pool_key}) : sendPool ? digest({pool_key, command}) : (isReceiveRead(command) || command === 'watch') && account ? (this.sharedPages ? pool_key : digest({pool_key, command})) : digest({taskID, command}), document_nonce: pool_key};
     const args = command === 'watch' ? {schema_version: 1, owner_scope: input.owner_scope, account_address: input.account_address} : input;
     return this.client.authorize({app: binding.manifest.id, command, arguments: args,
       request_key: await this.requestKey(binding.manifest.id, command, sessionKey ?? taskID), principal: 'product-owner', owner, resource,

@@ -1,5 +1,6 @@
 import {accountAddressMetadata} from './account-address.mjs';
 import {receiptTimeNanos} from './receipt-time.mjs';
+import {sentMatchQuery} from './sent-match.mjs';
 // Calls the actually installed userscript; it never injects replacement source.
 // Provider adapters own URLs, request templates, parsing and account checks.
 const NETWORK_READER_VERSION = '0.2.0';
@@ -82,6 +83,23 @@ export async function networkSentTarget(tab, provider, target) {
   if(value?.provider!==provider||value.account_address!==target.account_address.toLowerCase()||!Array.isArray(value.rows)||value.rows.length!==1)throw networkError('email_network_target_unobserved');
   const row=value.rows[0];
   if(row.provider_message_id!==target.provider_message_id||row.provider_selection_id!==target.provider_selection_id||row.folder!=='sent'||row.sent!==true||row.draft!==false)throw networkError('email_network_target_unobserved');
+  accountAddressMetadata(value);
+  return {...value,network_reader:true};
+}
+
+export async function networkSentMatch(tab,provider,account,sent_match) {
+  if(provider!=='gmail')throw networkError('email_network_capability_unavailable');
+  sentMatchQuery(sent_match);
+  if(typeof account!=='string'||!account)throw networkError('email_account_identity_unavailable');
+  const value=await callReader(tab,provider,'resolveSentMatch',{account_address:account,sent_match},{required:true});
+  const row=value?.rows?.[0];
+  if(value?.provider!==provider||value.account_address!==account.toLowerCase()||!Array.isArray(value.rows)||value.rows.length!==1||
+      value.scan_complete!==true||value.unsupported_rows!==0||row?.sent!==true||row.draft!==false||row.folder!=='sent'||
+      typeof row.provider_message_id!=='string'||!/^[a-f0-9]{1,32}$/u.test(row.provider_message_id)||
+      typeof row.native_message_id!=='string'||!/^(?:msg-f:\d+|msg-a:r-?\d+)$/u.test(row.native_message_id)||
+      row.native_message_id.startsWith('msg-f:')&&BigInt(`0x${row.provider_message_id}`).toString()!==row.native_message_id.slice(6)||
+      row.provider_selection_id!==row.provider_thread_id||typeof row.provider_selection_id!=='string'||
+      !/^(?:thread-f:\d+|thread-a:r-?\d+)$/u.test(row.provider_selection_id||''))throw networkError('email_network_target_unobserved');
   accountAddressMetadata(value);
   return {...value,network_reader:true};
 }

@@ -38,6 +38,10 @@ export function inputSchema(provider, operation) {
   }
   const properties = {...common, owner_scope: scope};
   const required = Object.keys(properties);
+  if(operation==='read'&&provider==='gmail')return {oneOf:[object(properties,required),object({...properties,
+    account_address:address,sent_match:object({folder:{const:'sent'},subject:{type:'string',minLength:1,maxLength:512},
+      recipient:{type:'string',minLength:3,maxLength:254},interval_start:text(20),interval_end:text(20)})},
+    [...required,'account_address','sent_match'])]};
   if (operation === 'capture' || operation === 'mark_read') {properties.target = target; required.push('target');}
   if (operation === 'discover' || operation === 'collect_page') properties.discovery = discovery;
   if (operation === 'collect_page') required.push('discovery');

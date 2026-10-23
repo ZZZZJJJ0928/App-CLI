@@ -1,6 +1,6 @@
 import {accountAddressMetadata} from './lib/account-address.mjs';
 import {receiptTimeNanos} from './lib/receipt-time.mjs';
-import { prepareNetworkOriginal, networkListPage, networkSnapshot, networkMarkRead, networkSentTarget } from './lib/network-reader.mjs';
+import { prepareNetworkOriginal, networkListPage, networkSnapshot, networkMarkRead, networkSentTarget, networkSentMatch } from './lib/network-reader.mjs';
 import crypto from 'node:crypto';
 import { capturePage, captureMail, markCapturedRead, validateCaptureInput, validateMailTarget } from "./lib/read-capture.mjs";
 
@@ -12,6 +12,14 @@ function fail(code = "email_page_contract_changed") { return Object.assign(new E
 // received-time interval and never filter by unread state.
 export async function collectUnread(tab, provider, options = {}) {
   if (!READ_PROVIDERS[provider] || typeof options.onSelected !== 'function') throw fail("invalid_request");
+  if(options.sent_match) {
+    if(options.discovery_options||options.inventory||options.discovery)throw fail('invalid_request');
+    const listed=await networkSentMatch(tab,provider,options.account_address,options.sent_match);
+    const row=listed.rows[0];
+    if(options.pinned_message_id&&options.pinned_message_id!==row.provider_message_id||
+       options.pinned_selection_id&&options.pinned_selection_id!==row.provider_selection_id)throw fail('email_message_identity_invalid');
+    return collectNetworkListed(tab,provider,{...options,folder:'sent',pinned_message_id:row.provider_message_id,pinned_selection_id:row.provider_selection_id},listed);
+  }
   // Mail reads are deliberately network-only. The installed provider reader
   // is the sole owner of URLs, request templates, parsing and identity checks.
   // If it cannot qualify a list, the caller receives a stable capability error

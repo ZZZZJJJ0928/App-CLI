@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import {receiptTimeNanos} from './receipt-time.mjs';
+import {sentMatchQuery} from './sent-match.mjs';
 
 // Small originals can travel as one bounded byte payload. Larger originals
 // continue through the browser download path and are written to staging as a
@@ -43,6 +44,13 @@ function captureDatePath(manifestPath, ownerScope, identity, captureID) {
 
 export function validateCaptureInput(input, provider) {
   const keys = ["schema_version", "operation", "invocation_id", "provider", "account", "owner_scope"];
+  if(input?.operation==='read'&&Object.hasOwn(input,'sent_match')) {
+    if(provider!=='gmail')throw error('email_network_capability_unavailable');
+    sentMatchQuery(input.sent_match);
+    if(typeof input.account_address!=='string'||input.account_address.length>320||
+        !/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/u.test(input.account_address)||/[\x00-\x20\x7f]/u.test(input.account_address))throw error('invalid_request');
+    keys.push('sent_match','account_address');
+  }
   if (input?.operation === 'capture') keys.push('target');
   if (input?.operation === 'discover' && Object.hasOwn(input, 'discovery')) keys.push('discovery');
   if (input?.operation === 'collect_page') keys.push('discovery');
@@ -295,6 +303,8 @@ async function existingCapture(root, ownerRoot, input, provider, identity, captu
       manifest.mail_id!==identity.mail_id || manifest.capture_id!==captureID || manifest.date_path!==pointer.date_path ||
       !['collected','partial'].includes(manifest.status) || !Array.isArray(manifest.attachments) ||
       !Array.isArray(manifest.files) || !manifest.files.length)throw error('email_capture_invalid');
+  if(input.sent_match&&(manifest.folder!=='sent'||sentMatchQuery(manifest.sent_match)!==sentMatchQuery(input.sent_match)||
+      manifest.account_address?.toLowerCase()!==input.account_address.toLowerCase()))throw error('email_capture_invalid');
   const receipt=receiptFor(provider,manifest,await fileRef(root,manifestPath),'unknown');
   await verifyReceipt(root,receipt);
   const state=await readJSON(path.join(finalDir,'read-state.json'));
@@ -315,6 +325,14 @@ export async function captureMail(input, runtime, provider, adapter) {
   const invocationHash = hash(`${provider}\0${input.invocation_id}`);
   const journalPath = path.join(invocations, `${invocationHash}.json`);
   let journal = await readJSON(journalPath);
+  if(input.sent_match) {
+    const selectorDigest=hash(JSON.stringify([input.account_address.toLowerCase(),sentMatchQuery(input.sent_match)]));
+    if(journal&&journal.sent_match_digest!==selectorDigest)throw error('email_capture_invalid');
+    if(!journal) {
+      journal={schema_version:1,provider,invocation_id:input.invocation_id,sent_match_digest:selectorDigest};
+      await replaceJSON(journalPath,journal);
+    }
+  } else if(journal?.sent_match_digest)throw error('email_capture_invalid');
   // A receipt recorded under a previous directory layout still passes its own
   // hash check, because those files are untouched on disk — but the Gateway can
   // never accept its path again. Replaying it would fail the capture forever
@@ -360,11 +378,13 @@ export async function captureMail(input, runtime, provider, adapter) {
     if (journal?.selection && (selection.account_address !== journal.selection.account_address || selection.provider_selection_id !== journal.selection.provider_selection_id)) throw error("email_capture_invalid");
     const identity = message.provider_message_id === undefined ? journal?.identity ?? null : accountIdentity(provider, message);
     if (journal?.identity && (identity.mail_id !== journal.identity.mail_id || identity.mailbox_id !== journal.identity.mailbox_id)) throw error("email_capture_invalid");
-    journal = { schema_version: 1, provider, invocation_id: input.invocation_id, selection, identity, receipt: journal?.receipt ?? null };
+    journal = { schema_version: 1, provider, invocation_id: input.invocation_id, selection, identity, receipt: journal?.receipt ?? null,
+      ...(journal?.sent_match_digest?{sent_match_digest:journal.sent_match_digest}:{}) };
     await replaceJSON(journalPath, journal);
   };
   return runtime.withReadTab(async tab => {
-    let message = await adapter.collectUnread(tab, provider, { account_address:journal?.identity?.account_address, folder:journal?.selection?.folder, pinned_message_id: journal?.identity?.provider_message_id, pinned_selection_id: journal?.selection?.provider_selection_id, pinned_received_at:input.target?.received_at, capture_required: !journal?.receipt, onSelected });
+    let message = await adapter.collectUnread(tab, provider, { account_address:input.sent_match?input.account_address:journal?.identity?.account_address,
+      ...(input.sent_match?{sent_match:input.sent_match}:{}), folder:journal?.selection?.folder, pinned_message_id: journal?.identity?.provider_message_id, pinned_selection_id: journal?.selection?.provider_selection_id, pinned_received_at:input.target?.received_at, capture_required: !journal?.receipt, onSelected });
     if (message.status === "empty") {
       if (journal?.identity || journal?.selection) throw error("email_capture_invalid");
       const receipt = { schema_version: 1, status: "empty", provider, capture: null };
@@ -404,6 +424,8 @@ export async function captureMail(input, runtime, provider, adapter) {
       const finalDir = path.join(sources, captureID);
       const manifest = {
         schema_version: 1, stage: "script_capture", provider, ...identity, capture_id: captureID,
+        ...(input.sent_match ? {folder:'sent',sent_match:{...input.sent_match},
+          provider_selection_id:message.provider_selection_id,provider_native_id:message.native_message_id} : {}),
         invocation_id: input.invocation_id, captured_at: capturedAt, acquisition: captured.mode,
         date_path: received.date_path, received_at: received.received_at, received_source: received.received_source,
         received_display_text: boundedText(typeof message.received_at === "string" ? message.received_at : null, 512, true),

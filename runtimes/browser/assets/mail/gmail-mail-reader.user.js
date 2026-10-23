@@ -911,6 +911,43 @@ const providerAccountDOM=function providerAccountDOM(provider) {
     checkedAccount(account_address);
     return {provider:config.provider,account_address:account,...accountMetadata(),rows:[{...row}],unsupported_rows:0,scan_complete:false};
   }
+  async function resolveSentMatch({account_address,sent_match} = {}) {
+    checkedAccount(account_address);
+    if(config.provider!=='gmail'||typeof config.sentMatchQuery!=='function'||typeof config.parseSent!=='function'||typeof config.search!=='function')failure('email_network_capability_unavailable');
+    const query=config.sentMatchQuery(sent_match);
+    // This explicit read uses its own task page. Never reuse inbox records or
+    // a previous query as target evidence, and never broaden or paginate it.
+    records.clear();nativeQueryReply=null;
+    try {
+      config.search(query);
+      const deadline=Date.now()+20000;
+      while(active&&nativeQueryReply?.query!==query&&Date.now()<deadline)await new Promise(resolve=>setTimeout(resolve,100));
+      checkedAccount(account_address);
+      const value=nativeQueryReply?.query===query?nativeQueryReply.value:null;
+      if(!active||!Array.isArray(value)||value[0]!==0||value[3]!==0||!Array.isArray(value[19])||value[19].length>1000)failure('email_network_list_unqualified');
+      let sentCount=0,messageCount=0;
+      for(const batch of value[19]) {
+        if(value[19].length===1&&Array.isArray(batch)&&batch.length===4&&batch[1]===null)continue;
+        if(!Array.isArray(batch?.[1])||batch[1].length>1000)failure('email_network_list_unqualified');
+        for(const container of batch[1]) {
+          const messages=container?.[0]?.[4];
+          if(!Array.isArray(messages)||!messages.length||(messageCount+=messages.length)>1000)failure('email_network_list_unqualified');
+          for(const message of messages) {
+            const labels=message?.[10];
+            if(!Array.isArray(labels)||!labels.every(label=>typeof label==='string'))failure('email_network_list_unqualified');
+            if(labels.includes('^f')&&!labels.includes('^r'))sentCount++;
+          }
+        }
+      }
+      const candidates=config.parseSent(value);
+      if(candidates.length!==sentCount)failure('email_network_list_unqualified');
+      if(candidates.length!==1)failure('email_network_target_unobserved');
+      const row={...candidates[0],provider_selection_id:candidates[0].provider_thread_id};
+      if(!row.sent||row.draft||row.folder!=='sent'||!idPattern.test(row.provider_message_id||'')||!idPattern.test(row.provider_selection_id||''))failure('email_network_target_unobserved');
+      checkedAccount(account_address);records.clear();records.set(row.provider_message_id,row);
+      return {provider:config.provider,account_address:account,...accountMetadata(),rows:[{...row}],unsupported_rows:0,scan_complete:true};
+    } catch(error) {records.clear();throw error;}
+  }
   async function prepareRetainedOriginal(target = {}) {
     const {account_address,provider_message_id,provider_selection_id,provider_native_id,folder}=target;
     checkedAccount(account_address);
@@ -1235,6 +1272,7 @@ const providerAccountDOM=function providerAccountDOM(provider) {
     }, diagnostics:()=>({original:{state:originalState,responseOrigin,response:originalResponse?{...originalResponse}:null},list:{stage:listStage,template:Boolean(listRequest),body:Array.isArray(listRequest?.body),paging:Array.isArray(listRequest?.body?.[0]?.[15])},inbox:Boolean(inbox),records:records.size,transport:transport?.diagnostics?.(),
       learning:JSON.parse(JSON.stringify(learning.entries))}), armLearning, snapshot, resetRound,
     observeSentTarget:request=>inRound(observeSentTarget,request),
+    resolveSentMatch:request=>inRound(resolveSentMatch,request),
     ...(nativeSend ? {nativeSendPreflight: request=>inRound(nativeSend.preflight, request), nativeSendDispatch: request=>inRound(nativeSend.dispatch, request), nativeSendLookup: request=>inRound(nativeSend.lookup, request)} : {}),
     listPage:request=>inRound(async request=>{
       const value=await listPage(request);checkedAccount(request.account_address);
@@ -1301,5 +1339,26 @@ const providerAccountDOM=function providerAccountDOM(provider) {
     }
   }
   return rows.filter(row=>counts.get(row.provider_message_id)===1);
+},"sentMatchQuery":function sentMatchQuery(match) {
+  const fail=()=>{throw Object.assign(new Error('invalid_request'),{code:'invalid_request'});};
+  const keys=['folder','subject','recipient','interval_start','interval_end'];
+  if(!match||Array.isArray(match)||typeof match!=='object'||Object.keys(match).length!==keys.length||
+      keys.some(key=>!Object.hasOwn(match,key))||match.folder!=='sent')fail();
+  const {subject,recipient,interval_start:start,interval_end:end}=match;
+  if(typeof subject!=='string'||!subject.length||new TextEncoder().encode(subject).length>512||/[\x00-\x1f\x7f"\\]/u.test(subject))fail();
+  if(typeof recipient!=='string'||recipient.length>254||recipient.split('@')[0].length>64||recipient.includes('..')||
+      !/^[A-Za-z0-9]+(?:[A-Za-z0-9._%+-]*[A-Za-z0-9])?@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)+$/u.test(recipient))fail();
+  const instant=value=>{
+    if(typeof value!=='string'||!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/u.test(value))fail();
+    const parsed=Date.parse(value);
+    if(!Number.isFinite(parsed)||new Date(parsed).toISOString()!==value.replace('Z','.000Z'))fail();
+    return parsed;
+  };
+  const from=instant(start),until=instant(end);
+  if(until<=from||until-from>86400000)fail();
+  // Quote both literals; reject quote/backslash above instead of guessing the
+  // provider's escape grammar. URI encoding belongs to config.search. Search
+  // matches remain candidates: Gateway checks exact decoded RFC822 headers.
+  return `in:sent to:"${recipient}" subject:"${subject}" after:${from/1000-1} before:${until/1000}`;
 },"markRead":()=>null});
 })();

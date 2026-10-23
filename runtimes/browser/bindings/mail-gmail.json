@@ -487,38 +487,118 @@
         "description": "Run read in the explicitly authorized gmail account.",
         "side_effect": "local_mutation",
         "input_schema": {
-          "type": "object",
-          "properties": {
-            "schema_version": {
-              "const": 1
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "schema_version": {
+                  "const": 1
+                },
+                "operation": {
+                  "const": "read"
+                },
+                "invocation_id": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+                },
+                "provider": {
+                  "const": "gmail"
+                },
+                "account": {
+                  "const": "default"
+                },
+                "owner_scope": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                }
+              },
+              "required": [
+                "schema_version",
+                "operation",
+                "invocation_id",
+                "provider",
+                "account",
+                "owner_scope"
+              ],
+              "additionalProperties": false
             },
-            "operation": {
-              "const": "read"
-            },
-            "invocation_id": {
-              "type": "string",
-              "pattern": "^[A-Za-z0-9._:-]{1,128}$"
-            },
-            "provider": {
-              "const": "gmail"
-            },
-            "account": {
-              "const": "default"
-            },
-            "owner_scope": {
-              "type": "string",
-              "pattern": "^[a-f0-9]{64}$"
+            {
+              "type": "object",
+              "properties": {
+                "schema_version": {
+                  "const": 1
+                },
+                "operation": {
+                  "const": "read"
+                },
+                "invocation_id": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+                },
+                "provider": {
+                  "const": "gmail"
+                },
+                "account": {
+                  "const": "default"
+                },
+                "owner_scope": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "account_address": {
+                  "type": "string",
+                  "minLength": 3,
+                  "maxLength": 320,
+                  "pattern": "^[^\\s<>@]+@[^\\s<>@]+\\.[^\\s<>@]+$"
+                },
+                "sent_match": {
+                  "type": "object",
+                  "properties": {
+                    "folder": {
+                      "const": "sent"
+                    },
+                    "subject": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 512
+                    },
+                    "recipient": {
+                      "type": "string",
+                      "minLength": 3,
+                      "maxLength": 254
+                    },
+                    "interval_start": {
+                      "type": "string",
+                      "maxLength": 20
+                    },
+                    "interval_end": {
+                      "type": "string",
+                      "maxLength": 20
+                    }
+                  },
+                  "required": [
+                    "folder",
+                    "subject",
+                    "recipient",
+                    "interval_start",
+                    "interval_end"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "schema_version",
+                "operation",
+                "invocation_id",
+                "provider",
+                "account",
+                "owner_scope",
+                "account_address",
+                "sent_match"
+              ],
+              "additionalProperties": false
             }
-          },
-          "required": [
-            "schema_version",
-            "operation",
-            "invocation_id",
-            "provider",
-            "account",
-            "owner_scope"
-          ],
-          "additionalProperties": false
+          ]
         },
         "output_schema": {
           "type": "object",
@@ -1587,7 +1667,7 @@
       }
     ]
   },
-  "manifest_digest": "420459c1e9b3909d3dfa562cfe3fa2fc4d58c1ab8bb81253ab3b3bc0a39f9ae1",
+  "manifest_digest": "689a2c2ddbf113e0b876e7236730f870c1da75ae9cf9c30632775e0a5db3186b",
   "commands": {
     "probe": {
       "handler": "gmail.probe",
@@ -1666,7 +1746,7 @@
       "script_id": "gmail.send",
       "revision": 2,
       "reconcile_requires_host": false,
-      "source_checksum": "sha256:45bc82609989525ec2a15bd9210657d4f51f6ed5874268a9c596cea933a9a1d6",
+      "source_checksum": "sha256:c9acaa405b85170a4c52e2b4ba132bc1248dfc3f55659879eea44082f1401cc7",
       "host": {
         "family": "gmail.mutation",
         "activity": "mutation",
@@ -1733,7 +1813,7 @@
       "timeout_ms": 180000,
       "script_id": "gmail.read",
       "revision": 1,
-      "source_checksum": "sha256:6306cd14fbe5a7f97b19386bf310fc9f0e54709a2ac9cb3ae205b3dce6308c0c",
+      "source_checksum": "sha256:2067f7b2edd19de062fa529269da9df781a0df84667c6ccca1b611b54102a7ea",
       "host": {
         "family": "gmail.inbound",
         "activity": "read",
@@ -1806,7 +1886,7 @@
       "timeout_ms": 180000,
       "script_id": "gmail.discover",
       "revision": 1,
-      "source_checksum": "sha256:6306cd14fbe5a7f97b19386bf310fc9f0e54709a2ac9cb3ae205b3dce6308c0c",
+      "source_checksum": "sha256:2067f7b2edd19de062fa529269da9df781a0df84667c6ccca1b611b54102a7ea",
       "host": {
         "family": "gmail.inbound",
         "activity": "read",
@@ -1879,7 +1959,7 @@
       "timeout_ms": 180000,
       "script_id": "gmail.capture",
       "revision": 1,
-      "source_checksum": "sha256:6306cd14fbe5a7f97b19386bf310fc9f0e54709a2ac9cb3ae205b3dce6308c0c",
+      "source_checksum": "sha256:2067f7b2edd19de062fa529269da9df781a0df84667c6ccca1b611b54102a7ea",
       "host": {
         "family": "gmail.inbound",
         "activity": "read",
@@ -1952,7 +2032,7 @@
       "timeout_ms": 180000,
       "script_id": "gmail.enumerate_thread",
       "revision": 1,
-      "source_checksum": "sha256:6306cd14fbe5a7f97b19386bf310fc9f0e54709a2ac9cb3ae205b3dce6308c0c",
+      "source_checksum": "sha256:2067f7b2edd19de062fa529269da9df781a0df84667c6ccca1b611b54102a7ea",
       "host": {
         "family": "gmail.inbound",
         "activity": "read",
@@ -2025,7 +2105,7 @@
       "timeout_ms": 180000,
       "script_id": "gmail.mark_read",
       "revision": 1,
-      "source_checksum": "sha256:6306cd14fbe5a7f97b19386bf310fc9f0e54709a2ac9cb3ae205b3dce6308c0c",
+      "source_checksum": "sha256:2067f7b2edd19de062fa529269da9df781a0df84667c6ccca1b611b54102a7ea",
       "host": {
         "family": "gmail.mutation",
         "activity": "mutation",
@@ -2091,7 +2171,7 @@
       "timeout_ms": 1800000,
       "script_id": "gmail.collect_page",
       "revision": 1,
-      "source_checksum": "sha256:6306cd14fbe5a7f97b19386bf310fc9f0e54709a2ac9cb3ae205b3dce6308c0c",
+      "source_checksum": "sha256:2067f7b2edd19de062fa529269da9df781a0df84667c6ccca1b611b54102a7ea",
       "host": {
         "family": "gmail.inbound",
         "activity": "read",
@@ -2165,7 +2245,7 @@
       "timeout_ms": 120000,
       "script_id": "gmail.observe",
       "revision": 1,
-      "source_checksum": "sha256:fadf171a55eb2d2b3cf08155356fe40ece372ea73d5f503eb5c36e9882e30d2d",
+      "source_checksum": "sha256:6980bed5bb2491bfc8e39462829905875ea2174493c8a9ad2cb70e6a7b024d3d",
       "host": {
         "family": "gmail.inbound",
         "activity": "watch",
