@@ -135,7 +135,7 @@ export function attachmentDOM(provider, phase, expected) {
   // Current Gmail omits the .aQH ancestor. Count all additional cards, including
   // hidden or malformed ones, before proving their completed representation.
   const gmailCards = provider === 'gmail' ? [...state.root.querySelectorAll('div.dL')].filter(node=>!legacyRows.includes(node)) : [];
-  const rows = [...new Set(legacyRows.filter(node=>visible(node)&&!(provider==='qq_mail'&&qqHiddenMirror(node))).concat(qqCards,outlookCards,gmailCards))];
+  const rows = legacyRows.filter(node=>visible(node)&&!(provider==='qq_mail'&&qqHiddenMirror(node))).concat(qqCards,outlookCards,gmailCards);
   const label = node => node.getAttribute('aria-label') || node.getAttribute('data-tooltip') || node.textContent.trim();
   const enabled = node => visible(node) && !node.disabled && node.getAttribute('aria-disabled') !== 'true';
   const sameOutlookComposer = () => {
