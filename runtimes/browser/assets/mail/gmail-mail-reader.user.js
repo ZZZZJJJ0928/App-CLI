@@ -500,6 +500,7 @@ const providerAccountDOM=function providerAccountDOM(provider) {
   let qqOriginalReadyAt = 0;
   let listStage = 'idle';
   let nativeQueryReply = null;
+  let sentMatchRound = null;
   // Outlook startup conversation inventory (identifiers/counts only).
   let startupConversations = null;
   let active = true, account = '', binding = null, anchor = null;
@@ -737,13 +738,24 @@ const providerAccountDOM=function providerAccountDOM(provider) {
     if (expected && expected.toLowerCase() !== account) failure('email_account_identity_mismatch');
     return account;
   }
-  function observe(url, text, requestQuery) {
+  // Capture this evidence when the site's request starts, before awaiting its
+  // reply. A terminal continuation page or a late reply from an earlier round
+  // cannot prove that the new bounded query has exactly one candidate.
+  function queryEvidence(body,method) {
+    try {
+      const request=JSON.parse(body),query=request?.[0]?.[3],paging=request?.[0]?.[15];
+      return {query,round:sentMatchRound?.query===query?sentMatchRound:null,
+        firstPage:String(method).toUpperCase()==='POST'&&Array.isArray(request?.[0])&&Array.isArray(request?.[2])&&Array.isArray(paging)&&
+          [undefined,null,0].includes(request[0][9])&&[undefined,null].includes(paging[13])};
+    } catch {return {};}
+  }
+  function observe(url, text, requestQuery, evidence) {
     if (!active || typeof text !== 'string' || text.length > 10 << 20) return;
     try {
       const u = new URL(url, location.href);
       if (u.origin !== location.origin || !config.listURL(u)) return;
       const value = JSON.parse(text);
-      if(config.provider==='gmail' && typeof requestQuery==='string') nativeQueryReply={query:requestQuery,value};
+      if(config.provider==='gmail' && typeof requestQuery==='string') nativeQueryReply={query:requestQuery,value,evidence};
       if(config.provider==='outlook' && u.pathname.endsWith('/startupdata.ashx')) {
         const owner=value.owaUserConfig?.SessionSettings?.UserEmailAddress, id=value.findConversation?.Body?.FolderId?.Id;
         if(typeof owner==='string' && typeof id==='string')inbox=config.parseFolders?.(value)||{account:owner.toLowerCase(),id,qualified:false};
@@ -817,11 +829,10 @@ const providerAccountDOM=function providerAccountDOM(provider) {
       }
     } catch {}
     const url = this.__sparkclawMailURL;
-    let requestQuery;
-    try { requestQuery=JSON.parse(args[0])?.[0]?.[3]; } catch {}
+    const evidence=queryEvidence(args[0],this.__sparkclawMailRequest?.method),requestQuery=evidence.query;
     const learnedMethod = this.__sparkclawMailRequest?.method, learnedBody = args[0], session = learningSession();
     this.addEventListener('load', () => {
-      if (this.status === 200 && (!this.responseType || this.responseType === 'text')) observe(url, this.responseText, requestQuery);
+      if (this.status === 200 && (!this.responseType || this.responseType === 'text')) observe(url, this.responseText, requestQuery,evidence);
       if (!session || session !== learningSession()) return;
       let responseText = ''; try {responseText = xhrLearningText(this);} catch {}
       try { learn(learnedMethod, url, learnedBody, this.status, responseText, session); } catch {}
@@ -830,6 +841,7 @@ const providerAccountDOM=function providerAccountDOM(provider) {
   };
   const fetch = async function(...args) {
     const session = learningSession();
+    const evidence=queryEvidence(args[1]?.body,args[1]?.method||args[0]?.method||'GET');
     const response = await originalFetch.apply(this, args);
     if (session && session === learningSession()) {
       try {
@@ -856,8 +868,7 @@ const providerAccountDOM=function providerAccountDOM(provider) {
               size += value.length; if (size > 10 << 20) { void reader.cancel(); return; } chunks.push(value); }
             const bytes = new Uint8Array(size); let offset = 0;
             for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
-            let requestQuery;try{requestQuery=JSON.parse(args[1]?.body)?.[0]?.[3];}catch{}
-            observe(response.url, new TextDecoder().decode(bytes),requestQuery);
+            observe(response.url, new TextDecoder().decode(bytes),evidence.query,evidence);
           } finally { reader.releaseLock(); }
         })().catch(()=>{});
       }
@@ -915,6 +926,8 @@ const providerAccountDOM=function providerAccountDOM(provider) {
     checkedAccount(account_address);
     if(config.provider!=='gmail'||typeof config.sentMatchQuery!=='function'||typeof config.parseSent!=='function'||typeof config.search!=='function')failure('email_network_capability_unavailable');
     const query=config.sentMatchQuery(sent_match);
+    if(sentMatchRound)failure('email_network_list_unqualified');
+    const round={query};sentMatchRound=round;
     // This explicit read uses its own task page. Never reuse inbox records or
     // a previous query as target evidence, and never broaden or paginate it.
     records.clear();nativeQueryReply=null;
@@ -923,7 +936,9 @@ const providerAccountDOM=function providerAccountDOM(provider) {
       const deadline=Date.now()+20000;
       while(active&&nativeQueryReply?.query!==query&&Date.now()<deadline)await new Promise(resolve=>setTimeout(resolve,100));
       checkedAccount(account_address);
-      const value=nativeQueryReply?.query===query?nativeQueryReply.value:null;
+      const observed=nativeQueryReply?.query===query?nativeQueryReply:null;
+      if(observed?.evidence?.round!==round||observed.evidence.firstPage!==true)failure('email_network_list_unqualified');
+      const value=observed.value;
       if(!active||!Array.isArray(value)||value[0]!==0||value[3]!==0||!Array.isArray(value[19])||value[19].length>1000)failure('email_network_list_unqualified');
       let sentCount=0,messageCount=0;
       for(const batch of value[19]) {
@@ -947,6 +962,7 @@ const providerAccountDOM=function providerAccountDOM(provider) {
       checkedAccount(account_address);records.clear();records.set(row.provider_message_id,row);
       return {provider:config.provider,account_address:account,...accountMetadata(),rows:[{...row}],unsupported_rows:0,scan_complete:true};
     } catch(error) {records.clear();throw error;}
+    finally {if(sentMatchRound===round)sentMatchRound=null;}
   }
   async function prepareRetainedOriginal(target = {}) {
     const {account_address,provider_message_id,provider_selection_id,provider_native_id,folder}=target;

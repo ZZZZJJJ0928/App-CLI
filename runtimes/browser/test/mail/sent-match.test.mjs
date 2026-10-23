@@ -26,18 +26,26 @@ function response(labels=['^f']) {
   const thread=[];thread[3]='thread-f:2748';thread[4]=[message];
   const value=[];value[0]=0;value[3]=0;value[19]=[[null,[[thread]]]];return value;
 }
-function fixture({value=response(),mode}={}) {
-  let time=Date.now();const requests=[],queries=[];
+function fixture({value=response(),mode,transport='xhr'}={}) {
+  let time=Date.now(),staleComplete,resolveStaleFetch;const requests=[],queries=[];
   class Clock extends Date {static now(){return time;}}
   class XHR {open(){}send(){}addEventListener(_name,callback){this.callback=callback;}}
   const context=vm.createContext({URL,URLSearchParams,Map,Date:Clock,JSON,Object,Number,Error,TextEncoder,TextDecoder,Uint8Array,Response,Blob,AbortSignal,AbortController,structuredClone,performance,
     setTimeout(fn,ms){time+=ms;fn();},clearTimeout(){},btoa:value=>Buffer.from(value,'binary').toString('base64'),XMLHttpRequest:XHR,
     MutationObserver:class{observe(){}disconnect(){}},location:{origin:'https://mail.google.com',href:'https://mail.google.com/mail/u/0/'},
     document:{addEventListener(){},removeEventListener(){},body:{append(){}},createElement:()=>({remove(){}})},
-    fetch:async(url,init)=>{requests.push({url:String(url),init});return new Response(original);},account:owner,
+    fetch:async(url,init)=>{
+      if(String(url).includes('/sync/')) {
+        const reply=new Response(JSON.stringify(value));Object.defineProperty(reply,'url',{value:String(url)});
+        if(mode==='stale_same_query')return new Promise(resolve=>{resolveStaleFetch=()=>resolve(reply);});
+        return reply;
+      }
+      requests.push({url:String(url),init});return new Response(original);
+    },account:owner,
     parseGmailList,parseGmailReceivedList,parseGmailSentList,sentMatchQuery,gmailOriginalURL,
     search(query){
       queries.push(query);
+      if(mode==='stale_same_query'){staleComplete();return;}
       if(mode==='account_switch')context.account='other@example.test';
       if(mode==='disposed'){context.SparkClawMailReader.dispose();return;}
       if(mode!=='no_reply')deliver(value,mode==='wrong_query'?'in:sent':query);
@@ -46,8 +54,14 @@ function fixture({value=response(),mode}={}) {
   vm.runInContext(`window=globalThis;window.top=window;gmailOriginalURL=${gmailOriginalURL.toString()};(${installReader.toString()})({provider:'gmail',origins:['https://mail.google.com'],account:()=>account,listURL:u=>/^\\/sync\\/u\\/\\d+\\/i\\/bv$/.test(u.pathname),parse:parseGmailReceivedList,parseSent:parseGmailSentList,sentMatchQuery,search,download:gmailOriginalURL});`,context);
   function deliver(value,query) {
     const body=[[],null,[]];body[0][3]=query;body[0][15]=[];
-    const xhr=new XHR();xhr.open('POST','https://mail.google.com/sync/u/0/i/bv');xhr.send(JSON.stringify(body));xhr.status=200;xhr.responseText=JSON.stringify(value);xhr.callback();
+    body[0][9]=mode==='continuation_reply'?1:0;body[0][15][13]=['continuation_reply','cursor_reply'].includes(mode)?'opaque-continuation':null;
+    if(transport==='fetch') {
+      void context.fetch('https://mail.google.com/sync/u/0/i/bv',{method:'POST',body:JSON.stringify(body)});
+      return ()=>resolveStaleFetch();
+    }
+    const xhr=new XHR();xhr.open('POST','https://mail.google.com/sync/u/0/i/bv');xhr.send(JSON.stringify(body));xhr.status=200;xhr.responseText=JSON.stringify(value);if(mode==='stale_same_query'&&!staleComplete)return ()=>xhr.callback();xhr.callback();
   }
+  if(mode==='stale_same_query')staleComplete=deliver(value,sentMatchQuery(match));
   const tab={runReadCode:async code=>vm.runInContext('('+code+')',context)({evaluate:(fn,args)=>fn(args)})};
   return {reader:context.SparkClawMailReader,context,requests,queries,tab,deliver};
 }
@@ -113,7 +127,7 @@ test('one owned callback observes one terminal Sent member and writes exact orig
   assert.equal(callbacks,1,'crash recovery cannot adopt an original under a different selector');
 });
 
-for(const mode of ['partial','inbound','draft','empty','two_sent','duplicate','bad_id','bad_labels','malformed_batch','wrong_query','no_reply','account_switch','disposed']) {
+for(const mode of ['continuation_reply','cursor_reply','stale_same_query','partial','inbound','draft','empty','two_sent','duplicate','bad_id','bad_labels','malformed_batch','wrong_query','no_reply','account_switch','disposed']) {
   test(`bounded Sent resolution rejects ${mode} without selecting or downloading an original`,async t=>{
     const value=response(mode==='inbound'?['^i']:mode==='draft'?['^f','^r']:['^f']);
     if(mode==='partial')value[3]=1;
@@ -157,3 +171,13 @@ test('unsupported Sent provider and stale pinned identity cannot fall back to in
   await assert.rejects(collectUnread(f.tab,'gmail',{account_address:owner,sent_match:match,pinned_message_id:'abd',onSelected:()=>assert.fail()}),{code:'email_message_identity_invalid'});
   assert.equal(f.requests.length,0);
 });
+
+for(const mode of [undefined,'continuation_reply','cursor_reply','stale_same_query']) {
+  test(`fetch query request is bound to this round and first page: ${mode??'valid'}`,async t=>{
+    const f=fixture({mode,transport:'fetch'});t.after(()=>f.reader.dispose());let selections=0;
+    const run=()=>collectUnread(f.tab,'gmail',{account_address:owner,sent_match:match,onSelected:()=>{selections++;}});
+    if(mode)await assert.rejects(run(),{code:'email_network_list_unqualified'});
+    else assert.equal((await run()).provider_message_id,'abc');
+    assert.equal(f.queries.length,1);assert.equal(selections,mode?0:1);assert.equal(f.requests.length,mode?0:1);
+  });
+}
