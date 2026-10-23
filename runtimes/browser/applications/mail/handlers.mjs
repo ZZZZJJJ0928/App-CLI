@@ -1,8 +1,8 @@
 import {setTimeout as delay} from 'node:timers/promises';
 import {MailPage, createProviderRuntime} from './runtime/mail-page.mjs';
 import {ProviderScriptRegistry} from './runtime/provider-scripts.mjs';
-import {isManagedSend} from './lib/managed-send.mjs';
-import {createNotSentReceipt, legacyNotSentReceipt, validateNotSentBinding} from './lib/send-recovery.mjs';
+import {isManagedSend, nativeSendFor} from './lib/managed-send.mjs';
+import {createNotSentReceipt, createProviderRejectedReceipt, legacyNotSentReceipt, validateNotSentBinding} from './lib/send-recovery.mjs';
 import {removeSendJournal} from './lib/send-journal.mjs';
 import {isReceiveRead, mailAccount} from './page-policy.mjs';
 import {validCandidateTargets} from './runtime/mail-notification-rules.mjs';
@@ -30,25 +30,19 @@ function secrets(input) {
     SPARKCLAW_EMAIL_SUBJECT: message.subject ?? '', SPARKCLAW_EMAIL_BODY: message.body.content};
 }
 
-async function prepare(entry, input, context) {
+async function prepare(entry, input, context, native) {
   const page = new MailPage(context.browser, entry, context);
-  if (entry.operation === 'send') {
+  // A native send keeps its content out of the private slots: it travels only
+  // with the dispatch call. Its preflight checks the document and account.
+  if (entry.operation === 'send' && !native) {
     page.sendSecrets = secrets(input);
     await context.browser.call('setSecrets', page.sendSecrets);
   }
   if (!context.browser.reused) await page.navigate(entry.loginURL);
+  if (native) return page;
   const account = mailAccount(input) || context.resource.account_address;
   if (entry.operation !== 'probe' || account) await page.prepareBackgroundPage();
   if (isReceiveRead(entry.operation) && account) await page.prepareMailRound(account, context.browser.reused);
-  if (entry.provider === 'qq_mail' && entry.operation === 'send' && context.browser.reused) {
-    try { await page.prepareMailRound(account, true); }
-    catch (error) {
-      // A reloaded or replaced document lost its page-memory template, and its
-      // Reader is never relabeled. Nothing was dispatched: send as a cold page.
-      if (error.code !== 'browser_page_stale') throw error;
-      await page.navigate(entry.loginURL);
-    }
-  }
   return page;
 }
 
@@ -66,7 +60,8 @@ async function execute(entry, original, context, reconcile = false) {
     return result.status === 'unknown' ? {status: 'uncertain', reason: 'SEND_OUTCOME_UNKNOWN'} : {data: result};
   }
   try {
-    const page = await prepare(entry, input, context);
+    const native = entry.operation === 'send' ? nativeSendFor(entry.provider, input) : null;
+    const page = await prepare(entry, input, context, native);
     const remoteSelector = selector => selector === entry.effectSelector || entry.effectSelectors?.includes(selector);
     const originalClick = page.click;
     page.click = async (...args) => {if (remoteSelector(args[0])) await context.beforeEffect(); return originalClick(...args);};
@@ -74,7 +69,10 @@ async function execute(entry, original, context, reconcile = false) {
     // markCapturedRead, after the target has been reselected.
     if (!reconcile && ["read", "capture", "collect_page"].includes(entry.operation)) await context.beforeEffect();
     const runtime = createProviderRuntime(page, entry);
-    if (entry.operation === 'send') runtime.notSentReceipt = (request, reason) => createNotSentReceipt(request, context, reason, 'pre_dispatch_failure');
+    if (entry.operation === 'send') {
+      runtime.notSentReceipt = (request, reason) => createNotSentReceipt(request, context, reason, 'pre_dispatch_failure');
+      runtime.providerRejectedReceipt = (request, rejection) => createProviderRejectedReceipt(request, context, rejection);
+    }
     const result = await entry.handler(input, runtime);
     if (result?.status === 'unknown') return {status: 'uncertain', reason: 'SEND_OUTCOME_UNKNOWN'};
     // Per-message capture/coverage failures describe the result, not ownership
@@ -86,13 +84,15 @@ async function execute(entry, original, context, reconcile = false) {
     if (retain) {
       await page.parkMailRound(account);
     }
-    if (entry.provider === 'qq_mail' && entry.operation === 'send' && result?.status === 'sent' &&
-        process.env.APP_CLI_MAIL_NATIVE_SEND === 'qq_mail') {
-      // This is after the durable sent receipt. Failure to park only closes the
-      // page; it must not discard a proved send or invite another dispatch.
-      try { retain = await page.parkSendTemplate(account); } catch { retain = false; }
+    // A native send page stays parked after a decided result. A login
+    // rejection invalidates it so the next send starts cold.
+    let invalidate = isReceiveRead(entry.operation) && !retain;
+    if (native) {
+      const loginRejected = result?.status === 'not_sent' && result.not_sent?.kind === 'provider_rejected' && result.not_sent.reason === 'PROVIDER_LOGIN_REJECTED';
+      retain = result?.status === 'sent' || result?.status === 'not_sent' && result.not_sent?.kind === 'provider_rejected' && !loginRejected;
+      invalidate = loginRejected;
     }
-    return {data: result, retain, invalidate: isReceiveRead(entry.operation) && !retain};
+    return {data: result, retain, invalidate};
   } catch (error) {
     const reason = typeof error.code === 'string' && /^[A-Za-z0-9_]{1,64}$/u.test(error.code) ? error.code.toUpperCase() : 'PROVIDER_SCRIPT_FAILED';
     if (/LOGIN_REQUIRED|ACCOUNT_IDENTITY/u.test(reason)) return {status: 'waiting_confirmation', reason, invalidate: isReceiveRead(entry.operation)};

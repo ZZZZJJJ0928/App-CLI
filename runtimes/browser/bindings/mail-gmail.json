@@ -1666,7 +1666,7 @@
       "script_id": "gmail.send",
       "revision": 2,
       "reconcile_requires_host": false,
-      "source_checksum": "sha256:f84322300599294210523456977a97c77e3b32cd9826091972569c4b8629bb2e",
+      "source_checksum": "sha256:488f4735f23e196b3d76ef946d60db89f1287302b3a48bef27db4a6800d4d911",
       "host": {
         "family": "gmail.mutation",
         "activity": "mutation",
@@ -1698,7 +1698,8 @@
           "probeReads",
           "setSecrets",
           "hookActivate",
-          "hookEvents"
+          "hookEvents",
+          "runCodeRequest"
         ],
         "page": {
           "secretReadback": true,
@@ -2164,7 +2165,7 @@
       "timeout_ms": 120000,
       "script_id": "gmail.observe",
       "revision": 1,
-      "source_checksum": "sha256:888f97f5e0f986caaf246c18ba09b85a782b81ab000918168c27a1cf6e4944e1",
+      "source_checksum": "sha256:886e164425d3ca8b7cf4308167f32768ab7722c73a17e659d6b8f96c8ef6379f",
       "host": {
         "family": "gmail.inbound",
         "activity": "watch",

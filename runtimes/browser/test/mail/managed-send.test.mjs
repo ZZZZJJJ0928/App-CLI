@@ -79,19 +79,6 @@ test('verified native result persists receipt without claiming unrelated new mes
  const f=await sendingFixture(t);const sent=await f.run();assert.equal(sent.status,'sent');assert.equal(sent.provider_message_id,undefined);
  assert.deepEqual(await f.run(),sent);assert.deepEqual(f.counts(),{sends:1,tabs:1});
 });
-test('a refused QQ native preflight sends nothing natively and completes through the DOM',async t=>{
- const previous=process.env.APP_CLI_MAIL_NATIVE_SEND;process.env.APP_CLI_MAIL_NATIVE_SEND='qq_mail';
- t.after(()=>{if(previous===undefined)delete process.env.APP_CLI_MAIL_NATIVE_SEND;else process.env.APP_CLI_MAIL_NATIVE_SEND=previous;});
- const reader={prepare:0,send:0,navigations:0};
- const f=await sendingFixture(t,{provider:'qq_mail',cc:[],runReadCode:async code=>{
-  if(code.includes('r.prepareNativeSend(request)')){reader.prepare++;return {provider:'qq_mail',account_address:'owner@example.invalid',ready:false,dispatched:false,reason:'sent_baseline'};}
-  if(code.includes('r.sendNative(request)'))reader.send++;
-  if(code.includes('page.goto('))reader.navigations++;
- }});
- const sent=await f.run();assert.equal(sent.status,'sent');
- assert.deepEqual(reader,{prepare:1,send:0,navigations:1});assert.deepEqual(f.counts(),{sends:1,tabs:1});
- assert.equal((await f.journal()).saved.stage,'sent');
-});
 test('recipient readback mismatch never reaches dispatch',async t=>{
  const f=await sendingFixture(t,{wrongReadback:true});await assert.rejects(f.run(),{code:'email_draft_fields_unverified'});assert.equal(f.counts().sends,0);assert.equal(f.discards(),1);
 });

@@ -623,10 +623,9 @@ const parseQQMailList=function parseQQMailList(value) {
     try {walk(response, 0); return chunks.join('');}
     catch (error) {return error === large ? ' '.repeat(limit + 1) : '';}
   }
-  function armLearning({kind, window_ms = 30000, capture_send_template = false} = {}) {
-    if (typeof kind !== 'string' || !/^[a-z_]{1,32}$/.test(kind) || !Number.isSafeInteger(window_ms) || window_ms < 1 || window_ms > 120000 || typeof capture_send_template !== 'boolean') failure('invalid_request');
+  function armLearning({kind, window_ms = 30000} = {}) {
+    if (typeof kind !== 'string' || !/^[a-z_]{1,32}$/.test(kind) || !Number.isSafeInteger(window_ms) || window_ms < 1 || window_ms > 120000) failure('invalid_request');
     learning.armed = {kind, until: performance.now() + window_ms}; learning.entries = [];
-    nativeSend?.arm(capture_send_template && kind === 'send' ? learning.armed : null);
     return true;
   }
   async function inRound(operation, request) {
@@ -771,13 +770,11 @@ const parseQQMailList=function parseQQMailList(value) {
     let requestQuery;
     try { requestQuery=JSON.parse(args[0])?.[0]?.[3]; } catch {}
     const learnedMethod = this.__sparkclawMailRequest?.method, learnedBody = args[0], session = learningSession();
-    const learnedHeaders = {...this.__sparkclawMailRequest?.headers};
     this.addEventListener('load', () => {
       if (this.status === 200 && (!this.responseType || this.responseType === 'text')) observe(url, this.responseText, requestQuery);
       if (!session || session !== learningSession()) return;
       let responseText = ''; try {responseText = xhrLearningText(this);} catch {}
       try { learn(learnedMethod, url, learnedBody, this.status, responseText, session); } catch {}
-      try { nativeSend?.observe({session, method: learnedMethod, url, headers: learnedHeaders, body: learnedBody, status: this.status, responseURL: this.responseURL || url, responseText}); } catch {}
     }, {once:true});
     return originalSend.apply(this, args);
   };
@@ -792,10 +789,7 @@ const parseQQMailList=function parseQQMailList(value) {
         const responseURL = new URL(response.url || requestURL, location.href);
         const method = init.method || request?.method || 'GET';
         if (url.origin === location.origin && responseURL.origin === location.origin && !config.listURL(url)) {
-          void learningText(response).then(value => {
-            learn(method, url.href, init.body, response.status, value, session);
-            nativeSend?.observe({session, method, url: url.href, headers: init.headers, body: init.body, status: response.status, responseURL: responseURL.href, responseText:value});
-          }, () => {});
+          void learningText(response).then(value => learn(method, url.href, init.body, response.status, value, session), () => {});
         }
       } catch {}
     }
@@ -1149,7 +1143,8 @@ const parseQQMailList=function parseQQMailList(value) {
     if (window.fetch === fetch) window.fetch = originalFetch;
     delete window.SparkClawMailReader;
   }
-  nativeSend = config.installNativeSend?.({account: checkedAccount, fetch: originalFetch, readText: learningText, responseShape});
+  // A maintained native send template (e.g. qq_sendmail_v1); nothing is learned.
+  nativeSend = config.installNativeSend?.({account: checkedAccount, fetch: originalFetch, readText: learningText});
   transport=config.installTransport?.({learn:learnWorker,learning:learningSession,account:checkedAccount,getInbox:()=>inbox,receiveStartup(value){inbox=config.parseFolders?.(value)||null;startupConversations=config.parseConversations?.(value)??startupConversations;},receiveRows(rows){
     checkedAccount();for(const row of rows){if(row && row.provider_selection_id===undefined)row.provider_selection_id=row.provider_thread_id||row.provider_message_id;if(idPattern.test(row.provider_message_id||''))records.set(row.provider_message_id,row);}
     while(records.size>2000)records.delete(records.keys().next().value);
@@ -1162,7 +1157,7 @@ const parseQQMailList=function parseQQMailList(value) {
       return true;
     }, diagnostics:()=>({original:{state:originalState,responseOrigin,response:originalResponse?{...originalResponse}:null},list:{stage:listStage,template:Boolean(listRequest),body:Array.isArray(listRequest?.body),paging:Array.isArray(listRequest?.body?.[0]?.[15])},inbox:Boolean(inbox),records:records.size,transport:transport?.diagnostics?.(),
       learning:JSON.parse(JSON.stringify(learning.entries))}), armLearning, snapshot, resetRound,
-    ...(nativeSend ? {sendNativeReady: nativeSend.ready, confirmSendTemplate: request=>inRound(nativeSend.confirm, request), prepareNativeSend: request=>inRound(nativeSend.prepare, request), sendNative: request=>inRound(nativeSend.send, request)} : {}),
+    ...(nativeSend ? {nativeSendPreflight: request=>inRound(nativeSend.preflight, request), nativeSendDispatch: request=>inRound(nativeSend.dispatch, request), nativeSendLookup: request=>inRound(nativeSend.lookup, request)} : {}),
     listPage:request=>inRound(async request=>{
       const value=await listPage(request);checkedAccount(request.account_address);
       return {...value,...accountMetadata()};

@@ -1,4 +1,5 @@
-import {QQ15} from './lib/send-recovery.mjs';
+import {QQ15, PROVIDER_REJECTED_REASONS, PROVIDER_REJECTION_REASONS} from './lib/send-recovery.mjs';
+import {nativeSendModule} from './lib/native-send-config.mjs';
 const object = {type: 'object'};
 const text = {type: 'string', maxLength: 4096};
 const list = {type: 'array', maxItems: 100, items: object};
@@ -12,13 +13,22 @@ export function outputSchema(provider, command) {
     Object.assign(properties, {status: {const: 'ready'}, account_hint: text}); required.push('status');
   } else if (command === 'send') {
     const hash = {type:'string',pattern:'^[a-f0-9]{64}$'}, id = {type:'string',pattern:'^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$'};
+    // provider_rejected exists only for providers with a maintained native
+    // template; its reason is a category and provider_code a listed code.
+    const native = nativeSendModule(provider), codes = native ? [...native.rejections.keys()] : [];
+    const legacy = ['EMAIL_ATTACHMENT_UPLOAD_UNVERIFIED','EMAIL_ATTACHMENT_UPLOAD_FAILED','EMAIL_ATTACHMENT_UNVERIFIED','BROWSER_EXTENSION_UNAVAILABLE','EMAIL_ATTACHMENT_CONTROL_UNAVAILABLE','EMAIL_DRAFT_FIELDS_UNVERIFIED'];
+    const kinds = [...(provider==='qq_mail'?['pre_dispatch_failure','legacy_15_pre_dispatch_failure']:['pre_dispatch_failure']), ...(native?['provider_rejected']:[])];
     Object.assign(properties, {status: {enum: ['sent','not_sent']}, recipient_digest: {type: 'string', pattern: '^sha256:[a-f0-9]{64}$'},
       provider_message_id: text, provider_thread_id: text, not_sent:{type:'object',additionalProperties:false,
-        properties:{schema_version:{const:1},kind:{enum:provider==='qq_mail'?['pre_dispatch_failure','legacy_15_pre_dispatch_failure']:['pre_dispatch_failure']},
+        properties:{schema_version:{const:1},kind:{enum:kinds},
           invocation_id:id,task_id:id,intent_digest:hash,resource_digest:hash,binding_digest:hash,
-          ledger_epoch:{type:'integer',minimum:1},reason:{enum:['EMAIL_ATTACHMENT_UPLOAD_UNVERIFIED','EMAIL_ATTACHMENT_UPLOAD_FAILED','EMAIL_ATTACHMENT_UNVERIFIED','BROWSER_EXTENSION_UNAVAILABLE','EMAIL_ATTACHMENT_CONTROL_UNAVAILABLE','EMAIL_DRAFT_FIELDS_UNVERIFIED']}},
+          ledger_epoch:{type:'integer',minimum:1},reason:{enum:[...legacy,...(native?PROVIDER_REJECTED_REASONS:[])]},
+          ...(native?{provider_code:{enum:codes}}:{})},
         required:['schema_version','kind','invocation_id','task_id','intent_digest','resource_digest','binding_digest','ledger_epoch','reason'],
-        allOf:[{if:{properties:{kind:{const:'legacy_15_pre_dispatch_failure'}}},then:{properties:{binding_digest:{const:QQ15},reason:{const:'EMAIL_ATTACHMENT_UPLOAD_UNVERIFIED'}}}}]}});
+        allOf:[{if:{properties:{kind:{const:'legacy_15_pre_dispatch_failure'}}},then:{properties:{binding_digest:{const:QQ15},reason:{const:'EMAIL_ATTACHMENT_UPLOAD_UNVERIFIED'}}}},
+          ...(native?[{if:{properties:{kind:{const:'provider_rejected'}}},then:{required:['provider_code'],properties:{reason:{enum:PROVIDER_REJECTED_REASONS}},
+              allOf:Object.entries(PROVIDER_REJECTION_REASONS).map(([category,reason])=>({if:{properties:{reason:{const:reason}}},then:{properties:{provider_code:{enum:codes.filter(code=>native.rejections.get(code)===category)}}}}))},
+            else:{not:{required:['provider_code']},properties:{reason:{enum:legacy}}}}]:[])]}});
     required.push('status', 'recipient_digest');
   } else if (command === 'mark_read') {
     Object.assign(properties, {target: object, read_state: {enum: ['read', 'unread', 'unknown']}, observed_at: text});

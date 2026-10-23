@@ -241,6 +241,7 @@
       "script_id": "qqmail.send",
       "revision": 2,
       "timeout_ms": 180000,
+      "send_admission": "in_page",
       "app": "mail-qq-mail",
       "command": "send"
     }

@@ -20,6 +20,21 @@ export function createNotSentReceipt(request, context, error, kind) {
     not_sent:{schema_version:1,kind,invocation_id:request.invocation_id,...evidence,reason}};
 }
 
+// A released dispatch that the provider explicitly rejected with one of its
+// listed codes (provider module `rejections`). Bound to the original task.
+export const PROVIDER_REJECTION_REASONS = Object.freeze({login:'PROVIDER_LOGIN_REJECTED',parameter:'PROVIDER_PARAMETER_REJECTED',temporary:'PROVIDER_TEMPORARILY_REJECTED'});
+export const PROVIDER_REJECTED_REASONS = Object.freeze(Object.values(PROVIDER_REJECTION_REASONS));
+export function createProviderRejectedReceipt(request, context, {reason, provider_code} = {}) {
+  const evidence = context.executionEvidence;
+  if (!PROVIDER_REJECTED_REASONS.includes(reason) || !Number.isSafeInteger(provider_code) || !evidence || !id.test(evidence.task_id) ||
+      !['intent_digest','resource_digest','binding_digest'].every(key => digest.test(evidence[key])) ||
+      !Number.isSafeInteger(evidence.ledger_epoch) || evidence.ledger_epoch < 1) return null;
+  return {schema_version:1,provider:request.provider,status:'not_sent',recipient_digest:request.recipientDigest,
+    not_sent:{schema_version:1,kind:'provider_rejected',invocation_id:request.invocation_id,task_id:evidence.task_id,
+      intent_digest:evidence.intent_digest,resource_digest:evidence.resource_digest,binding_digest:evidence.binding_digest,
+      ledger_epoch:evidence.ledger_epoch,reason,provider_code}};
+}
+
 export function legacyNotSentReceipt(request, context) {
   const previous = context.reconciliation;
   if (request.provider !== 'qq_mail' || context.executionEvidence?.binding_digest !== QQ15 ||

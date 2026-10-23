@@ -114,4 +114,4 @@ Outlook页面，适配器读取当前原生 `UserMailbox` 配置，调用其原�
 该结果是地址选择证据，不是投递保证；收件策略、服务健康和邮箱状态仍可能
 拒收。真实发送及接收验收与登录检查、合成测试保持独立。
 
-本地响应/worker 学习及默认关闭的 QQ 重放实验见[原型说明](MAIL-NATIVE-SEND-PROTOTYPE.zh-CN.md)。
+响应/worker 学习窗口及使用维护的 QQ 模板的网络原生发送见[原生发送说明](MAIL-NATIVE-SEND-PROTOTYPE.zh-CN.md)。

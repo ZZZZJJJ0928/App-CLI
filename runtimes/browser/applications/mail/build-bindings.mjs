@@ -42,7 +42,9 @@ for (const provider of ['gmail', 'outlook', 'qq_mail']) {
         invalidate_on_failure: isReceiveRead(name), reuse_idle_ms: shared ? 1800000 : provider === 'qq_mail' && name === 'send' ? 900000 : 0,
         methods: ['currentURL', 'count', 'attribute', 'value', 'text', 'lines', 'readMany', 'visible', 'enabled', 'evaluate',
           'click', 'runReadCode', 'download', 'fill', 'focus', 'press', 'waitFor', 'waitMilliseconds', 'navigate',
-          'prepareBackgroundPage', 'inspect', 'act', 'probeReads', 'setSecrets', 'hookActivate', 'hookEvents'],
+          'prepareBackgroundPage', 'inspect', 'act', 'probeReads', 'setSecrets', 'hookActivate', 'hookEvents',
+          // Guarded code request with a private argument (native send content).
+          ...(name === 'send' ? ['runCodeRequest'] : [])],
         page: {secretReadback: name === 'send', trustedDownloadSelectors: ['#sparkclaw-mail-original'], origins: entry.origins, downloadOrigins: entry.downloadOrigins ?? [], loginURL: entry.loginURL,
           timeoutMS: name === 'watch' ? 300000 : entry.timeoutMS, backgroundBeforeNavigation: read || shared,
           codeEnabled: true, readOnlyCode: shared,

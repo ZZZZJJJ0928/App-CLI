@@ -365,7 +365,8 @@
                 "kind": {
                   "enum": [
                     "pre_dispatch_failure",
-                    "legacy_15_pre_dispatch_failure"
+                    "legacy_15_pre_dispatch_failure",
+                    "provider_rejected"
                   ]
                 },
                 "invocation_id": {
@@ -399,7 +400,26 @@
                     "EMAIL_ATTACHMENT_UNVERIFIED",
                     "BROWSER_EXTENSION_UNAVAILABLE",
                     "EMAIL_ATTACHMENT_CONTROL_UNAVAILABLE",
-                    "EMAIL_DRAFT_FIELDS_UNVERIFIED"
+                    "EMAIL_DRAFT_FIELDS_UNVERIFIED",
+                    "PROVIDER_LOGIN_REJECTED",
+                    "PROVIDER_PARAMETER_REJECTED",
+                    "PROVIDER_TEMPORARILY_REJECTED"
+                  ]
+                },
+                "provider_code": {
+                  "enum": [
+                    -5012,
+                    -20002,
+                    -20062,
+                    -20071,
+                    -21021,
+                    -20011,
+                    -21101,
+                    -5151,
+                    -21501,
+                    -21132,
+                    -21519,
+                    -20003
                   ]
                 }
               },
@@ -430,6 +450,113 @@
                       },
                       "reason": {
                         "const": "EMAIL_ATTACHMENT_UPLOAD_UNVERIFIED"
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "kind": {
+                        "const": "provider_rejected"
+                      }
+                    }
+                  },
+                  "then": {
+                    "required": [
+                      "provider_code"
+                    ],
+                    "properties": {
+                      "reason": {
+                        "enum": [
+                          "PROVIDER_LOGIN_REJECTED",
+                          "PROVIDER_PARAMETER_REJECTED",
+                          "PROVIDER_TEMPORARILY_REJECTED"
+                        ]
+                      }
+                    },
+                    "allOf": [
+                      {
+                        "if": {
+                          "properties": {
+                            "reason": {
+                              "const": "PROVIDER_LOGIN_REJECTED"
+                            }
+                          }
+                        },
+                        "then": {
+                          "properties": {
+                            "provider_code": {
+                              "enum": [
+                                -5012,
+                                -20002,
+                                -20062,
+                                -20071,
+                                -21021
+                              ]
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "if": {
+                          "properties": {
+                            "reason": {
+                              "const": "PROVIDER_PARAMETER_REJECTED"
+                            }
+                          }
+                        },
+                        "then": {
+                          "properties": {
+                            "provider_code": {
+                              "enum": [
+                                -20011,
+                                -21101,
+                                -5151,
+                                -21501,
+                                -21132
+                              ]
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "if": {
+                          "properties": {
+                            "reason": {
+                              "const": "PROVIDER_TEMPORARILY_REJECTED"
+                            }
+                          }
+                        },
+                        "then": {
+                          "properties": {
+                            "provider_code": {
+                              "enum": [
+                                -21519,
+                                -20003
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  },
+                  "else": {
+                    "not": {
+                      "required": [
+                        "provider_code"
+                      ]
+                    },
+                    "properties": {
+                      "reason": {
+                        "enum": [
+                          "EMAIL_ATTACHMENT_UPLOAD_UNVERIFIED",
+                          "EMAIL_ATTACHMENT_UPLOAD_FAILED",
+                          "EMAIL_ATTACHMENT_UNVERIFIED",
+                          "BROWSER_EXTENSION_UNAVAILABLE",
+                          "EMAIL_ATTACHMENT_CONTROL_UNAVAILABLE",
+                          "EMAIL_DRAFT_FIELDS_UNVERIFIED"
+                        ]
                       }
                     }
                   }
@@ -1588,7 +1715,7 @@
       }
     ]
   },
-  "manifest_digest": "8f333b9c32ae9f3b4eb76cf758ed2dc6aff328bdd81fc9ee4b9e638f1032aaa7",
+  "manifest_digest": "18797fdbd820eb706ae1d5d488f4356cd4f3025fb867edbc330686d77f1b8ca1",
   "commands": {
     "probe": {
       "handler": "qq_mail.probe",
@@ -1668,7 +1795,7 @@
       "script_id": "qqmail.send",
       "revision": 2,
       "reconcile_requires_host": false,
-      "source_checksum": "sha256:b2af67ba64dde047f9571ce4fbbff324cf186a811d29947e706a9ad63c6a932b",
+      "source_checksum": "sha256:275b812ffe9d8be3be0e9d86a723c0b3b272ae79ebb49e1acc4c8bcbcf73949c",
       "host": {
         "family": "qq_mail.mutation",
         "activity": "mutation",
@@ -1700,7 +1827,8 @@
           "probeReads",
           "setSecrets",
           "hookActivate",
-          "hookEvents"
+          "hookEvents",
+          "runCodeRequest"
         ],
         "page": {
           "secretReadback": true,
@@ -2171,7 +2299,7 @@
       "timeout_ms": 120000,
       "script_id": "qq_mail.observe",
       "revision": 1,
-      "source_checksum": "sha256:888f97f5e0f986caaf246c18ba09b85a782b81ab000918168c27a1cf6e4944e1",
+      "source_checksum": "sha256:886e164425d3ca8b7cf4308167f32768ab7722c73a17e659d6b8f96c8ef6379f",
       "host": {
         "family": "qq_mail.inbound",
         "activity": "watch",
