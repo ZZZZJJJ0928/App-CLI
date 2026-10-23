@@ -4,8 +4,27 @@ import {receiptTimeNanos} from './receipt-time.mjs';
 // Provider adapters own URLs, request templates, parsing and account checks.
 const NETWORK_READER_VERSION = '0.2.0';
 
-function networkError(code, diagnosticStage) {
-  return Object.assign(new Error(code), { code }, /^(?:qq_(?:source|request|json|head|total|lock|list|complete))$/u.test(diagnosticStage) ? { diagnosticStage } : {});
+// Serialized into the page calls below. DOMException.code is numeric; only
+// fixed reader codes and the two abort names may cross this error boundary.
+function readerFailure(error) {
+  const code = [
+    'invalid_request', 'email_account_identity_mismatch', 'email_account_identity_unavailable',
+    'email_capture_limit', 'email_incremental_unqualified', 'email_login_required',
+    'email_message_identity_invalid', 'email_network_capability_unavailable',
+    'email_network_list_unqualified', 'email_network_mark_read_unqualified',
+    'email_network_original_unqualified', 'email_network_read_failed', 'email_network_target_unobserved',
+    'email_network_template_stale', 'email_network_template_unlearned',
+  ].includes(error?.code) ? error.code : 'email_network_read_failed';
+  return {error:code, exception_name:['TimeoutError','AbortError'].includes(error?.name) ? error.name : 'Error'};
+}
+
+function networkError(code, diagnosticStage, name = 'Error') {
+  return Object.assign(new Error(code), { code, name }, /^(?:qq_(?:source|request|json|head|total|lock|list|complete))$/u.test(diagnosticStage) ? { diagnosticStage } : {});
+}
+
+function readerResponseError(value) {
+  const failure = readerFailure({code:value.error, name:value.exception_name});
+  return networkError(failure.error, value.diagnostic_stage, failure.exception_name);
 }
 
 async function callReader(tab, provider, method, request, { required = false } = {}) {
@@ -36,11 +55,11 @@ async function callReader(tab, provider, method, request, { required = false } =
         if(method==='snapshot'&&error.code==='email_account_identity_unavailable'&&Date.now()<deadline){await new Promise(resolve=>setTimeout(resolve,100));continue;}
         let diagnostic_stage;
         try {diagnostic_stage=reader.diagnostics?.().list?.stage;} catch {}
-        return {error:error.code||'email_network_read_failed',diagnostic_stage};
+        return {...(${readerFailure.toString()})(error),diagnostic_stage};
       }
     }
   },${JSON.stringify({provider,method,request})})`);
-  if (value?.error) throw networkError(value.error, value.diagnostic_stage);
+  if (value?.error) throw readerResponseError(value);
   if (value === null && required) {
     throw networkError('email_network_capability_unavailable');
   }
@@ -122,23 +141,23 @@ export async function networkListPage(tab, provider, options, observedListed) {
         const replayed=await page.evaluate(async request=>{
           const reader=window.SparkClawMailReader;
           if(reader?.provider!=='outlook'||reader.version!==${JSON.stringify(NETWORK_READER_VERSION)})return {error:'email_network_capability_unavailable'};
-          try{return await reader.listPage(request);}catch(error){return {error:error.code||'email_network_read_failed'};}
+          try{return await reader.listPage(request);}catch(error){return (${readerFailure.toString()})(error);}
         },request);
         if(!['email_network_template_unlearned','email_network_template_stale'].includes(replayed?.error))return replayed;
         const armed=await page.evaluate(request=>{
           const reader=window.SparkClawMailReader;
           if(reader?.provider!=='outlook'||reader.version!==${JSON.stringify(NETWORK_READER_VERSION)}||!reader.armRangeSearch)return {error:'email_network_capability_unavailable'};
-          try{return reader.armRangeSearch(request);}catch(error){return {error:error.code||'email_network_read_failed'};}
+          try{return reader.armRangeSearch(request);}catch(error){return (${readerFailure.toString()})(error);}
         },request);
         if(armed.error)return armed;
         await page.locator('#topSearchInput').fill(armed.query);
         await page.locator('#topSearchInput').press('Enter');
         return page.evaluate(async request=>{
-          try{return await window.SparkClawMailReader.listPage(request);}catch(error){return {error:error.code||'email_network_read_failed'};}
+          try{return await window.SparkClawMailReader.listPage(request);}catch(error){return (${readerFailure.toString()})(error);}
         },request);
       }`)
       :await callReader(tab,provider,'listPage',request,{required:true});
-    if(value?.error)throw Object.assign(new Error(value.error),{code:value.error});
+    if(value?.error)throw readerResponseError(value);
     if(value?.has_next && value.next_page!==undefined && (!Number.isInteger(value.next_page)||value.next_page<=index||value.next_page>409599))throw Object.assign(new Error('email_network_list_unqualified'),{code:'email_network_list_unqualified'});
     if(value && provider==='outlook' && !['inbound_received','inbox_loaded'].includes(value.scope))throw Object.assign(new Error('email_network_list_unqualified'),{code:'email_network_list_unqualified'});
     if(value && provider==='qq_mail' && value.scope!=='inbound_received')throw Object.assign(new Error('email_network_list_unqualified'),{code:'email_network_list_unqualified'});
