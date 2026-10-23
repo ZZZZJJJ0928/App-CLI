@@ -112,10 +112,16 @@ export function managedSendDOM(provider,phase,expected={}){
  const state=globalThis.__sparkclawManagedMail;
  // Structural facts only: a failed ownership check must not expose draft text,
  // identity, selectors, or arbitrary page-provided diagnostic strings.
- const editorError=check=>({error:'email_reply_editor_unverified',check,diagnostic:{
-  state_present:!!state,provider_matches:state?.provider===provider,ownership_checked:state?.ownershipChecked===true,
-  body_candidates:Math.min(bodyCandidates.length,1000),body_count:Math.min(bodies.length,1000),
- }});
+ const editorError=check=>{
+  const diagnostic={state_present:!!state,provider_matches:state?.provider===provider,ownership_checked:state?.ownershipChecked===true,
+   body_candidates:Math.min(bodyCandidates.length,1000),body_count:Math.min(bodies.length,1000)};
+  if(provider==='qq_mail'){
+   const roots=[...document.querySelectorAll('.mail-compose-page')],editables=[...new Set(roots.flatMap(root=>[...root.querySelectorAll('[contenteditable="true"]')]))];
+   diagnostic.compose_roots=Math.min(roots.length,1000);diagnostic.visible_compose_roots=Math.min(roots.filter(visible).length,1000);
+   diagnostic.compose_editables=Math.min(editables.length,1000);diagnostic.visible_compose_editables=Math.min(editables.filter(visible).length,1000);
+  }
+  return {error:'email_reply_editor_unverified',check,diagnostic};
+ };
  if(phase==='discard'){
   if(!state?.ownershipChecked||!state.root?.isConnected||state.sendAttempted)return {discarded:false};
   const current=state.root.querySelector('input[name="draft"]')?.value;

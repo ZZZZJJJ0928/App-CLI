@@ -100,7 +100,7 @@ function editorFailure(provider,phase,check,diagnostic,attempt){
  const record={event:'mail_editor_validation_failed',provider,phase,
   check:['state_missing','provider_mismatch','body_count','root_missing','target_unlinked','open_unconfirmed','editor_not_ready'].includes(check)?check:'unavailable'};
  for(const key of ['state_present','provider_matches','ownership_checked'])if(typeof diagnostic?.[key]==='boolean')record[key]=diagnostic[key];
- for(const key of ['body_candidates','body_count'])if(Number.isSafeInteger(diagnostic?.[key])&&diagnostic[key]>=0&&diagnostic[key]<=1000)record[key]=diagnostic[key];
+ for(const key of ['body_candidates','body_count','compose_roots','visible_compose_roots','compose_editables','visible_compose_editables'])if(Number.isSafeInteger(diagnostic?.[key])&&diagnostic[key]>=0&&diagnostic[key]<=1000)record[key]=diagnostic[key];
  if(Number.isSafeInteger(attempt)&&attempt>=1&&attempt<=8)record.attempt=attempt;
  try{process.stderr.write(JSON.stringify(record)+'\n');}catch{/* Diagnostics cannot replace the failed guard. */}
  return fail('email_reply_editor_unverified');

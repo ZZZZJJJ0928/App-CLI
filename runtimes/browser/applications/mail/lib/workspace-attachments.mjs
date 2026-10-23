@@ -373,8 +373,20 @@ export async function uploadManagedAttachments(tab, provider, workspace, attachm
       const result=(await tab.inspect(`()=>(${attachmentDOM.toString()})(${JSON.stringify(provider)},'diagnostic',${JSON.stringify(expected)})`))?.result;
       if(result?.owned===true){
         let record={event:'mail_attachment_pre_dispatch',provider,phase,structure:result};
-        if(Buffer.byteLength(JSON.stringify(record))>16000)record={...record,structure:{...result,attachment_nodes:[],controls:[],truncated:true}};
-        if(Buffer.byteLength(JSON.stringify(record))<=16000)process.stderr.write(JSON.stringify(record)+'\n');
+        const oversized=()=>Buffer.byteLength(JSON.stringify(record)+'\n')>16000;
+        if(oversized()){
+          record={...record,structure:{...result,attachment_nodes:[],controls:[],truncated:true,
+            name_contexts:Array.isArray(result.name_contexts)?result.name_contexts.map(context=>Array.isArray(context)?context.map(level=>({...level,children:Array.isArray(level.children)?[...level.children]:[]})):[]):[]}};
+          const contexts=record.structure.name_contexts;
+          // Prefer the first matched name and its nearest ancestor. Remove
+          // later contexts, deeper ancestors, then child details deterministically.
+          while(oversized()&&contexts.length>1)contexts.pop();
+          while(oversized()&&contexts[0]?.length>1)contexts[0].pop();
+          while(oversized()&&contexts[0]?.[0]?.children.length)contexts[0][0].children.pop();
+          if(oversized())record={...record,structure:{owned:true,provider,
+            known_rows:Number.isSafeInteger(result.known_rows)&&result.known_rows>=0?Math.min(result.known_rows,1000):null,truncated:true}};
+        }
+        process.stderr.write(JSON.stringify(record)+'\n');
       }
     } catch {}
   };
