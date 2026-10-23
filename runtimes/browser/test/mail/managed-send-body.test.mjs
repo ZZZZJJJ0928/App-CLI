@@ -12,9 +12,31 @@ const visible = extra => ({isConnected:true,getBoundingClientRect:()=>({width:10
 function environment(nodes, rendered='rendered fallback') {
   const body=visible({childNodes:nodes,innerText:rendered});
   const root=visible({querySelector:selector=>selector.includes('subject')?{value:'Synthetic subject'}:null,querySelectorAll:()=>[]});
-  return {document:{querySelectorAll:()=>[]},getComputedStyle:node=>({visibility:'visible',display:'block',...node.style}),__sparkclawManagedMail:{root,body,send:visible({}),mode:'compose'},crypto:crypto.webcrypto,TextEncoder,Uint8Array};
+  return {document:{querySelectorAll:()=>[]},getComputedStyle:(node,pseudo)=>({visibility:'visible',display:'block',opacity:'1',contentVisibility:'visible',textTransform:'none',whiteSpace:'normal',filter:'none',transform:'none',clipPath:'none',content:'normal',...(pseudo?node.pseudoStyle:node.style)}),__sparkclawManagedMail:{root,body,send:visible({}),mode:'compose'},crypto:crypto.webcrypto,TextEncoder,Uint8Array};
 }
 const readBody = (nodes, rendered) => vm.runInNewContext(`(${managedSendDOM.toString()})('gmail','readback',{})`, environment(nodes,rendered)).body;
+const styledLine=value=>visible({...line(value),attributes:[{name:'style',value:'margin:0'}]});
+
+test('provider style-only plaintext lines preserve exact blank lines without accepting hidden or generated text',()=>{
+ const values=['你好，','','正文  α\u00a0','','编号',''],expected=values.join('\n');
+ assert.equal(readBody(values.map(styledLine),'rendered with extra breaks'),expected);
+ for(const style of [{opacity:'0'},{contentVisibility:'hidden'},{textTransform:'uppercase'},{whiteSpace:'pre-line'},{filter:'blur(2px)'},{transform:'translateX(1px)'},{clipPath:'inset(50%)'},{content:'"extra"'}]){
+  const nodes=values.map(styledLine);nodes[2].style=style;
+  const result=vm.runInNewContext(`(${managedSendDOM.toString()})('gmail','readback',{})`,environment(nodes,'rendered fallback'));
+  assert.equal(result.body,'rendered fallback');assert.equal(result.body_diagnostic.reason,'block_style');
+ }
+ for(const target of ['body','line']){
+  const nodes=values.map(styledLine),context=environment(nodes),node=target==='body'?context.__sparkclawManagedMail.body:nodes[2];
+  node.pseudoStyle={content:'"generated"'};
+  assert.equal(vm.runInNewContext(`(${managedSendDOM.toString()})('gmail','readback',{})`,context).body,'rendered fallback');
+ }
+ const context=environment(values.map(styledLine));context.__sparkclawManagedMail.body.style={opacity:'0'};
+ assert.equal(vm.runInNewContext(`(${managedSendDOM.toString()})('gmail','readback',{})`,context).body,'rendered fallback');
+ const extra=values.map(styledLine);extra[0].attributes.push({name:'class',value:'decorated'});
+ assert.equal(readBody(extra),'rendered fallback');
+ const zero=values.map(styledLine);zero[0].getBoundingClientRect=()=>({width:0,height:0});
+ assert.equal(readBody(zero),'rendered fallback');
+});
 
 test('native Chromium line structure preserves empty lines, edges and every text byte',()=>{
   for(const [name,nodes,expected] of [

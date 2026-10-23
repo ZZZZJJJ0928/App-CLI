@@ -121,7 +121,7 @@ const digest=value=>crypto.createHash('sha256').update(value).digest('hex');
 const canonicalAddress=value=>{const i=value.lastIndexOf('@');return value.slice(0,i)+'@'+value.slice(i+1).toLowerCase()};
 const addressDigest=values=>digest(JSON.stringify(values.map(canonicalAddress).sort()));
 function bodyDiagnostic(value){
- const enums={mode:['native_lines','rendered'],reason:['native_lines','no_block_lines','root_node_type','root_element','trailing_text','block_attributes','block_display','block_visibility','placeholder_attributes','line_markup'],block_display:['unobserved','block','other'],block_visibility:['unobserved','visible','hidden','collapse','other']};
+ const enums={mode:['native_lines','rendered'],reason:['native_lines','no_block_lines','root_node_type','root_element','trailing_text','block_attributes','block_display','block_visibility','block_style','placeholder_attributes','line_markup'],block_display:['unobserved','block','other'],block_visibility:['unobserved','visible','hidden','collapse','other']};
  const safe={};for(const [key,allowed]of Object.entries(enums))safe[key]=allowed.includes(value?.[key])?value[key]:'unavailable';
  for(const key of ['top_nodes','top_text','top_div','top_br','top_p','top_span','top_other_element','top_other_node','attributed_divs','div_attributes','br_attributes','block_lines','empty_lines'])if(Number.isSafeInteger(value?.[key])&&value[key]>=0&&value[key]<=1000)safe[key]=value[key];
  if(Array.isArray(value?.structure?.nodes)){

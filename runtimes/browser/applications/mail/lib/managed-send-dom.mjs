@@ -6,7 +6,7 @@ export function managedSendDOM(provider,phase,expected={}){
  const text=n=>(n?.innerText??n?.textContent??'').trim();
  // Chromium's native plaintext insertion uses one DIV per following line.
  // innerText double-counts a DIV containing only its empty-line BR placeholder.
- // Read that exact, attribute-free line shape without changing the DOM or the
+ // Read that exact line shape, including provider-added cosmetic style, without changing the DOM or the
  // selection. Keep all text bytes and every leading/trailing/empty line; other
  // editor markup retains the existing rendered-text verification path.
  let bodyDiagnostic;
@@ -42,16 +42,29 @@ export function managedSendDOM(provider,phase,expected={}){
   }
   const diagnostic=(mode,reason)=>{bodyDiagnostic={mode,reason,...facts};try{bodyDiagnostic.structure=bodyStructure(node);}catch{/* Diagnostics cannot change strict body readback. */}};
   const fallback=reason=>{diagnostic('rendered',reason);return node.innerText??node.textContent;};
+  // QQ and Outlook add a style attribute to their native plaintext DIVs.
+  // Accept only that attribute and only visible, untransformed text. Arbitrary
+  // markup keeps rendered readback; this never normalizes the expected bytes.
+  const styledLines=nodes.some(n=>n.nodeType===1&&n.tagName==='DIV'&&n.attributes.length===1&&n.attributes[0].name==='style');
+  const plainStyle=n=>{
+   const s=getComputedStyle(n),r=n.getBoundingClientRect();
+   const noContent=value=>value==='none'||value==='normal';
+   return r.width>0&&r.height>0&&s.visibility==='visible'&&Number(s.opacity)>0&&s.contentVisibility==='visible'&&s.textTransform==='none'&&
+    ['normal','pre','pre-wrap','break-spaces'].includes(s.whiteSpace)&&s.filter==='none'&&s.transform==='none'&&s.clipPath==='none'&&
+    noContent(s.content)&&noContent(getComputedStyle(n,'::before').content)&&noContent(getComputedStyle(n,'::after').content);
+  };
+  if(styledLines&&!plainStyle(node))return fallback('block_style');
   for(const child of nodes){
    if(child.nodeType===3&&!blocks){prefix+=child.textContent;continue}
    if(child.nodeType!==1)return fallback(child.nodeType===3?'trailing_text':'root_node_type');
    if(child.tagName!=='DIV')return fallback('root_element');
-   if(child.attributes.length)return fallback('block_attributes');
+   if(child.attributes.length&&!(child.attributes.length===1&&child.attributes[0].name==='style'))return fallback('block_attributes');
    const style=getComputedStyle(child);
    facts.block_display=style.display==='block'?'block':'other';
    facts.block_visibility=['visible','hidden','collapse'].includes(style.visibility)?style.visibility:'other';
    if(style.display!=='block')return fallback('block_display');
    if(style.visibility!=='visible')return fallback('block_visibility');
+   if(styledLines&&!plainStyle(child))return fallback('block_style');
    if(!blocks){if(prefix!=='')lines.push(prefix);blocks=true;}
    const parts=[...child.childNodes];
    facts.block_lines=count(facts.block_lines+1);
