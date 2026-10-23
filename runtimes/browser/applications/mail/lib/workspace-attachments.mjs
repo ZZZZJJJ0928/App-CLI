@@ -9,6 +9,17 @@ export const ATTACHMENT_BYTES = 10 << 20;
 const fail = code => Object.assign(new Error(code), {code});
 const invalid = () => fail('email_attachment_invalid');
 const digest = value => crypto.createHash('sha256').update(value).digest('hex');
+// Always emit a small rejection record, independent of optional detailed DOM
+// evidence. Only fixed guards and bounded counts/flags cross this boundary.
+function attachmentFailure(provider, phase, result) {
+  const checks=['send_unready','upload_pending','upload_alert','row_count','outlook_card_context','outlook_card_shape','outlook_name','outlook_size','outlook_summary','outlook_actions','qq_card_context','qq_name_shape','qq_name','row_name','row_remove','remaining','input_invalid','manifest_changed'];
+  const record={event:'mail_attachment_validation_failed',provider,phase,check:checks.includes(result?.check)?result.check:'unavailable'};
+  for(const key of ['ready','wait_timed_out'])if(typeof result?.[key]==='boolean')record[key]=result[key];
+  for(const key of ['known_rows','expected_count','remaining_count'])if(Number.isSafeInteger(result?.diagnostic?.[key])&&result.diagnostic[key]>=0&&result.diagnostic[key]<=1000)record[key]=result.diagnostic[key];
+  for(const key of ['send_ready','pending','manifest_present','input_connected','input_present','shared'])if(typeof result?.diagnostic?.[key]==='boolean')record[key]=result.diagnostic[key];
+  try{process.stderr.write(JSON.stringify(record)+'\n');}catch{/* Diagnostics cannot replace the failed attachment guard. */}
+}
+
 
 export function validateAttachments(value, mode) {
   if (value === undefined) return [];
@@ -251,23 +262,27 @@ export function attachmentDOM(provider, phase, expected) {
   if (phase === 'ready') {
     if(state.attachmentShared&&!state.attachmentInputValid?.())return {error:'email_attachment_control_unavailable'};
     const root = state.root;
-    if (!state.send?.isConnected || !visible(state.send) || state.send.disabled || state.send.getAttribute('aria-disabled') === 'true') return {ready:false};
+    const facts={known_rows:Math.min(rows.length,1000),expected_count:Math.min(expected.length,1000),send_ready:false,pending:false,
+      manifest_present:Array.isArray(state.attachmentVerifiedManifest),input_connected:state.attachmentInput?.isConnected===true,input_present:!!state.attachmentInput,shared:state.attachmentShared===true};
+    const unready=(check,extra={})=>({ready:false,check,diagnostic:{...facts,...extra}});
+    if (!state.send?.isConnected || !visible(state.send) || state.send.disabled || state.send.getAttribute('aria-disabled') === 'true') return unready('send_unready');
+    facts.send_ready=true;
     const pending = [...root.querySelectorAll('[role="progressbar"],[aria-busy="true"],.attachment-uploading,.uploading,input[type="file"][aria-invalid="true"]')].some(visible);
-    if (pending) return {ready:false};
+    if (pending) return unready('upload_pending',{pending:true});
     const emptyOutlookAnnouncement = node => provider==='outlook'&&node.matches('div.screenReaderOnly[role="alert"]')&&
       !node.matches('.attachment-error,.upload-error')&&!node.hasAttribute('aria-labelledby')&&!node.hasAttribute('aria-describedby')&&node.childNodes.length===0&&!node.getAttribute('aria-label')&&!node.getAttribute('title');
-    if ([...root.querySelectorAll('[role="alert"],.attachment-error,.upload-error')].some(node=>visible(node)&&!emptyOutlookAnnouncement(node))) return {error:'email_attachment_upload_failed'};
-    if (rows.length !== expected.length) return {ready:false};
+    if ([...root.querySelectorAll('[role="alert"],.attachment-error,.upload-error')].some(node=>visible(node)&&!emptyOutlookAnnouncement(node))) return {...unready('upload_alert'),error:'email_attachment_upload_failed'};
+    if (rows.length !== expected.length) return unready('row_count');
     const remaining = [...expected];
     for (const row of rows) {
       if(provider==='outlook'&&outlookCards.includes(row)){
         if(!visibleWithinComposer(row)||row.children.length!==1||!state.attachmentInputValid?.()||!state.root.contains(state.send)||
-          JSON.stringify(state.attachmentVerifiedManifest)!==JSON.stringify(expected.map(({name,size_bytes,sha256})=>({name,size_bytes,sha256}))))return {ready:false};
+          JSON.stringify(state.attachmentVerifiedManifest)!==JSON.stringify(expected.map(({name,size_bytes,sha256})=>({name,size_bytes,sha256}))))return unready('outlook_card_context');
         const card=row.children[0];
-        if(!card.matches('div[aria-label]')||!visibleWithinComposer(card)||card.getAttribute('aria-disabled')==='true')return {ready:false};
+        if(!card.matches('div[aria-label]')||!visibleWithinComposer(card)||card.getAttribute('aria-disabled')==='true')return unready('outlook_card_shape');
         const titles=[...card.querySelectorAll('[title]')].filter(visibleWithinComposer);
         const names=titles.filter(node=>remaining.some(item=>node.getAttribute('title')===item.name&&node.textContent.trim()===item.name));
-        if(names.length!==1)return {ready:false};
+        if(names.length!==1)return unready('outlook_name');
         const index=remaining.findIndex(item=>item.name===names[0].getAttribute('title')),item=remaining[index];
         // Outlook shows exact bytes only below 1 KiB ("158 字节"); larger files
         // get a rounded KB/MB label. Byte identity is the verified manifest of
@@ -281,12 +296,12 @@ export function attachmentDOM(provider, phase, expected) {
           return units.some(unit=>bytes>=(value-step)*unit&&bytes<=(value+step)*unit);
         };
         const sizes=titles.filter(node=>node!==names[0]&&sizeMatches(node.getAttribute('title'),item.size_bytes)&&node.textContent.trim()===node.getAttribute('title'));
-        if(sizes.length!==1||sizes[0].parentElement!==names[0].parentElement)return {ready:false};
+        if(sizes.length!==1||sizes[0].parentElement!==names[0].parentElement)return unready('outlook_size');
         const size=sizes[0].getAttribute('title'),summary=card.getAttribute('aria-label').trim();
-        if(summary!==item.name+' 打开 '+size&&summary!==item.name+' Open '+size)return {ready:false};
+        if(summary!==item.name+' 打开 '+size&&summary!==item.name+' Open '+size)return unready('outlook_summary');
         const controls=[...card.querySelectorAll('button,[role="button"]')];
         const more=controls.filter(node=>enabled(node)&&visibleWithinComposer(node)&&/^(More actions|更多操作)$/u.test(label(node)));
-        if(controls.length!==1||more.length!==1)return {ready:false};
+        if(controls.length!==1||more.length!==1)return unready('outlook_actions');
         remaining.splice(index,1);continue;
       }
       if(provider==='qq_mail'&&qqCards.includes(row)){
@@ -294,13 +309,13 @@ export function attachmentDOM(provider, phase, expected) {
         if(!visibleWithinComposer(row)||!row.matches('.mail-compose-attaches-wrap .mail-compose-attaches .attach-cards > .mail-compose-attach-card')||!row.classList.contains('attach-card-success')||
           row.matches('.attach-card-uploading,.attach-card-error,.attach-card-failed')||
           !state.attachmentInputValid?.()||state.attachmentInput.closest('.mail-compose-attaches-wrap')!==wrap||
-          !state.root.contains(state.send)||JSON.stringify(state.attachmentVerifiedManifest)!==JSON.stringify(expected.map(({name,size_bytes,sha256})=>({name,size_bytes,sha256}))))return {ready:false};
+          !state.root.contains(state.send)||JSON.stringify(state.attachmentVerifiedManifest)!==JSON.stringify(expected.map(({name,size_bytes,sha256})=>({name,size_bytes,sha256}))))return unready('qq_card_context');
         const content=[...row.querySelectorAll(':scope > .attach-card-content')];
         const info=content.length===1?[...content[0].querySelectorAll(':scope > .attach-file-info')]:[];
         const names=info.length===1?[...info[0].querySelectorAll(':scope > .file-name-wrap')]:[];
-        if(names.length!==1||!visibleWithinComposer(names[0]))return {ready:false};
+        if(names.length!==1||!visibleWithinComposer(names[0]))return unready('qq_name_shape');
         const index=remaining.findIndex(item=>item.name===names[0].textContent.trim());
-        if(index<0)return {ready:false};
+        if(index<0)return unready('qq_name');
         remaining.splice(index,1);continue;
       }
       const names = [...row.querySelectorAll('.vI,.vJ,.vK,[data-attachment-name],[title],[aria-label]')]
@@ -309,10 +324,10 @@ export function attachmentDOM(provider, phase, expected) {
       const remove = [...row.querySelectorAll('button,[role="button"],a')].some(node => visible(node) &&
         !node.disabled && node.getAttribute('aria-disabled') !== 'true' &&
         /^(Remove attachment|Remove|Delete attachment|Delete|移除附件|删除附件|移除|删除)(?:$|[ :：])/u.test(node.getAttribute('aria-label') || node.getAttribute('data-tooltip') || node.textContent?.trim()));
-      if (index < 0 || !remove) return {ready:false};
+      if (index < 0 || !remove) return unready(index<0?'row_name':'row_remove');
       remaining.splice(index, 1);
     }
-    return {ready:remaining.length === 0, count:rows.length};
+    return remaining.length?{...unready('remaining',{remaining_count:Math.min(remaining.length,1000)}),count:rows.length}:{ready:true,count:rows.length};
   }
   return {error:'email_attachment_invalid'};
 }
@@ -329,7 +344,7 @@ export async function verifyManagedAttachments(tab, provider, attachments) {
     if(!result.ready)return result;
     const state=globalThis.__sparkclawManagedMail,input=state.attachmentInput;
     if(input?.isConnected){
-      if(!state.attachmentInputValid?.())return {error:'email_attachment_control_unavailable'};
+      if(!state.attachmentInputValid?.())return {error:'email_attachment_control_unavailable',check:'input_invalid'};
       const files=[...input.files];
       // Providers may clear their file input after a completed upload. If it
       // still contains files, do not accept a replacement with the same label.
@@ -337,12 +352,12 @@ export async function verifyManagedAttachments(tab, provider, attachments) {
         const actual=await Promise.all(files.map(async file=>({name:file.name,size_bytes:file.size,
           sha256:'sha256:'+Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',await file.arrayBuffer())),b=>b.toString(16).padStart(2,'0')).join('')})));
         const manifest=expected.map(({name,size_bytes,sha256})=>({name,size_bytes,sha256}));
-        if(JSON.stringify(actual)!==JSON.stringify(manifest))return {error:'email_attachment_changed'};
+        if(JSON.stringify(actual)!==JSON.stringify(manifest))return {error:'email_attachment_changed',check:'manifest_changed'};
       }
     }
     return dom(${JSON.stringify(provider)},'ready',expected);
   }`))?.result;
-  if(result?.ready!==true||result.count!==attachments.length)throw fail(result?.error||'email_attachment_upload_unverified');
+  if(result?.ready!==true||result.count!==attachments.length){attachmentFailure(provider,'verify',result);throw fail(result?.error||'email_attachment_upload_unverified');}
 }
 
 export async function uploadManagedAttachments(tab, provider, workspace, attachments, beforeEffect) {
@@ -364,9 +379,10 @@ export async function uploadManagedAttachments(tab, provider, workspace, attachm
     } catch {}
   };
   const target = (await tab.inspect(`()=>(${attachmentDOM.toString()})(${JSON.stringify(provider)},'prepare',[])`))?.result;
-  if (!target?.selector || target.error) {await diagnostic('prepare');throw fail(target?.error || 'email_attachment_control_unavailable');}
+  if (!target?.selector || target.error) {attachmentFailure(provider,'prepare',target);await diagnostic('prepare');throw fail(target?.error || 'email_attachment_control_unavailable');}
   if (typeof beforeEffect !== 'function') throw fail('email_send_configuration_error');
   beforeEffect();
+  let stage='transfer_init',lastResult;
   try {
     await run(`async page=>page.evaluate(({token,manifest})=>{
       const state=globalThis.__sparkclawManagedMail;
@@ -374,6 +390,7 @@ export async function uploadManagedAttachments(tab, provider, workspace, attachm
       state.attachmentTransfer={token,manifest,root:state.root,body:state.body,send:state.send,bytes:manifest.map(item=>new Uint8Array(item.size_bytes)),offsets:manifest.map(()=>0)};
       return true;
     },${JSON.stringify({token,manifest:expected})})`);
+    stage='transfer_chunks';
     const chunks=[];
     for(let index=0;index<files.length;index++)for(let offset=0;offset<files[index].bytes.length;offset+=45*1024)
       chunks.push({token,index,offset,data:files[index].bytes.subarray(offset,offset+45*1024).toString('base64')});
@@ -396,6 +413,7 @@ export async function uploadManagedAttachments(tab, provider, workspace, attachm
     // File/DataTransfer is the browser's native file-input data path. Construct
     // the files only after all chunks match the confirmed hash; no host file
     // path is visible to or reopened by the browser/CLI process.
+    stage='chooser_transfer';
     const proof = await run(`/* app-cli:owned-file-chooser:v1 */\nasync page => {
       let chooser;
       if (${JSON.stringify(target.chooser)}) {
@@ -461,17 +479,20 @@ export async function uploadManagedAttachments(tab, provider, workspace, attachm
     }`);
     if (['email_attachment_control_unavailable','email_draft_fields_unverified'].includes(proof?.error))throw fail(proof.error);
     if (JSON.stringify(proof) !== JSON.stringify(expected)) throw fail('email_attachment_changed');
+    stage='ready_wait';
     const result = await run(`async page=>page.evaluate(async expected=>{
       const deadline=Date.now()+20000;
       for(;;){
         const status=(${attachmentDOM.toString()})(${JSON.stringify(provider)},'ready',expected);
         if(status.error||status.ready)return status;
-        if(Date.now()>=deadline)return {ready:false};
+        if(Date.now()>=deadline)return {...status,wait_timed_out:true};
         await new Promise(resolve=>setTimeout(resolve,100));
       }
     },${JSON.stringify(expected)})`);
+    lastResult=result;
     if (result?.ready !== true || result.count !== attachments.length) throw fail(result?.error || 'email_attachment_upload_unverified');
   } catch(error) {
+    attachmentFailure(provider,stage,lastResult);
     await diagnostic('upload');
     throw error;
   } finally {

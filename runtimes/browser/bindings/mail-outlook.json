@@ -1682,7 +1682,7 @@
       "script_id": "outlook.send",
       "revision": 2,
       "reconcile_requires_host": false,
-      "source_checksum": "sha256:e30ac22f247cfcad443e02cdf580c80bcae685a2baad10aca0892e21d0ffde17",
+      "source_checksum": "sha256:0116c0cb0c306172a11cf128c9131a8f9ff4b4eeff723dbf2ef8579447ebbcbd",
       "host": {
         "family": "outlook.mutation",
         "activity": "mutation",

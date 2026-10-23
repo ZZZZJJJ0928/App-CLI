@@ -1666,7 +1666,7 @@
       "script_id": "gmail.send",
       "revision": 2,
       "reconcile_requires_host": false,
-      "source_checksum": "sha256:73a0df3b1e1c97534ebb76a288719bb855904cc43bd2e25745b33a1956514ac8",
+      "source_checksum": "sha256:05478a6a9393df2485906d34571dfd96834f62c95921a12e84ac9c76cd8145ea",
       "host": {
         "family": "gmail.mutation",
         "activity": "mutation",

@@ -9,20 +9,62 @@ export function managedSendDOM(provider,phase,expected={}){
  // Read that exact, attribute-free line shape without changing the DOM or the
  // selection. Keep all text bytes and every leading/trailing/empty line; other
  // editor markup retains the existing rendered-text verification path.
+ let bodyDiagnostic;
+ // Fixed structural vocabulary only; no text, names or attribute values leave
+ // the page. Diagnostics are capped independently of message size.
+ const bodyStructure=root=>{
+  const nodes=[],pending=[{node:root,depth:0,parent:-1}];let truncated=false;
+  while(pending.length&&nodes.length<32){
+   const {node,depth,parent}=pending.pop(),element=node.nodeType===1,children=[...node.childNodes??[]];
+   const attrs=element?[...node.attributes]:[],style=element?getComputedStyle(node):{};
+   const pick=(value,values)=>values.includes(value)?value:'other';
+   const index=nodes.length;
+   nodes.push({parent,depth,tag:node.nodeType===3?'text':element?pick(node.tagName?.toLowerCase(),['div','br','p','span']):'other',
+    children:Math.min(children.length,1000),style:attrs.some(a=>a.name==='style'),class:attrs.some(a=>a.name==='class'),dir:attrs.some(a=>a.name==='dir'),other:attrs.some(a=>!['style','class','dir'].includes(a.name)),
+    display:pick(style.display,['block','inline','inline-block','flex','inline-flex','grid','contents','none']),
+    visibility:pick(style.visibility,['visible','hidden','collapse']),white_space:pick(style.whiteSpace,['normal','pre','pre-wrap','pre-line','break-spaces','nowrap'])});
+   if(depth===3){if(children.length)truncated=true;continue;}
+   const capacity=32-nodes.length-pending.length,retained=children.slice(0,Math.max(0,capacity));
+   if(retained.length<children.length)truncated=true;
+   for(let i=retained.length-1;i>=0;i--)pending.push({node:retained[i],depth:depth+1,parent:index});
+  }
+  return {nodes,truncated:truncated||pending.length>0};
+ };
  const bodyText=node=>{
   const nodes=[...node.childNodes??[]];let prefix='',blocks=false;const lines=[];
+  const count=value=>Math.min(value,1000);
+  const facts={top_nodes:count(nodes.length),top_text:0,top_div:0,top_br:0,top_p:0,top_span:0,top_other_element:0,top_other_node:0,
+   attributed_divs:0,div_attributes:0,br_attributes:0,block_lines:0,empty_lines:0,block_display:'unobserved',block_visibility:'unobserved'};
+  for(const child of nodes){
+   const kind=child.nodeType===3?'top_text':child.nodeType!==1?'top_other_node':child.tagName==='DIV'?'top_div':child.tagName==='BR'?'top_br':child.tagName==='P'?'top_p':child.tagName==='SPAN'?'top_span':'top_other_element';
+   facts[kind]=count(facts[kind]+1);
+   if(child.nodeType===1&&child.tagName==='DIV'&&child.attributes.length){facts.attributed_divs=count(facts.attributed_divs+1);facts.div_attributes=count(facts.div_attributes+child.attributes.length);}
+  }
+  const diagnostic=(mode,reason)=>{bodyDiagnostic={mode,reason,...facts};try{bodyDiagnostic.structure=bodyStructure(node);}catch{/* Diagnostics cannot change strict body readback. */}};
+  const fallback=reason=>{diagnostic('rendered',reason);return node.innerText??node.textContent;};
   for(const child of nodes){
    if(child.nodeType===3&&!blocks){prefix+=child.textContent;continue}
-   if(child.nodeType!==1||child.tagName!=='DIV'||child.attributes.length)return node.innerText??node.textContent;
+   if(child.nodeType!==1)return fallback(child.nodeType===3?'trailing_text':'root_node_type');
+   if(child.tagName!=='DIV')return fallback('root_element');
+   if(child.attributes.length)return fallback('block_attributes');
    const style=getComputedStyle(child);
-   if(style.display!=='block'||style.visibility!=='visible')return node.innerText??node.textContent;
+   facts.block_display=style.display==='block'?'block':'other';
+   facts.block_visibility=['visible','hidden','collapse'].includes(style.visibility)?style.visibility:'other';
+   if(style.display!=='block')return fallback('block_display');
+   if(style.visibility!=='visible')return fallback('block_visibility');
    if(!blocks){if(prefix!=='')lines.push(prefix);blocks=true;}
    const parts=[...child.childNodes];
-   if(parts.length===1&&parts[0].nodeType===1&&parts[0].tagName==='BR'&&parts[0].attributes.length===0)lines.push('');
+   facts.block_lines=count(facts.block_lines+1);
+   if(parts.length===1&&parts[0].nodeType===1&&parts[0].tagName==='BR'){
+    facts.br_attributes=count(parts[0].attributes.length);
+    if(parts[0].attributes.length)return fallback('placeholder_attributes');
+    lines.push('');facts.empty_lines=count(facts.empty_lines+1);
+   }
    else if(parts.length&&parts.every(n=>n.nodeType===3))lines.push(parts.map(n=>n.textContent).join(''));
-   else return node.innerText??node.textContent;
+   else return fallback('line_markup');
   }
-  return blocks?lines.join('\n'):node.innerText??node.textContent;
+  if(!blocks)return fallback('no_block_lines');
+  diagnostic('native_lines','native_lines');return lines.join('\n');
  };
  const label=n=>n.getAttribute('aria-label')||n.getAttribute('data-tooltip')||text(n);
  const bodySelector=provider==='qq_mail'?'.mail-compose-page .mail-content-editor-inner[contenteditable="true"],.mail-compose-page [contenteditable="true"][aria-label="Enter content"],.mail-compose-page [contenteditable="true"][aria-label="输入正文"]':provider==='gmail'?'[role="textbox"][contenteditable="true"]':'[contenteditable="true"][aria-label="Message body"],[contenteditable="true"][aria-label="Email body"],[contenteditable="true"][aria-label="邮件正文"],[contenteditable="true"][aria-label="消息正文"]';
@@ -218,7 +260,7 @@ export function managedSendDOM(provider,phase,expected={}){
   if(check)return {...error('email_recipient_verification_failed'),check};
   const subject=state.root.querySelector('[data-sc-mail-control="subject"]')||state.root.querySelector('input[type="hidden"][name="subject"]');
   const body=bodyText(state.body);
-  return {to:to.values,cc:cc.values,...(provider==='outlook'&&to.display?.length===1?{to_display:to.display[0]}:{}),subject:subject?.value??null,body:body.replace(/\r\n?/gu,'\n'),send_ready:visible(state.send)&&!state.send.disabled&&state.send.getAttribute('aria-disabled')!=='true',linked:state.mode==='compose'||!!state.target};
+  return {to:to.values,cc:cc.values,...(provider==='outlook'&&to.display?.length===1?{to_display:to.display[0]}:{}),subject:subject?.value??null,body:body.replace(/\r\n?/gu,'\n'),body_diagnostic:bodyDiagnostic,send_ready:visible(state.send)&&!state.send.disabled&&state.send.getAttribute('aria-disabled')!=='true',linked:state.mode==='compose'||!!state.target};
  }
  return error('email_send_precondition_failed');
 }
